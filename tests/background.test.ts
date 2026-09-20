@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 afterEach(()=>vi.unstubAllGlobals());
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[]});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);
@@ -91,4 +91,13 @@ it('does not cancel live requests on same-document loading/status changes', asyn
   const signal=model.mock.calls[0][2] as AbortSignal;
   api.tabs.onUpdated.emit(3,{status:'loading',url:'https://article.example/#install'});
   expect(signal.aborted).toBe(false);resolve({concepts:[concept]});expect((await pending).ok).toBe(true);
+});
+
+it('persists a safe code switch without exposing credentials or clearing the model cache',async()=>{
+ expect((await send('SET_CODE_ANNOTATIONS',{enabled:true},pageSender)).ok).toBe(true);
+ expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.codeAnnotations).toBe(true);
+ expect(data.config.apiKey).toBe(cfg.apiKey);
+ expect((await send('SET_CODE_ANNOTATIONS',{enabled:'yes'},pageSender)).ok).toBe(false);
+ expect((await send('MASTER',{concept},pageSender)).ok).toBe(true);
+ expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.mastered).toHaveLength(1);
 });

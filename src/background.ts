@@ -128,7 +128,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   if (msg.type === 'TEST') {
     const cfg = await config();
     if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请重新保存并授权。');
-    await queue.run(() => callModel(cfg, { operation: 'quiz', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }));
+    await queue.run(() => callModel(cfg, { operation: 'explain', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }));
     return '连接成功，模型能返回有效的结构化结果。';
   }
   if (msg.type === 'MASTER') {

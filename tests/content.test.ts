@@ -48,10 +48,19 @@ it('shows the specific command option under the pointer and preserves source cod
 });
 it('preloads code-line fragments and serves them on hover without another request',async()=>{
   Object.defineProperty(Range.prototype,'getClientRects',{configurable:true,value:function(this:Range){return [{...rect,left:20+this.startOffset*7,right:20+this.endOffset*7}];}});
-  request.mockImplementation(async(msg:any)=>msg.type==='PUBLIC_SETTINGS'?{ok:true,data:{profile:{domain:'软件开发',level:'入门'},mastered:[]}}:{ok:true,data:{concepts:[{anchor:'app = FastAPI()',category:'代码',meaning:'创建应用',summary:'创建 FastAPI 应用，并保存到 app 变量。',expansion:'',evidence:'',ambiguity:'',parts:[{text:'app',explanation:'保存应用对象的变量名称。'},{text:'=',explanation:'把右边的值赋给左边的变量。'},{text:'FastAPI()',explanation:'调用 FastAPI 创建应用对象。'}]}]}});
+  request.mockImplementation(async(msg:any)=>msg.type==='PUBLIC_SETTINGS'?{ok:true,data:{profile:{domain:'软件开发',level:'入门'},mastered:[],codeAnnotations:true}}:{ok:true,data:{concepts:[{anchor:'app = FastAPI()',category:'代码',meaning:'创建应用',summary:'创建 FastAPI 应用，并保存到 app 变量。',expansion:'',evidence:'',ambiguity:'',parts:[{text:'app',explanation:'保存应用对象的变量名称。'},{text:'=',explanation:'把右边的值赋给左边的变量。'},{text:'FastAPI()',explanation:'调用 FastAPI 创建应用对象。'}]}]}});
   document.body.innerHTML='<article><pre><code>app = FastAPI()</code></pre></article>';
   await import('../src/content/index');await vi.advanceTimersByTimeAsync(300);const count=request.mock.calls.length;
   document.dispatchEvent(new MouseEvent('mousemove',{clientX:50,clientY:60,bubbles:true}));
   const tip=document.querySelector('div[data-easy-learn]')!.shadowRoot!.querySelector<HTMLElement>('.tip')!;
   expect(tip.textContent).toContain('赋给');expect(request.mock.calls.length).toBe(count);
+});
+
+it('leaves code disabled by default while still explaining shell commands',async()=>{
+ document.body.innerHTML='<article><pre><code>app = FastAPI()\n# Create the project\nuv init example --bare</code></pre></article>';
+ await import('../src/content/index');await vi.advanceTimersByTimeAsync(300);
+ expect(request.mock.calls.filter(([m])=>m.type==='AI')).toHaveLength(0);
+ const root=document.querySelector('div[data-easy-learn]')!.shadowRoot!;
+ expect(root.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(false);
+ hover();expect(root.querySelector('.tip')!.textContent).toContain('uv');
 });

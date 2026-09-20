@@ -38,7 +38,9 @@ export function extractBlocks(root: ParentNode = document): Block[] {
       const lines = sourceText.split('\n'); let offset = 0;
       for (let i = 0; i < lines.length; ) {
         const command = isCommand(lines[i]);
-        const count = command ? 1 : Math.min(8, lines.length - i);
+        let count = 1;
+        // A shell input after comments/code is still a command, independent of the code switch.
+        if (!command) while (count < 8 && i + count < lines.length && !isCommand(lines[i + count])) count++;
         const chunk = lines.slice(i, i + count).join('\n');
         const text = chunk.trim(), leading = chunk.length - chunk.trimStart().length;
         if (text && text.length <= 8000) blocks.push({element:target,text,heading,sectionId,kind:command?'command':'code',offset:offset+leading,sourceText});

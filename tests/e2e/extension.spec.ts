@@ -41,7 +41,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   responseStatus=200;responseStyle='json';responseDelay=0;
   const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
-  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
+  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
   await settings.close();
 });
 test.afterEach(async ({},info)=>{
@@ -55,7 +55,7 @@ test.afterEach(async ({},info)=>{
 });
 test.afterAll(async () => { await context?.close(); await new Promise<void>(resolve => server?.close(()=>resolve())); if(temp) await rm(temp,{recursive:true,force:true}); });
 
-test('complete reading, translation, followup, quiz and mastery flow in a real extension', async () => {
+test('complete reading, translation, followup and hiding flow in a real extension', async () => {
   const settings=await context.newPage(); await settings.goto(`chrome-extension://${id}/options.html`);
   await settings.getByLabel('API Base URL').fill(`${base}/v1`); await settings.getByLabel('模型名称').fill('fixture-model'); await settings.getByLabel('API Key',{exact:true}).fill('fixture-key');
   await settings.getByRole('button',{name:'保存并授权'}).click(); await expect(settings.getByRole('status')).toContainText('设置已保存');
@@ -75,12 +75,10 @@ test('complete reading, translation, followup, quiz and mastery flow in a real e
   await page.getByRole('button',{name:'深入理解 / 翻译'}).click(); const panel=page.frameLocator('iframe[title="Easy Learn 学习面板"]');
   await expect(panel.getByRole('heading',{name:'灾难恢复',exact:true})).toBeVisible();
   await panel.getByRole('button',{name:'翻译这一段',exact:true}).click(); await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
-  await panel.getByRole('button',{name:'检查理解',exact:true}).click(); await expect(panel.getByText('为什么灾难恢复还需要异地副本？')).toBeVisible();
-  await expect(panel.getByText('参考解释',{exact:true})).toHaveCount(0);
-  await panel.getByLabel('试着用自己的话回答').fill('需要恢复服务'); await panel.getByRole('button',{name:'看看我的理解'}).click(); await expect(panel.getByText('还需要说明单一区域故障时，本地副本可能一起不可用。')).toBeVisible();
+  await expect(panel.getByRole('button',{name:'检查理解'})).toHaveCount(0);
   await panel.getByLabel('还有哪里没弄明白？').fill('它和普通备份有什么区别？'); /* Exercise keyboard submission: Chromium's synthetic pointer can hit the outer iframe after inner scrolling. */ await panel.getByRole('button',{name:'继续追问'}).press('Enter'); await expect(panel.getByText('普通备份保存数据；灾难恢复还包括切换服务与恢复流程。')).toBeVisible();
-  await panel.getByRole('button',{name:'已掌握',exact:true}).click(); await expect(panel.getByRole('button',{name:'撤销已掌握'})).toBeVisible(); await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 [1-9]/);
-  await panel.getByRole('button',{name:'撤销已掌握'}).click(); await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 [1-9]/);
+  await panel.getByRole('button',{name:'我懂了，不再显示',exact:true}).click(); await expect(panel.getByRole('button',{name:'恢复显示'})).toBeVisible(); await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 [1-9]/);
+  await panel.getByRole('button',{name:'恢复显示'}).click(); await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 [1-9]/);
   await page.screenshot({path:'test-results/reading-panel.png',caret:'initial'});
   await panel.getByRole('button',{name:'关闭学习面板'}).click(); await expect(page.locator('iframe')).toHaveCount(0);
   await page.locator('a').click(); expect(page.url()).toContain('#next');
@@ -123,17 +121,14 @@ test('scrolls through repeated content and real reference excerpts without charg
  await page.screenshot({path:'test-results/reference-scroll.png'});await page.close();
 });
 
-test('enforces the automatic request budget and resumes only on explicit continuation',async()=>{
- const page=await context.newPage();await page.goto(`${base}/budget`);
- await page.evaluate(()=>{document.body.innerHTML='<article><h1>Budget</h1>'+Array.from({length:80},(_,i)=>`<p style="font-size:2px;line-height:3px;margin:0">The API connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
+test('preloads the entire document without scrolling or stopping after eight batches',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/whole-page`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Whole page</h1>'+Array.from({length:80},(_,i)=>`<p style="margin:150px 0">The API connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
  const start=calls.length;await inject(page);
- await expect(page.getByRole('status')).toContainText('达到本页预算');
- expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(8);
- await page.evaluate(()=>window.dispatchEvent(new Event('scroll')));
- await page.getByRole('button',{name:'阅读注释',exact:true}).click();
- await page.getByRole('button',{name:'继续处理（增加8批预算）',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(10);
+ expect(await page.evaluate(()=>window.scrollY)).toBe(0);
+ expect(calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.context.includes('number 79'))).toBe(true);
  await page.close();
 });
 
@@ -152,4 +147,30 @@ test('shows ongoing progress and accepts numbered plain text without a paid repa
  expect(calls.slice(start)).toHaveLength(1);
  await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('为这个技术概念预载的中文解释。');
  await page.screenshot({path:'test-results/preloaded-hover.png'});await page.close();
+});
+
+test('side settings toggle code independently of commands and remember the choice',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/code-toggle`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Code and commands</h1><pre><code>app = FastAPI()</code></pre><pre><code>uv init awesome-project --bare</code></pre></article>';});
+ const start=calls.length;await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ expect(calls.slice(start)).toHaveLength(0);
+ await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
+ await page.getByRole('button',{name:'✦ 伴读设置',exact:true}).click();
+ const dock=page.getByRole('dialog',{name:'伴读设置',exact:true});const checkbox=dock.getByRole('checkbox',{name:'代码注释（不含命令行）'});
+ await expect(checkbox).not.toBeChecked();await checkbox.check();
+ await expect.poll(()=>calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.kind==='code')).toBe(true);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ const count=calls.length;await checkbox.uncheck();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
+ await checkbox.check();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);expect(calls.length).toBe(count);
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await expect(settings.getByRole('checkbox',{name:'代码注释（不含命令行）'})).toBeChecked();
+ await page.screenshot({path:'test-results/side-settings.png',caret:'initial'});await settings.close();await page.close();
+});
+
+test('hides an annotation directly from the tooltip and restores it from settings',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/hide`);await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ const count=calls.length;await page.locator('#dr').hover();await page.getByRole('button',{name:'我懂了，不再显示',exact:true}).click();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeHidden();
+ await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeHidden();
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await expect(settings.getByRole('heading',{name:'不再显示的注解'})).toBeVisible();await settings.getByRole('button',{name:'恢复显示'}).click();await expect(settings.getByRole('button',{name:'恢复显示'})).toHaveCount(0);
+ await page.bringToFront();await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeVisible();expect(calls.length).toBe(count);
+ await page.screenshot({path:'test-results/highlight-and-hide.png',caret:'initial'});await settings.close();await page.close();
 });
