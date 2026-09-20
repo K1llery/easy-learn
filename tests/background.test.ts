@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 afterEach(()=>vi.unstubAllGlobals());
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,localOnly:false});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);
@@ -100,4 +100,11 @@ it('persists a safe code switch without exposing credentials or clearing the mod
  expect((await send('SET_CODE_ANNOTATIONS',{enabled:'yes'},pageSender)).ok).toBe(false);
  expect((await send('MASTER',{concept},pageSender)).ok).toBe(true);
  expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.mastered).toHaveLength(1);
+});
+
+it('offline mode blocks model requests while preserving other reading preferences',async()=>{
+ await send('SET_LOCAL_ONLY',{enabled:true},pageSender);await send('SET_CODE_ANNOTATIONS',{enabled:true},pageSender);
+ expect(data.reading).toEqual({localOnly:true,codeAnnotations:true});
+ expect((await send('AI',{request:{operation:'analyze',context}},pageSender)).ok).toBe(false);
+ expect((await send('TEST')).ok).toBe(false);expect(model).not.toHaveBeenCalled();
 });

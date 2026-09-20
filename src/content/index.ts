@@ -1,5 +1,6 @@
 import { conceptKey, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
 import { contextFor, extractBlocks, locateText, matchesSnapshot, type Block } from './document';
+import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
 import { findCandidates, candidateKey, packCandidates } from './candidates';
 import type { Candidate } from '../core/types';
@@ -11,13 +12,14 @@ type Payload = { context: TextContext; expandedContext: TextContext; concept?: C
 const state = globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } };
 if (state.__easyLearn) state.__easyLearn.toggle();
 else {
+  let dirty=true;
   let active=false, generation=0, running=false, scheduled=0, rescan=false, hoverTimer=0;
   let host: HTMLDivElement, shadow: ShadowRoot, toolbar: HTMLSpanElement, statusNode: HTMLButtonElement, tools: HTMLDivElement, diagnostic: HTMLParagraphElement;
   let tip: HTMLDivElement, selectionButton: HTMLButtonElement, frame: HTMLIFrameElement | undefined;
   let connection: ReturnType<typeof connectSurface> | undefined, observer: MutationObserver | undefined;
   let blocks: Block[]=[], annotations: Annotation[]=[], payload: Payload | undefined, selected: Payload | undefined, shown: Annotation | undefined;
   let profile: Profile={domain:'软件开发',level:'入门'}, mastered: Mastered[]=[];
-  let settingsError='', networkPaused=false, codeAnnotations=false;
+  let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false;
   let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;
   type Work = {candidate:Candidate;state:'pending'|'loading'|'ready'|'skipped'|'failed';concept?:Concept;error?:string};
   type Target = {block:Block;work:Work;offset:number};
@@ -36,16 +38,17 @@ else {
     const ready=works.filter(w=>w.state==='ready').length, skipped=works.filter(w=>w.state==='skipped').length;
     const failures=works.filter(w=>w.state==='failed');
     const remaining=works.filter(w=>w.state==='pending').length;
-    const phase=settingsError||networkPaused?'已暂停，查看详情':userPaused?'已暂停':works.some(w=>w.state==='loading')?'正在生成解释':remaining?'正在准备整页注释':'当前内容已处理';
+    const phase=settingsError||networkPaused?'已暂停，查看详情':localOnly?'离线模式 · 仅显示已准备的本地释义':dirty?'正在扫描正文':userPaused?'已暂停':works.some(w=>w.state==='loading')?'正在生成解释':remaining?'正在准备整页注释':'当前内容已处理';
     statusNode.textContent='阅读注释';
     progress.textContent=`本地识别 ${works.length} · 已解释 ${ready} · 已过滤 ${skipped} · 未完成 ${failures.length} · API ${batchCount} 批${usageKnown?` · ${tokenCount} tokens`:''} · ${phase}`;
     statusNode.title=`已准备 ${annotations.filter(a=>!a.part).length} 条注释。悬停下划线即可阅读。`;
     diagnostic.textContent=[settingsError,...new Set(failures.map(w=>w.error))].filter(Boolean).join('\n');
   }
   function rebuild() {
-    const next:Annotation[]=[];
+    const next:Annotation[]=[];const valid=new Map<Block,boolean>();
     for(const {block,work,offset} of targets){
-      if(work.state!=='ready'||!work.concept||!matchesSnapshot(block))continue;
+      if(work.state!=='ready'||!work.concept)continue;
+      if(!valid.has(block))valid.set(block,matchesSnapshot(block));if(!valid.get(block))continue;
       const concept=work.concept;
       if(mastered.some(m=>m.key===conceptKey(profile.domain,concept.meaning)))continue;
       const start=(block.offset??0)+offset;
@@ -91,7 +94,7 @@ else {
     const item=annotations.find(a=>matchesSnapshot(a.block)&&[...a.range.getClientRects()].some(r=>event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom));
     if(item)showTip(item,event.clientX,event.clientY);else hoverTimer=window.setTimeout(hideTip,180);
   }
-  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean}>('PUBLIC_SETTINGS');profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
+  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
     if(!toolbar.isConnected){const article=document.querySelector('article,main,[role="main"]')??document.body;article.prepend(toolbar);}
     blocks=extractBlocks();const next:Target[]=[];
@@ -101,7 +104,7 @@ else {
       const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block);
       for(const c of candidates){
         const identity=candidateKey(c,JSON.stringify(profile));let work=workByKey.get(identity);
-        if(!work){work={candidate:{id:`c${nextId++}`,anchor:c.anchor.slice(0,300),kind:c.kind,heading:c.heading,context:c.context},state:local?'ready':'pending',concept:local?.[0]};workByKey.set(identity,work);}
+        if(!work){const immediate=local?.[0]??localExplanation(c,profile);work={candidate:{id:`c${nextId++}`,anchor:c.anchor.slice(0,300),kind:c.kind,heading:c.heading,context:c.context},state:immediate?'ready':'pending',concept:immediate};workByKey.set(identity,work);}
         next.push({block,work,offset:c.start});
       }
     }
@@ -109,15 +112,16 @@ else {
     // Bound removed-node cache while retaining current-page repeats.
     if(workByKey.size>2000){const live=new Set(targets.map(t=>t.work));for(const [k,w] of workByKey)if(!live.has(w))workByKey.delete(k);}
     if(observed){const live=new Set(blocks.map(b=>b.element));for(const el of observedNodes)if(!live.has(el)){observed.unobserve(el);observedNodes.delete(el);}for(const el of live)if(!observedNodes.has(el)){observed.observe(el);observedNodes.add(el);}}
-    rebuild();
+    dirty=false;rebuild();
   }
-  function orderedTargets(){return [...targets].sort((a,b)=>Math.abs(a.block.element.getBoundingClientRect().top)-Math.abs(b.block.element.getBoundingClientRect().top));}
+  function orderedTargets(){const positions=new Map<HTMLElement,number>();for(const t of targets)if(!positions.has(t.block.element))positions.set(t.block.element,Math.abs(t.block.element.getBoundingClientRect().top));return [...targets].sort((a,b)=>positions.get(a.block.element)!-positions.get(b.block.element)!);}
   async function scan(){
     if(!active)return;if(running){rescan=true;return;}running=true;rescan=false;const current=generation;
     try{
-      refreshBlocks();
-      while(active&&current===generation&&!networkPaused&&!settingsError&&!userPaused){
-        const pending=[...new Set(orderedTargets().map(t=>t.work))].filter(w=>w.state==='pending');
+      if(dirty)refreshBlocks();
+      const ordered=orderedTargets();
+      const lane=async()=>{while(active&&current===generation&&!networkPaused&&!settingsError&&!userPaused&&!localOnly){
+        const pending=[...new Set(ordered.map(t=>t.work))].filter(w=>w.state==='pending');
         const batch=packCandidates(pending);if(!batch.length)break;
         batch.forEach(w=>w.state='loading');batchCount++;status();
         try{
@@ -137,11 +141,12 @@ else {
           if(/限流|额度|认证|授权|配置|先打开设置|连接已中断/.test(error))networkPaused=true;
         }
         rebuild();
-      }
+      }};
+      await Promise.all([lane(),lane()]);
     }finally{running=false;status();if(active&&(current!==generation||rescan))schedule();}
   }
   function schedule(){if(!active)return;if(scheduled)return;scheduled=window.setTimeout(()=>{scheduled=0;void scan();},200);}
-  function onScroll(){hideTip();selectionButton.hidden=true;schedule();}
+  function onScroll(){hideTip();selectionButton.hidden=true;}
   function selection(){
     const sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.rangeCount){selectionButton.hidden=true;return;}
     const range=sel.getRangeAt(0);const parent=range.commonAncestorContainer.nodeType===Node.ELEMENT_NODE?range.commonAncestorContainer as Element:range.commonAncestorContainer.parentElement;
@@ -183,7 +188,7 @@ else {
   }
   function keyboard(event:KeyboardEvent){if(event.key==='Escape')hideTip();else selection();}
   async function start(){
-    active=true;generation++;mount();connection=connectSurface('content');
+    active=true;dirty=true;generation++;mount();connection=connectSurface('content');
     connection.port.onMessage.addListener(msg=>{
       if(msg.type==='PANEL_READY')sendContext();
       if(msg.type==='CLOSE'){frame?.remove();frame=undefined;}
@@ -192,10 +197,10 @@ else {
     connection.port.onDisconnect.addListener(()=>{if(active){settingsError='扩展连接已中断，请刷新页面后重新开启伴读。';networkPaused=true;status();}});
     document.addEventListener('mousemove',hovered);document.addEventListener('mouseup',selection);document.addEventListener('keyup',keyboard);
     window.addEventListener('scroll',onScroll,{passive:true,capture:true});window.addEventListener('resize',onScroll);
-    if(typeof IntersectionObserver!=='undefined')observed=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting))schedule();},{rootMargin:'0px 0px 50% 0px'});
-    observer=new MutationObserver(records=>{if(records.every(r=>(r.target instanceof Element?r.target:r.target.parentElement)?.closest('[data-easy-learn]')))return;hideTip();schedule();});
+
+    observer=new MutationObserver(records=>{if(records.every(r=>(r.target instanceof Element?r.target:r.target.parentElement)?.closest('[data-easy-learn]')))return;dirty=true;hideTip();schedule();});
     observer.observe(document.body,{childList:true,characterData:true,subtree:true});
-    refreshBlocks();await settings();if(active)schedule();
+    await settings();if(active){refreshBlocks();void scan();}
   }
   function stop(){
     active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();

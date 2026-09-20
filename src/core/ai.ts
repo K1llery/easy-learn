@@ -1,4 +1,5 @@
 import { endpoint, type AIRequest, type Config } from './types';
+import { providerOptions } from './providers';
 import { parseModelOutput } from './model-output';
 
 const contracts = {
@@ -18,7 +19,7 @@ export async function callModel(config:Config, request:AIRequest, signal?:AbortS
   let response:Response;
   const combined=signal?AbortSignal.any([signal,AbortSignal.timeout(25000)]):AbortSignal.timeout(25000);
   try {
-    response=await fetch(endpoint(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.apiKey}`},body:JSON.stringify({model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],temperature:0.2,max_tokens:request.operation==='analyze'?2200:3000,stream:false}),signal:combined});
+    response=await fetch(endpoint(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.apiKey}`},body:JSON.stringify({...providerOptions(config.baseUrl,config.model),model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],temperature:0.2,max_tokens:request.operation==='analyze'?2200:3000,stream:false}),signal:combined});
   } catch(error) {
     if(signal?.aborted)throw new Error('请求已取消。');
     if(combined.aborted)throw new Error('模型响应超时，请稍后手动重试。');

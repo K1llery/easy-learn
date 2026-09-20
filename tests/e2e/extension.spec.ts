@@ -4,7 +4,7 @@ import { readFile, mkdir, cp, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 let server: Server, context: BrowserContext, worker: Worker, id: string, base: string, temp: string;
 let calls: any[] = [];
-let responseStatus = 200;
+let responseStatus = 200, inFlight=0,peakInFlight=0,completed=0;
 let responseStyle='json',responseDelay=0;
 function output(request: any) {
   const text = request.context?.text ?? '';
@@ -22,7 +22,9 @@ test.beforeAll(async () => {
     if(req.url === '/v1/chat/completions') {
       let body=''; for await(const chunk of req) body+=chunk;
       const input = JSON.parse(body); const request=JSON.parse(input.messages[1].content); calls.push(request);
+      inFlight++;peakInFlight=Math.max(peakInFlight,inFlight);
       if(responseDelay)await new Promise(r=>setTimeout(r,responseDelay));
+      inFlight--;completed++;
       res.writeHead(responseStatus,{'Content-Type':'application/json'});
       res.end(responseStatus===200 ? JSON.stringify({choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]}) : '{}'); return;
     }
@@ -41,7 +43,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   responseStatus=200;responseStyle='json';responseDelay=0;
   const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
-  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
+  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
   await settings.close();
 });
 test.afterEach(async ({},info)=>{
@@ -123,7 +125,7 @@ test('scrolls through repeated content and real reference excerpts without charg
 
 test('preloads the entire document without scrolling or stopping after eight batches',async()=>{
  const page=await context.newPage();await page.goto(`${base}/whole-page`);
- await page.evaluate(()=>{document.body.innerHTML='<article><h1>Whole page</h1>'+Array.from({length:80},(_,i)=>`<p style="margin:150px 0">The API connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Whole page</h1>'+Array.from({length:80},(_,i)=>`<p style="margin:150px 0">The DR connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
  const start=calls.length;await inject(page);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(10);
@@ -173,4 +175,42 @@ test('hides an annotation directly from the tooltip and restores it from setting
  const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await expect(settings.getByRole('heading',{name:'不再显示的注解'})).toBeVisible();await settings.getByRole('button',{name:'恢复显示'}).click();await expect(settings.getByRole('button',{name:'恢复显示'})).toHaveCount(0);
  await page.bringToFront();await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeVisible();expect(calls.length).toBe(count);
  await page.screenshot({path:'test-results/highlight-and-hide.png',caret:'initial'});await settings.close();await page.close();
+});
+
+test('500 paragraphs get instant local marks with zero API requests',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/local-speed`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Local glossary benchmark</h1>'+Array.from({length:500},(_,i)=>`<p>The API exchanges JSON data for this application number ${i}.</p>`).join('')+'</article>';});
+ const count=calls.length,start=Date.now();await inject(page);
+ await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1000 /);
+ const elapsedMs=Date.now()-start;expect(calls.length).toBe(count);
+ await writeFile('test-results/local-speed.json',JSON.stringify({paragraphs:500,annotations:1000,elapsedMs,apiRequests:0}));
+ await page.close();
+});
+
+test('two remote batches run concurrently and local marks appear before either returns',async()=>{
+ responseDelay=300;peakInFlight=0;const initialCompleted=completed;
+ const page=await context.newPage();await page.goto(`${base}/parallel-speed`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Concurrent benchmark</h1><p>The API exchanges JSON data with independent services.</p>'+Array.from({length:48},(_,i)=>`<p>DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
+ await page.evaluate(()=>{(window as any).__completedAt=0;const observer=new MutationObserver(()=>{if(document.querySelector('[role=status]')?.textContent?.includes('当前内容已处理')){(window as any).__completedAt=Date.now();observer.disconnect();}});observer.observe(document.body,{childList:true,characterData:true,subtree:true});});
+ const count=calls.length,start=Date.now();await inject(page);
+ await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);
+ expect(completed).toBe(initialCompleted);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(6);
+ expect((await page.evaluate(()=>(window as any).__completedAt))-start).toBeGreaterThanOrEqual(900);
+ await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:6,delayPerBatchMs:300,elapsedMs:(await page.evaluate(()=>(window as any).__completedAt))-start,peakInFlight,serialDelayAloneMs:1800}));
+ await page.close();
+});
+
+test('free presets clear credentials on provider changes and offline mode is usable',async()=>{
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
+ const count=calls.length;
+ await settings.getByLabel('服务方案').selectOption('zhipu');await expect(settings.getByLabel('模型名称')).toHaveValue('glm-4.7-flash');
+ await settings.getByLabel('服务方案').selectOption('groq');await expect(settings.getByLabel('API Base URL')).toHaveValue('https://api.groq.com/openai/v1');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
+ await settings.getByLabel('API Key',{exact:true}).fill('fixture-not-real');await settings.getByLabel('服务方案').selectOption('openrouter');await expect(settings.getByLabel('模型名称')).toHaveValue('openrouter/free');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
+ await settings.getByLabel('服务方案').selectOption('gemini');await expect(settings.getByLabel('模型名称')).toHaveValue('gemini-2.5-flash-lite');expect(calls.length).toBe(count);
+ await settings.getByLabel('离线模式（不调用 AI）').check();
+ const page=await context.newPage();await page.goto(`${base}/offline`);await inject(page);await expect(page.getByRole('status')).toContainText('离线模式');expect(calls.length).toBe(count);
+ await page.locator('#api').hover({position:{x:50,y:10}});await settings.screenshot({path:'test-results/free-provider-settings.png'});
+ await page.close();await settings.close();
 });

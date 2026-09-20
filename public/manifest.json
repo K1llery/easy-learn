@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Easy Learn · 读懂，再学会",
   "description": "整页预载英文技术文章注解，悬停阅读，按需翻译与追问。",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",

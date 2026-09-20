@@ -32,7 +32,7 @@ it('preloads explanations before marking and hover never requests them again',as
   await import('../src/content/index');await vi.advanceTimersByTimeAsync(300);
   const count=request.mock.calls.length;hover();
   const tip=document.querySelector('div[data-easy-learn]')!.shadowRoot!.querySelector<HTMLElement>('.tip')!;
-  expect(tip.hidden).toBe(false);expect(tip.textContent).toContain('程序之间约定好的交流方式');expect(request.mock.calls.length).toBe(count);
+  expect(tip.hidden).toBe(false);expect(tip.textContent).toContain('程序之间约定的调用方式');expect(request.mock.calls.length).toBe(count);
   window.dispatchEvent(new Event('scroll'));await vi.advanceTimersByTimeAsync(300);expect(request.mock.calls.length).toBe(count);
 });
 it('shows the specific command option under the pointer and preserves source code',async()=>{
