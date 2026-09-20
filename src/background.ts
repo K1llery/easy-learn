@@ -1,0 +1,155 @@
+import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, profileSchema, endpoint, type Config, type Mastered } from './core/types';
+import { callModel } from './core/ai';
+import { cacheKey, Queue, SessionCache } from './core/session';
+const initialized = Promise.all([
+  chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
+  chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
+]);
+const queue = new Queue();
+const caches = new Map<string, SessionCache<unknown>>();
+const controllers = new Map<string, Set<AbortController>>();
+const contentPorts = new Map<number, chrome.runtime.Port>();
+const panelPorts = new Map<number, chrome.runtime.Port>();
+const extensionRoot = chrome.runtime.getURL('');
+const tabScopes = new Map<number, Set<string>>();
+const documentPorts = new Map<string, chrome.runtime.Port>();
+let mutationTail: Promise<unknown> = Promise.resolve();
+function scopeFor(sender: chrome.runtime.MessageSender) {
+  if (!sender.documentId) throw new Error('无法识别页面会话，请刷新后重试。');
+  const scope = sender.documentId;
+  if (sender.tab?.id !== undefined) {
+    const scopes = tabScopes.get(sender.tab.id) ?? new Set<string>();
+    scopes.add(scope); tabScopes.set(sender.tab.id, scopes);
+  }
+  return scope;
+}
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html'].includes(sender.url.split(/[?#]/)[0]); }
+async function config(): Promise<Config> {
+  await initialized;
+  const data = await chrome.storage.local.get('config');
+  const parsed = configSchema.safeParse(data.config);
+  if (!parsed.success) throw new Error('请先打开设置，填写模型地址、模型名称和 API Key。');
+  return parsed.data;
+}
+function clearScope(scope: string) {
+  caches.delete(scope);
+  for (const controller of controllers.get(scope) ?? []) controller.abort();
+  controllers.delete(scope);
+  for (const [tab, scopes] of tabScopes) {
+    scopes.delete(scope); if (!scopes.size) tabScopes.delete(tab);
+  }
+}
+function clearTab(id: number) {
+  for (const scope of [...(tabScopes.get(id) ?? [])]) clearScope(scope);
+  tabScopes.delete(id);
+}
+function safePost(port: chrome.runtime.Port | undefined, message: unknown) { try { port?.postMessage(message); } catch { /* disconnected */ } }
+function refresh(invalidate = true) {
+  if(invalidate) for (const scope of [...caches.keys()]) clearScope(scope);
+  for (const p of contentPorts.values()) safePost(p, { type: 'REFRESH', invalidate });
+}
+chrome.runtime.onConnect.addListener(port => {
+  const id = port.sender?.tab?.id;
+  if (port.sender?.id !== chrome.runtime.id || !port.sender.documentId) return;
+  const scope = scopeFor(port.sender);
+  documentPorts.set(scope, port);
+  port.onMessage.addListener(() => { /* PING keeps active surfaces connected. */ });
+  port.onDisconnect.addListener(() => {
+    if (documentPorts.get(scope) === port) { documentPorts.delete(scope); clearScope(scope); }
+  });
+  if (id === undefined) return;
+  if (port.name === 'content' && !trusted(port.sender!)) {
+    contentPorts.set(id, port);
+    port.onMessage.addListener(msg => {
+      if (msg?.type === 'CONTEXT') safePost(panelPorts.get(id), msg);
+      if (msg?.type === 'STOP') clearTab(id);
+    });
+    port.onDisconnect.addListener(() => { if (contentPorts.get(id) === port) { contentPorts.delete(id); clearTab(id); } });
+  } else if (port.name === 'panel' && trusted(port.sender!)) {
+    panelPorts.set(id, port);
+    safePost(contentPorts.get(id), { type: 'PANEL_READY' });
+    port.onMessage.addListener(msg => { if (msg?.type === 'CLOSE') safePost(contentPorts.get(id), msg); });
+    port.onDisconnect.addListener(() => { if (panelPorts.get(id) === port) panelPorts.delete(id); });
+  }
+});
+chrome.tabs.onRemoved.addListener(clearTab);
+// Navigation/scroll tracking may report loading without replacing the document.
+// Content-port disconnection and tab closure own cancellation, not tab status.
+chrome.action.onClicked.addListener(async tab => {
+  if (tab.id === undefined) return;
+  try { await initialized; await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); }
+  catch { await chrome.tabs.create({ url: chrome.runtime.getURL('panel.html') }); }
+});
+async function handle(msg: any, sender: chrome.runtime.MessageSender) {
+  await initialized;
+  if (sender.id !== chrome.runtime.id) throw new Error('不允许的消息来源。');
+  const isTrusted = trusted(sender);
+  if (msg.type === 'OPEN_OPTIONS') { await chrome.runtime.openOptionsPage(); return null; }
+  if (msg.type === 'PUBLIC_SETTINGS') {
+    const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
+    return { codeAnnotations: data.reading?.codeAnnotations === true, profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [] };
+  }
+  if (msg.type === 'AI') {
+    const request = aiRequestSchema.parse(msg.request);
+    if (!isTrusted && request.operation !== 'analyze') throw new Error('当前页面只能发起正文难点分析。');
+    const cfg = await config();
+    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请在设置中重新保存并授权。');
+    const scope = scopeFor(sender);
+    const key = cacheKey(request, cfg.profile, cfg.model, cfg.baseUrl);
+    const cache = caches.get(scope) ?? new SessionCache(); caches.set(scope, cache);
+    const cached = cache.get(key); if (cached) return {...cached as object,__cached:true};
+    const controller = new AbortController();
+    const group = controllers.get(scope) ?? new Set(); group.add(controller); controllers.set(scope, group);
+    try {
+      const result = await queue.run(async () => {
+        if (controller.signal.aborted) throw new Error('请求已取消。');
+        return callModel(cfg, request, controller.signal);
+      });
+      if (controller.signal.aborted) throw new Error('请求已取消。');
+      cache.set(key, result);
+      return result;
+    } finally { group.delete(controller); }
+  }
+  if (msg.type === 'SET_CODE_ANNOTATIONS') {
+    if (typeof msg.enabled !== 'boolean') throw new Error('开关值无效。');
+    await chrome.storage.local.set({reading:{codeAnnotations:msg.enabled}}); refresh(false); return null;
+  }
+  if (msg.type === 'SET_PROFILE') {
+    const profile=profileSchema.parse(msg.profile); const cfg=await config();
+    await chrome.storage.local.set({config:{...cfg,profile}}); refresh(); return null;
+  }
+  if (!isTrusted && msg.type !== 'MASTER') throw new Error('该操作仅限扩展界面。');
+  if (msg.type === 'GET_SETTINGS') return chrome.storage.local.get(['config', 'mastered', 'reading']);
+  if (msg.type === 'SAVE_SETTINGS') {
+    const cfg = configSchema.parse(msg.config); endpoint(cfg.baseUrl);
+    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('未获得模型服务器权限，设置没有保存。');
+    await chrome.storage.local.set({ config: cfg }); refresh(); return null;
+  }
+  if (msg.type === 'TEST') {
+    const cfg = await config();
+    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请重新保存并授权。');
+    await queue.run(() => callModel(cfg, { operation: 'quiz', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }));
+    return '连接成功，模型能返回有效的结构化结果。';
+  }
+  if (msg.type === 'MASTER') {
+    const concept = conceptSchema.parse(msg.concept); const cfg = await config();
+    const data = await chrome.storage.local.get('mastered'); const entries: Mastered[] = data.mastered ?? [];
+    const key = conceptKey(cfg.profile.domain, concept.meaning);
+    const entry = { key, domain: cfg.profile.domain, meaning: concept.meaning, anchor: concept.anchor, createdAt: Date.now() };
+    await chrome.storage.local.set({ mastered: [...entries.filter(item => item.key !== key), entry] }); refresh(false); return entry;
+  }
+  if (msg.type === 'UNMASTER' && typeof msg.key === 'string') {
+    const data = await chrome.storage.local.get('mastered');
+    await chrome.storage.local.set({ mastered: (data.mastered ?? []).filter((item: Mastered) => item.key !== msg.key) }); refresh(false); return null;
+  }
+  if (msg.type === 'CLEAR_SETTINGS') { await chrome.storage.local.clear(); refresh(); return null; }
+  throw new Error('未知操作。');
+}
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Serialize read/modify/write settings operations across tabs.
+  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS'].includes(msg?.type);
+  const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
+  if (mutate) mutationTail = task.catch(() => undefined);
+  task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));
+  return true;
+});
