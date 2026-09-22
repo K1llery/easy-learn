@@ -19,3 +19,7 @@ it('presets use official hosts and only the exact Groq model receives a reasonin
  expect(providerOptions('https://other.example/v1','qwen/qwen3.8-27b')).toEqual({});
  expect(providers.find(p=>p.id==='openrouter')?.model).toBe('openrouter/free');
 });
+
+it.each(['Pydantic','HTTP','GET','POST','Uvicorn','OpenAPI'])('preloads a general explanation of %s locally',anchor=>{
+ expect(localExplanation({...candidate,anchor,kind:'term'},profile)?.summary.length).toBeGreaterThan(10);
+});

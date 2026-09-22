@@ -214,3 +214,17 @@ test('free presets clear credentials on provider changes and offline mode is usa
  await page.locator('#api').hover({position:{x:50,y:10}});await settings.screenshot({path:'test-results/free-provider-settings.png'});
  await page.close();await settings.close();
 });
+
+
+test('FastAPI headings and short HTTP method lists have instant explanations without AI',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/fastapi-concepts`);
+ await page.evaluate(()=>{document.title='FastAPI tutorial';document.body.innerHTML='<article><h1>FastAPI tutorial</h1><h2><span id="pydantic">Pydantic</span></h2><p>Validate input data with type annotations.</p><h2>Web requests</h2><p>The <span id="http">http</span> protocol defines request methods:</p><ul><li><code id="get">get</code></li><li><span id="post">POST</span></li></ul><p>You can get started and write a post about your project.</p><pre>def example():\n    return 42</pre></article>';});
+ const count=calls.length;await inject(page);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ for(const [selector,meaning] of [['#pydantic','Python 数据校验库'],['#http','超文本传输协议'],['#get','HTTP GET 方法'],['#post','HTTP POST 方法']]){
+  await page.mouse.move(1200,900);await page.locator(selector).hover();
+  await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText(meaning);
+ }
+ expect(calls.length).toBe(count);
+ await page.screenshot({path:'test-results/fastapi-concepts.png'});await page.close();
+});

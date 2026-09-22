@@ -2,7 +2,7 @@ import { conceptKey, type Concept, type Mastered, type Profile, type TextContext
 import { contextFor, extractBlocks, locateText, matchesSnapshot, type Block } from './document';
 import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
-import { findCandidates, candidateKey, packCandidates } from './candidates';
+import { findCandidates, candidateKey, packCandidates, candidateEnvironment } from './candidates';
 import type { Candidate } from '../core/types';
 import { rpc } from '../ui/rpc';
 import { connectSurface } from '../core/connection';
@@ -97,11 +97,12 @@ else {
   async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
     if(!toolbar.isConnected){const article=document.querySelector('article,main,[role="main"]')??document.body;article.prepend(toolbar);}
-    blocks=extractBlocks();const next:Target[]=[];
-    for(const block of blocks){
+    blocks=extractBlocks(document,true);const next:Target[]=[];
+    const environment=candidateEnvironment(blocks,document.title);
+    for(const [i,block] of blocks.entries()){
       if(block.kind==='code'&&!codeAnnotations)continue;
       const local=block.kind==='command'?explainCommand(block.text):null;
-      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block);
+      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block,{...environment,nearby:[blocks[i-1],blocks[i+1]].filter(b=>b?.sectionId===block.sectionId).map(b=>b.text.slice(0,120)).join(' ')});
       for(const c of candidates){
         const identity=candidateKey(c,JSON.stringify(profile));let work=workByKey.get(identity);
         if(!work){const immediate=local?.[0]??localExplanation(c,profile);work={candidate:{id:`c${nextId++}`,anchor:c.anchor.slice(0,300),kind:c.kind,heading:c.heading,context:c.context},state:immediate?'ready':'pending',concept:immediate};workByKey.set(identity,work);}

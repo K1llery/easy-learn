@@ -1,24 +1,36 @@
 import type { Block } from './document';
 import type { Candidate } from '../core/types';
 
-// Conservative, inspectable local rules. Ordinary English nouns and title case
-// are intentionally not candidates; selection remains available for omissions.
+// Combine article topic, technical typography and explicit definition cues.
+// Ordinary title case alone is never sufficient evidence of a concept.
 const TECHNICAL = /\b(?:dependency injection|virtual environments?|type hints?|type annotations?|asynchronous|coroutines?|namespaces?|middleware|serialization|deserialization|idempotency|polymorphism|backpropagation|gradient descent|self-attention|attention mechanism|encoder-decoder|recurrent neural networks?|convolutional neural networks?|neural networks?|batch normalization|positional encoding|language model|context manager|garbage collection|race condition|deadlock|event loop|regular expressions?|hash tables?|load balanc(?:er|ing)|reverse proxy|distributed systems?|disaster recovery|daily run)\b/gi;
-const ACRONYMS = /\b(?:[A-Z][A-Z0-9]{2,9}s?|AI|ML|DR|DB|OS|IP|UI|IO)\b/g;
+const ACRONYMS = /\b[A-Z][A-Z0-9]{1,9}s?\b/g;
+const ECOSYSTEM = /\b(?:Pydantic|Starlette|Uvicorn|OpenAPI|Swagger(?: UI)?|JSON Schema|SQLAlchemy|pytest|OAuth2?|WebSockets?|BaseModel|APIRouter|CORS|request bod(?:y|ies)|path parameters?|query parameters?|status codes?|endpoints?|decorators?)\b/gi;
+const METHODS=/\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/gi;
+const TECH_CONTEXT=/\b(?:FastAPI|Pydantic|HTTP|API|Python|server|framework|protocol|authentication|database|compiler|neural|model|training|algorithm|library|package|function|endpoint|request)\b/i;
+const WEB_CONTEXT=/\b(?:FastAPI|HTTP|REST|OpenAPI|web server|web framework|request method|path operation)\b/i;
+export type CandidateEnvironment={technical:boolean;web:boolean;nearby?:string};
+export function candidateEnvironment(blocks:Block[],title=''):CandidateEnvironment{
+ const sample=title+' '+blocks.slice(0,50).map(b=>b.heading+' '+b.text.slice(0,300)).join(' ');
+ return {technical:TECH_CONTEXT.test(sample),web:WEB_CONTEXT.test(sample)};
+}
 const KNOWN_ACRONYMS = new Set('AI ML DR DB OS IP UI IO API HTTP HTTPS REST RPC JSON XML HTML CSS SQL CLI SDK CPU GPU RAM URL URI DNS TCP UDP TLS SSL SSH JWT OAuth ORM CRUD ASGI WSGI MVC MVT OOP IDE LLM NLP RNN CNN RAG CUDA SIMD UTF ASCII YAML TOML PEP'.split(' '));
-const IGNORE = new Set(['THE','AND','FOR','NOT','TODO','NOTE','IMPORTANT','WARNING','INFO','ERROR','DEBUG','README','LICENSE','CONTRIBUTING','INSTALL','GETTING','STARTED','TRUE','FALSE','NULL','NONE','RELEASE','CHANGES','FAQ','TIP','VS','ALL','YOU','NEED','WMT2014','GET','POST','PUT','PATCH','DELETE','SET','READ','WRITE','OK']);
+const IGNORE = new Set(['THE','AND','FOR','NOT','TODO','NOTE','IMPORTANT','WARNING','INFO','ERROR','DEBUG','README','LICENSE','CONTRIBUTING','INSTALL','GETTING','STARTED','TRUE','FALSE','NULL','NONE','RELEASE','CHANGES','FAQ','TIP','VS','ALL','YOU','NEED','WMT2014','GREAT','NEWS','AVAILABLE','SOON','DEFAULT','GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','SET','READ','WRITE','OK']);
 const COMMON = new Set(['python','fastapi','installation','example','examples','project','projects','name','value','data','code','usage','features','performance','documentation','test','tests','run','install','true','false','none','null','main','app','return','def','import']);
 export type LocalCandidate = Omit<Candidate,'id'> & { start:number };
 function snippet(text:string,start:number,length:number) {
   const left=Math.max(0,start-120),right=Math.min(text.length,start+length+200);
   return text.slice(left,right).slice(0,420);
 }
-export function findCandidates(block:Block):LocalCandidate[] {
+export function findCandidates(block:Block,environment:CandidateEnvironment=candidateEnvironment([block])):LocalCandidate[] {
   const found:LocalCandidate[]=[];
-  function add(anchor:string,start:number,kind:Candidate['kind']) {
-    if(!anchor.trim()||anchor.length>300||IGNORE.has(anchor)||COMMON.has(anchor.toLowerCase()))return;
+  const technical=environment.technical||TECH_CONTEXT.test(block.text+' '+block.heading),web=environment.web||WEB_CONTEXT.test(block.text+' '+block.heading);
+  const inlineTerms=new Set([...block.element.querySelectorAll('code')].map(el=>el.textContent?.trim()??''));
+  function add(anchor:string,start:number,kind:Candidate['kind'],method=false) {
+    if(!anchor.trim()||anchor.length>300||(!method&&IGNORE.has(anchor))||COMMON.has(anchor.toLowerCase()))return;
+    if(found.some(c=>c.anchor.toLowerCase()===anchor.toLowerCase()))return;
     if(found.some(c=>start<c.start+c.anchor.length&&start+anchor.length>c.start))return;
-    found.push({anchor,start,kind,heading:block.heading.slice(0,120),context:snippet(block.text,start,anchor.length)});
+    found.push({anchor,start,kind,heading:block.heading.slice(0,120),context:snippet(block.text,start,anchor.length)+(block.text.length<120&&environment.nearby?'\n'+environment.nearby.slice(0,250):'')});
   }
   if(block.kind==='command'){add(block.text,0,'command');return found;}
   if(block.kind==='code') {
@@ -30,17 +42,27 @@ export function findCandidates(block:Block):LocalCandidate[] {
     return found.slice(0,8);
   }
   for(const match of block.text.matchAll(TECHNICAL))add(match[0],match.index!,'term');
+  for(const match of block.text.matchAll(ECOSYSTEM))add(match[0],match.index!,'term');
+  for(const match of block.text.matchAll(METHODS)){
+    const anchor=match[0], before=block.text.slice(Math.max(0,match.index!-25),match.index!), after=block.text.slice(match.index!+anchor.length,match.index!+anchor.length+30);
+    const explicit=/\b(?:HTTP|method|request|operation)\s+["'`]?$/i.test(before)||/^["'`]?\s+(?:request|method|operation)\b/i.test(after);
+    if(web&&(anchor===anchor.toUpperCase()||inlineTerms.has(anchor)||explicit))add(anchor,match.index!,'term',true);
+  }
+  // Known initialisms are case tolerant on technical pages (http, json, asgi).
+  if(technical)for(const match of block.text.matchAll(new RegExp('\\b(?:'+[...KNOWN_ACRONYMS].join('|')+')s?\\b','gi')))add(match[0],match.index!,'abbreviation');
   for(const match of block.text.matchAll(ACRONYMS)){
     const anchor=match[0], nearby=block.text.slice(Math.max(0,match.index!-100),match.index!+anchor.length+100);
     // Unknown capitals alone are not evidence of a technical concept.
-    if(KNOWN_ACRONYMS.has(anchor.replace(/s$/,''))||nearby.includes(`(${anchor})`)||new RegExp(`${anchor}\\s+(?:stands for|means|is short for)\\b`,'i').test(nearby))add(anchor,match.index!,'abbreviation');
+    if(technical||KNOWN_ACRONYMS.has(anchor.replace(/s$/,''))||nearby.includes(`(${anchor})`)||new RegExp(`${anchor}\\s+(?:stands for|means|is short for)\\b`,'i').test(nearby))add(anchor,match.index!,'abbreviation');
   }
-  for(const inline of block.element.querySelectorAll('code')) {
+  // Unlisted library names are candidates when the sentence describes their role.
+  for(const match of block.text.matchAll(/\b([A-Z][A-Za-z0-9_-]{2,40})\s+(?:is|provides|implements)\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}(?:library|framework|validator|protocol|serializer|database|toolkit|package)\b/g))add(match[1],match.index!,'term');
+  for(const inline of block.element.querySelectorAll('code,a,strong,em')) {
     const text=inline.textContent?.trim()??'';
     // Only shaped identifiers, filenames, or explicit commands; not arbitrary inline words.
-    if(/^[\w./:-]{3,80}$/.test(text)&&/[_.:/]|[a-z][A-Z]/.test(text))add(text,block.text.indexOf(text),'term');
+    if(/^[\w./:-]{3,80}$/.test(text)&&(/[_.:/]|[a-z][A-Z]/.test(text)||(technical&&inline.matches('code,a')&&/\b(?:library|package|framework|install|validator|serializer|import)\b/i.test(block.text))))add(text,block.text.indexOf(text),'term');
   }
-  return found.filter(c=>c.start>=0).sort((a,b)=>a.start-b.start).slice(0,2);
+  return found.filter(c=>c.start>=0).sort((a,b)=>a.start-b.start).slice(0,6);
 }
 export function candidateKey(c:LocalCandidate,profileKey:string) {
   // Context retained for ambiguous abbreviations. No blind global acronym reuse.
