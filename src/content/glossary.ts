@@ -68,6 +68,6 @@ export function localExplanation(c:LocalCandidate,profile:Profile):Concept|undef
  const key=c.anchor.toLowerCase().replace(/s$/,'');const entry=entries[c.anchor.toLowerCase()]??entries[key];if(!entry)return;
  // Explicit alternative definitions must be interpreted from context, not overwritten by the dictionary.
  if(c.kind==='abbreviation'&&c.context.includes(`(${c.anchor})`)&&!c.context.toLowerCase().includes((entry[2]??'').toLowerCase()))return;
- if(c.kind==='abbreviation'&&/\b(?:stands for|means|short for|refers to)\b/i.test(c.context))return;
+ if(c.kind==='abbreviation'&&new RegExp(`\\b${c.anchor.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\s+(?:stands for|means|is short for|refers to)\\b`,'i').test(c.context))return;
  return {anchor:c.anchor,category:c.kind==='abbreviation'?'缩写':'术语',meaning:entry[0],summary:entry[1],expansion:entry[2]??'',ambiguity:'',evidence:'内置通用释义 · 无需 AI 请求；具体语境可点击深入理解。',parts:[]};
 }

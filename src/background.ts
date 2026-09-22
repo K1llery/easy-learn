@@ -1,11 +1,14 @@
 import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, profileSchema, endpoint, type Config, type Mastered } from './core/types';
-import { callModel } from './core/ai';
+import { callModel, type AnalysisProgress } from './core/ai';
+import { AnnotationCache } from './core/annotation-cache';
 import { cacheKey, Queue, SessionCache } from './core/session';
 const initialized = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
 ]);
 const queue = new Queue();
+const annotationCache=new AnnotationCache(chrome.storage.local);
+let cacheEpoch=0;
 const caches = new Map<string, SessionCache<unknown>>();
 const controllers = new Map<string, Set<AbortController>>();
 const contentPorts = new Map<number, chrome.runtime.Port>();
@@ -45,6 +48,7 @@ function clearTab(id: number) {
 }
 function safePost(port: chrome.runtime.Port | undefined, message: unknown) { try { port?.postMessage(message); } catch { /* disconnected */ } }
 function refresh(invalidate = true) {
+  if(invalidate)cacheEpoch++;
   if(invalidate) for (const scope of [...caches.keys()]) clearScope(scope);
   for (const p of contentPorts.values()) safePost(p, { type: 'REFRESH', invalidate });
 }
@@ -101,14 +105,39 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     const cached = cache.get(key); if (cached) return {...cached as object,__cached:true};
     const controller = new AbortController();
     const group = controllers.get(scope) ?? new Set(); group.add(controller); controllers.set(scope, group);
+    const epoch=cacheEpoch;
+    const started=performance.now();
+    const requestId=typeof msg.requestId==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(msg.requestId)?msg.requestId:undefined;
+    const progress=(partial:AnalysisProgress)=>{
+      if(requestId&&!controller.signal.aborted&&epoch===cacheEpoch)safePost(documentPorts.get(scope),{type:'AI_PROGRESS',requestId,...partial});
+    };
     try {
+      const settings=await chrome.storage.local.get('reading');
+      const remember=settings.reading?.rememberAnnotations!==false;
+      const candidates=request.operation==='analyze'?request.candidates:undefined;
+      const keys=remember&&candidates?await Promise.all(candidates.map(c=>annotationCache.key(cfg,request.context.title,c))):[];
+      const stored=keys.length?await annotationCache.get(keys).catch(()=>[]):[];
+      const hits=candidates?.flatMap((c,i)=>stored[i]?[{...stored[i]!,id:c.id,anchor:c.anchor}]:[])??[];
+      if(controller.signal.aborted)throw new Error('请求已取消。');
+      if(hits.length)progress({concepts:hits,skipped:[]});
+      const missing=candidates?.filter(c=>!hits.some(h=>h.id===c.id));
+      if(candidates&&!missing?.length)return {concepts:hits,skipped:[],missing:[],__cached:true,__cacheHits:hits.length,__usage:0};
       const result = await queue.run(async () => {
         if (controller.signal.aborted) throw new Error('请求已取消。');
-        return callModel(cfg, request, controller.signal);
-      });
+        if((await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。');
+        const queueMs=performance.now()-started;
+        const value=await callModel(cfg, missing?{...request,candidates:missing}:request, controller.signal,progress);
+        return {...value,__timing:{...value.__timing,queueMs}};
+      },request.operation==='analyze'?0:100);
       if (controller.signal.aborted) throw new Error('请求已取消。');
-      cache.set(key, result);
-      return result;
+      if(remember&&candidates&&'concepts' in result){
+        const entries=(result.concepts as typeof hits).flatMap(concept=>{const index=candidates.findIndex(c=>c.id===concept.id);const key=keys[index];return key?[{key,concept}]:[];});
+        await annotationCache.put(entries,()=>!controller.signal.aborted&&epoch===cacheEpoch).catch(()=>undefined);
+      }
+      const merged='concepts' in result?{...result,concepts:[...hits,...(result.concepts??[])],__cacheHits:hits.length}:result;
+      // An incomplete batch must remain retryable; completed terms have their own cache.
+      if(!('missing' in merged)||!merged.missing?.length)cache.set(key, merged);
+      return merged;
     } finally { group.delete(controller); }
   }
   if (msg.type === 'SET_CODE_ANNOTATIONS'||msg.type === 'SET_LOCAL_ONLY') {
@@ -127,10 +156,19 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('未获得模型服务器权限，设置没有保存。');
     await chrome.storage.local.set({ config: cfg }); refresh(); return null;
   }
+  if (msg.type === 'SET_REMEMBER_ANNOTATIONS') {
+    if(typeof msg.enabled!=='boolean')throw new Error('开关值无效。');
+    cacheEpoch++;
+    const data=await chrome.storage.local.get('reading');
+    await chrome.storage.local.set({reading:{...data.reading,rememberAnnotations:msg.enabled}});
+    if(!msg.enabled)await annotationCache.clear();
+    return null;
+  }
+  if(msg.type==='CLEAR_ANNOTATION_CACHE'){cacheEpoch++;await annotationCache.clear();return null;}
   if (msg.type === 'TEST') {
     const cfg = await config();
     if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请重新保存并授权。');
-    await queue.run(() => callModel(cfg, { operation: 'explain', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }));
+    await queue.run(() => callModel(cfg, { operation: 'explain', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }),100);
     return '连接成功，模型能返回有效的结构化结果。';
   }
   if (msg.type === 'MASTER') {
@@ -144,12 +182,12 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     const data = await chrome.storage.local.get('mastered');
     await chrome.storage.local.set({ mastered: (data.mastered ?? []).filter((item: Mastered) => item.key !== msg.key) }); refresh(false); return null;
   }
-  if (msg.type === 'CLEAR_SETTINGS') { await chrome.storage.local.clear(); refresh(); return null; }
+  if (msg.type === 'CLEAR_SETTINGS') { cacheEpoch++;await annotationCache.clear();await chrome.storage.local.clear(); refresh(); return null; }
   throw new Error('未知操作。');
 }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Serialize read/modify/write settings operations across tabs.
-  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS'].includes(msg?.type);
+  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
   const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
   if (mutate) mutationTail = task.catch(() => undefined);
   task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));

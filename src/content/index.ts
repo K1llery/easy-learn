@@ -6,6 +6,8 @@ import { findCandidates, candidateKey, packCandidates, candidateEnvironment } fr
 import type { Candidate } from '../core/types';
 import { rpc } from '../ui/rpc';
 import { connectSurface } from '../core/connection';
+import { readingPriority } from './reading-order';
+import type { AnalysisProgress, ModelTiming } from '../core/ai';
 
 type Annotation = { range: Range; concept: Concept; block: Block; part?: {text:string;explanation:string} };
 type Payload = { context: TextContext; expandedContext: TextContext; concept?: Concept; mode: 'explain' | 'translate' };
@@ -25,6 +27,8 @@ else {
   type Target = {block:Block;work:Work;offset:number};
   const workByKey=new Map<string,Work>();let targets:Target[]=[],nextId=0;
   let batchCount=0,tokenCount=0,usageKnown=false,userPaused=false,observed:IntersectionObserver|undefined;
+  const pendingProgress=new Map<string,(data:AnalysisProgress)=>void>();
+  let lastTiming:ModelTiming|undefined,cacheHits=0,nextRequest=0;
   let progress:HTMLSpanElement;const observedNodes=new Set<HTMLElement>();
 
   const highlightName=`easy-learn-${chrome.runtime.id}`;
@@ -38,11 +42,14 @@ else {
     const ready=works.filter(w=>w.state==='ready').length, skipped=works.filter(w=>w.state==='skipped').length;
     const failures=works.filter(w=>w.state==='failed');
     const remaining=works.filter(w=>w.state==='pending').length;
-    const phase=settingsError||networkPaused?'已暂停，查看详情':localOnly?'离线模式 · 仅显示已准备的本地释义':dirty?'正在扫描正文':userPaused?'已暂停':works.some(w=>w.state==='loading')?'正在生成解释':remaining?'正在准备整页注释':'当前内容已处理';
+    const phase=settingsError||networkPaused?'已暂停，查看详情':localOnly?'离线模式 · 仅显示已准备的本地释义':dirty?'正在扫描正文':userPaused?'已暂停':(pendingProgress.size>0||works.some(w=>w.state==='loading'))?'正在生成解释':remaining?'正在准备整页注释':'当前内容已处理';
     statusNode.textContent='阅读注释';
-    progress.textContent=`本地识别 ${works.length} · 已解释 ${ready} · 已过滤 ${skipped} · 未完成 ${failures.length} · API ${batchCount} 批${usageKnown?` · ${tokenCount} tokens`:''} · ${phase}`;
+    const rects=new Map<HTMLElement,DOMRect>();
+    const visible=[...new Set(targets.filter(t=>{let r=rects.get(t.block.element);if(!r){r=t.block.element.getBoundingClientRect();rects.set(t.block.element,r);}return r.bottom>0&&r.top<innerHeight;}).map(t=>t.work))].filter(w=>w.state!=='skipped');
+    const visibleReady=visible.filter(w=>w.state==='ready').length;
+    progress.textContent=`当前屏幕 ${visibleReady}/${visible.length} 已就绪 · 本地识别 ${works.length} · 已解释 ${ready} · 已过滤 ${skipped} · 未完成 ${failures.length} · ${phase}`;
     statusNode.title=`已准备 ${annotations.filter(a=>!a.part).length} 条注释。悬停下划线即可阅读。`;
-    diagnostic.textContent=[settingsError,...new Set(failures.map(w=>w.error))].filter(Boolean).join('\n');
+    diagnostic.textContent=[`API ${batchCount} 批 · 本地缓存 ${cacheHits} 条${usageKnown?` · ${tokenCount} tokens`:''}`,lastTiming?`最近一批：排队 ${Math.round(lastTiming.queueMs??0)} ms · 首条 ${lastTiming.firstItemMs===null?'—':Math.round(lastTiming.firstItemMs)} ms · 请求 ${Math.round(lastTiming.totalMs)} ms`:'',settingsError,...new Set(failures.map(w=>w.error))].filter(Boolean).join('\n');
   }
   function rebuild() {
     const next:Annotation[]=[];const valid=new Map<Block,boolean>();
@@ -74,6 +81,7 @@ else {
     const header=node('div','');header.className='tip-header';header.append(node('strong',item.part?.text??item.concept.anchor));
     const close=node('button','×') as HTMLButtonElement;close.setAttribute('aria-label','关闭注释');close.onclick=hideTip;header.append(close);tip.append(header);
     const label=node('small',item.concept.meaning);tip.append(label);
+    if(!item.part&&item.concept.expansion)tip.append(node('small',item.concept.expansion));
     tip.append(node('p',item.part?.explanation??item.concept.summary!));
     if(!item.part&&(item.concept.parts?.length??0)>0){const list=document.createElement('dl');for(const part of item.concept.parts!){list.append(node('dt',part.text),node('dd',part.explanation));}tip.append(list);}
     if(item.concept.ambiguity)tip.append(node('p',`语境尚不确定：${item.concept.ambiguity}`));
@@ -115,39 +123,52 @@ else {
     if(observed){const live=new Set(blocks.map(b=>b.element));for(const el of observedNodes)if(!live.has(el)){observed.unobserve(el);observedNodes.delete(el);}for(const el of live)if(!observedNodes.has(el)){observed.observe(el);observedNodes.add(el);}}
     dirty=false;rebuild();
   }
-  function orderedTargets(){const positions=new Map<HTMLElement,number>();for(const t of targets)if(!positions.has(t.block.element))positions.set(t.block.element,Math.abs(t.block.element.getBoundingClientRect().top));return [...targets].sort((a,b)=>positions.get(a.block.element)!-positions.get(b.block.element)!);}
+  function orderedTargets(){
+    const positions=new Map<HTMLElement,number>();
+    for(const t of targets)if(!positions.has(t.block.element)){const r=t.block.element.getBoundingClientRect();positions.set(t.block.element,readingPriority(r.top,r.bottom,innerHeight));}
+    return [...targets].sort((a,b)=>positions.get(a.block.element)!-positions.get(b.block.element)!);
+  }
   async function scan(){
     if(!active)return;if(running){rescan=true;return;}running=true;rescan=false;const current=generation;
     try{
       if(dirty)refreshBlocks();
-      const ordered=orderedTargets();
       const lane=async()=>{while(active&&current===generation&&!networkPaused&&!settingsError&&!userPaused&&!localOnly){
-        const pending=[...new Set(ordered.map(t=>t.work))].filter(w=>w.state==='pending');
-        const batch=packCandidates(pending);if(!batch.length)break;
+        if(dirty)refreshBlocks();
+        const pending=[...new Set(orderedTargets().map(t=>t.work))].filter(w=>w.state==='pending');
+        const batch=packCandidates(pending,4);if(!batch.length)break;
         batch.forEach(w=>w.state='loading');batchCount++;status();
+        const requestId=`${generation}-${++nextRequest}`;
+        pendingProgress.set(requestId,data=>{
+          if(!active||current!==generation)return;
+          for(const w of batch){const concept=data.concepts.find(c=>c.id===w.candidate.id);if(concept?.summary){w.concept={...concept,anchor:w.candidate.anchor};w.state='ready';}else if(data.skipped.includes(w.candidate.id))w.state='skipped';}
+          rebuild();
+        });
         try{
-          const data=await rpc<{concepts:Concept[];skipped?:string[];missing?:string[];__usage?:number|null;__cached?:boolean}>('AI',{request:{operation:'analyze',context:{title:document.title.slice(0,160),heading:'',text:'本地候选解释',before:'',after:''},candidates:batch.map(w=>w.candidate)}});
+          const data=await rpc<{concepts:Concept[];skipped?:string[];missing?:string[];__usage?:number|null;__cached?:boolean;__cacheHits?:number;__timing?:ModelTiming;__warning?:string}>('AI',{requestId,request:{operation:'analyze',context:{title:document.title.slice(0,160),heading:'',text:'本地候选解释',before:'',after:''},candidates:batch.map(w=>w.candidate)}});
           if(!active||current!==generation)break;
           if(data.__cached)batchCount--;else if(typeof data.__usage==='number'){tokenCount+=data.__usage;usageKnown=true;}
+          cacheHits+=data.__cacheHits??0;if(data.__timing)lastTiming=data.__timing;
           for(const w of batch){
+            if(w.state==='ready'||w.state==='skipped')continue;
             const concept=data.concepts.find(c=>c.id===w.candidate.id)||data.concepts.find(c=>!c.id&&c.anchor===w.candidate.anchor);
             if(concept?.summary){w.concept={...concept,anchor:w.candidate.anchor};w.state='ready';}
             else if(data.skipped?.includes(w.candidate.id)){w.state='skipped';}
-            else{w.state='failed';w.error='此候选暂未收到有效解释，已保留其他结果；可手动重试。';}
+            else{w.state='failed';w.error=data.__warning??'此候选暂未收到有效解释，已保留其他结果；可手动重试。';}
           }
         }catch(e){
           if(!active||current!==generation)break;
           const error=(e as Error).message;
-          for(const w of batch){w.state='failed';w.error=error;}
+          for(const w of batch)if(w.state!=='ready'&&w.state!=='skipped'){w.state='failed';w.error=error;}
           if(/限流|额度|认证|授权|配置|先打开设置|连接已中断/.test(error))networkPaused=true;
         }
+        finally{pendingProgress.delete(requestId);}
         rebuild();
       }};
       await Promise.all([lane(),lane()]);
     }finally{running=false;status();if(active&&(current!==generation||rescan))schedule();}
   }
   function schedule(){if(!active)return;if(scheduled)return;scheduled=window.setTimeout(()=>{scheduled=0;void scan();},200);}
-  function onScroll(){hideTip();selectionButton.hidden=true;}
+  function onScroll(){hideTip();selectionButton.hidden=true;schedule();}
   function selection(){
     const sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.rangeCount){selectionButton.hidden=true;return;}
     const range=sel.getRangeAt(0);const parent=range.commonAncestorContainer.nodeType===Node.ELEMENT_NODE?range.commonAncestorContainer as Element:range.commonAncestorContainer.parentElement;
@@ -175,7 +196,7 @@ else {
     const saveProfile=node('button','应用学习偏好') as HTMLButtonElement;saveProfile.onclick=async()=>{try{await rpc('SET_PROFILE',{profile:{domain:domainInput.value,level:levelSelect.value}});feedback.textContent='学习偏好已应用';}catch(e){feedback.textContent=(e as Error).message;}};sheet.append(saveProfile);
     const allSettings=node('button','模型设置 / 不再显示列表') as HTMLButtonElement;allSettings.onclick=()=>void rpc('OPEN_OPTIONS');sheet.append(allSettings);
     const pause=node('button','暂停 / 继续预载') as HTMLButtonElement;pause.onclick=()=>{userPaused=!userPaused;status();if(!userPaused)schedule();};sheet.append(pause);
-    sheet.append(node('p','整页自动预载；命令行保持解释。可暂停以控制 API 用量。'));sheet.append(feedback);dock.append(launcher,sheet);
+    sheet.append(node('p','优先准备当前屏幕与后两屏，再继续全文。命令行保持解释；可暂停预载。'));sheet.append(feedback);dock.append(launcher,sheet);
     shadow.append(css,tip,selectionButton,dock);document.documentElement.append(host,style);
     // Small, in-flow entry near the article title. No fixed corner badges or alerts.
     toolbar=document.createElement('span');toolbar.dataset.easyLearn='';toolbar.style.cssText='display:block;position:sticky;top:4px;z-index:2147483646;font-family:inherit;font-size:12px;line-height:1.7;color:inherit;background:Canvas;border:1px solid #80908333;border-radius:6px;padding:6px 9px;margin:6px 0 12px';
@@ -191,9 +212,10 @@ else {
   async function start(){
     active=true;dirty=true;generation++;mount();connection=connectSurface('content');
     connection.port.onMessage.addListener(msg=>{
+      if(msg.type==='AI_PROGRESS')pendingProgress.get(msg.requestId)?.({concepts:msg.concepts??[],skipped:msg.skipped??[]});
       if(msg.type==='PANEL_READY')sendContext();
       if(msg.type==='CLOSE'){frame?.remove();frame=undefined;}
-      if(msg.type==='REFRESH'){if(msg.invalidate!==false){generation++;workByKey.clear();networkPaused=false;}void settings().then(()=>{if(active){refreshBlocks();schedule();}});}
+      if(msg.type==='REFRESH'){if(msg.invalidate!==false){generation++;pendingProgress.clear();workByKey.clear();networkPaused=false;}void settings().then(()=>{if(active){refreshBlocks();schedule();}});}
     });
     connection.port.onDisconnect.addListener(()=>{if(active){settingsError='扩展连接已中断，请刷新页面后重新开启伴读。';networkPaused=true;status();}});
     document.addEventListener('mousemove',hovered);document.addEventListener('mouseup',selection);document.addEventListener('keyup',keyboard);
@@ -206,7 +228,7 @@ else {
   function stop(){
     active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();
     try{connection?.port.postMessage({type:'STOP'});}catch{/* closed */}connection?.disconnect();connection=undefined;
-    host?.remove();toolbar?.remove();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);workByKey.clear();targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
+    host?.remove();toolbar?.remove();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
     document.removeEventListener('mousemove',hovered);document.removeEventListener('mouseup',selection);document.removeEventListener('keyup',keyboard);window.removeEventListener('scroll',onScroll,true);window.removeEventListener('resize',onScroll);
   }
   state.__easyLearn={toggle(){if(active)stop();else void start();}};void start();

@@ -11,15 +11,18 @@ it('never resolves ambiguous initials or overrides an explicit alternative defin
  expect(localExplanation({...candidate,anchor:'DR'},profile)).toBeUndefined();
  expect(localExplanation({...candidate,context:'API stands for active pharmaceutical ingredient.'},profile)).toBeUndefined();
  expect(localExplanation(candidate,{...profile,domain:'医学'})).toBeUndefined();
+ expect(localExplanation({...candidate,context:'The API connects services. Nearby, DR means disaster recovery.'},profile)).toBeDefined();
 });
 it('presets use official hosts and only the exact Groq model receives a reasoning override',()=>{
- expect(providers).toHaveLength(4);expect(providers.every(p=>p.baseUrl.startsWith('https:'))).toBe(true);
+ expect(providers).toHaveLength(5);expect(providers.every(p=>p.baseUrl.startsWith('https:'))).toBe(true);
  expect(providerOptions('https://api.groq.com/openai/v1','qwen/qwen3.8-27b')).toEqual({reasoning_effort:'none'});
  expect(providerOptions('https://open.bigmodel.cn/api/paas/v4','glm-4.7-flash')).toEqual({thinking:{type:'disabled'}});
  expect(providerOptions('https://other.example/v1','qwen/qwen3.8-27b')).toEqual({});
+ expect(providerOptions('https://api.deepseek.com/v1','deepseek-flash')).toEqual({thinking:{type:'disabled'}});
+ expect(providerOptions('https://other.example','deepseek-flash')).toEqual({});
  expect(providers.find(p=>p.id==='openrouter')?.model).toBe('openrouter/free');
 });
 
 it.each(['Pydantic','HTTP','GET','POST','Uvicorn','OpenAPI'])('preloads a general explanation of %s locally',anchor=>{
- expect(localExplanation({...candidate,anchor,kind:'term'},profile)?.summary.length).toBeGreaterThan(10);
+ expect(localExplanation({...candidate,anchor,kind:'term'},profile)?.summary?.length).toBeGreaterThan(10);
 });

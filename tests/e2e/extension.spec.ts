@@ -24,6 +24,16 @@ test.beforeAll(async () => {
       const input = JSON.parse(body); const request=JSON.parse(input.messages[1].content); calls.push(request);
       inFlight++;peakInFlight=Math.max(peakInFlight,inFlight);
       if(responseDelay)await new Promise(r=>setTimeout(r,responseDelay));
+      if(responseStyle==='stream'&&request.candidates&&responseStatus===200){
+        res.writeHead(200,{'Content-Type':'text/event-stream'});
+        const items=output(request).items!;
+        const write=(content:string)=>res.write('data: '+JSON.stringify({choices:[{delta:{content}}]})+'\n\n');
+        write('{"items":['+JSON.stringify(items[0]));
+        await new Promise(r=>setTimeout(r,1600));
+        write(items.slice(1).map((item:any)=>','+JSON.stringify(item)).join('')+']}');
+        res.end('data: {"choices":[],"usage":{"total_tokens":80}}\n\ndata: [DONE]\n\n');
+        inFlight--;completed++;return;
+      }
       inFlight--;completed++;
       res.writeHead(responseStatus,{'Content-Type':'application/json'});
       res.end(responseStatus===200 ? JSON.stringify({choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]}) : '{}'); return;
@@ -43,7 +53,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   responseStatus=200;responseStyle='json';responseDelay=0;
   const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
-  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
+  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'CLEAR_ANNOTATION_CACHE'});await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
   await settings.close();
 });
 test.afterEach(async ({},info)=>{
@@ -113,10 +123,11 @@ test('scrolls through repeated content and real reference excerpts without charg
   for(const [i,ref] of refs.entries()){const p=document.createElement('p');p.id=`ref${i}`;p.textContent=ref.text;container.append(p);}
  },refs);
  const start=calls.length;await inject(page);
- await expect.poll(()=>calls.slice(start).filter(c=>c.operation==='analyze').length).toBe(1);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ const preparedCalls=calls.slice(start).filter(c=>c.operation==='analyze').length;expect(preparedCalls).toBeGreaterThan(0);
  await page.locator('#term0').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeVisible();
  await page.locator('#term35').scrollIntoViewIfNeeded();await page.locator('#term35').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toBeVisible();
- expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(1);
+ expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(preparedCalls);
  await page.locator('#ref2').scrollIntoViewIfNeeded();
  await expect.poll(()=>calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.context.includes('attention')||c.context.includes('recurrent'))).toBe(true);
  await expect(page.getByRole('status')).toContainText('未完成 0');
@@ -128,7 +139,7 @@ test('preloads the entire document without scrolling or stopping after eight bat
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Whole page</h1>'+Array.from({length:80},(_,i)=>`<p style="margin:150px 0">The DR connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
  const start=calls.length;await inject(page);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(10);
+ expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(20);
  expect(await page.evaluate(()=>window.scrollY)).toBe(0);
  expect(calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.context.includes('number 79'))).toBe(true);
  await page.close();
@@ -146,7 +157,7 @@ test('shows ongoing progress and accepts numbered plain text without a paid repa
  const page=await context.newPage();await page.goto(`${base}/numbered`);const start=calls.length;await inject(page);
  await expect(page.getByRole('status')).toContainText('正在生成解释');
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(calls.slice(start)).toHaveLength(1);
+ expect(calls.slice(start)).toHaveLength(2);
  await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('为这个技术概念预载的中文解释。');
  await page.screenshot({path:'test-results/preloaded-hover.png'});await page.close();
 });
@@ -191,14 +202,15 @@ test('two remote batches run concurrently and local marks appear before either r
  responseDelay=300;peakInFlight=0;const initialCompleted=completed;
  const page=await context.newPage();await page.goto(`${base}/parallel-speed`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Concurrent benchmark</h1><p>The API exchanges JSON data with independent services.</p>'+Array.from({length:48},(_,i)=>`<p>DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
- await page.evaluate(()=>{(window as any).__completedAt=0;const observer=new MutationObserver(()=>{if(document.querySelector('[role=status]')?.textContent?.includes('当前内容已处理')){(window as any).__completedAt=Date.now();observer.disconnect();}});observer.observe(document.body,{childList:true,characterData:true,subtree:true});});
+ await page.evaluate(()=>{(window as any).__completedAt=0;(window as any).__statusTrace=[];const observer=new MutationObserver(()=>{const text=document.querySelector('[role=status]')?.textContent;(window as any).__statusTrace.push({at:Date.now(),text});if(text?.includes('当前内容已处理')&&text.includes('已解释 50')){(window as any).__completedAt=Date.now();observer.disconnect();}});observer.observe(document.body,{childList:true,characterData:true,subtree:true});});
  const count=calls.length,start=Date.now();await inject(page);
  await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);
  expect(completed).toBe(initialCompleted);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(6);
+ expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(12);
+ await writeFile('test-results/status-timeline.json',JSON.stringify(await page.evaluate(()=>(window as any).__statusTrace)));
  expect((await page.evaluate(()=>(window as any).__completedAt))-start).toBeGreaterThanOrEqual(900);
- await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:6,delayPerBatchMs:300,elapsedMs:(await page.evaluate(()=>(window as any).__completedAt))-start,peakInFlight,serialDelayAloneMs:1800}));
+ await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:12,delayPerBatchMs:300,elapsedMs:(await page.evaluate(()=>(window as any).__completedAt))-start,peakInFlight,serialDelayAloneMs:3600}));
  await page.close();
 });
 
@@ -227,4 +239,37 @@ test('FastAPI headings and short HTTP method lists have instant explanations wit
  }
  expect(calls.length).toBe(count);
  await page.screenshot({path:'test-results/fastapi-concepts.png'});await page.close();
+});
+
+test('a streamed annotation is readable before its batch finishes and a reload reuses local results',async()=>{
+ responseStyle='stream';const initialCompleted=completed;
+ const page=await context.newPage();await page.goto(`${base}/stream-reading`);
+ const setArticle=()=>page.evaluate(()=>{document.body.innerHTML='<article><h1>Streaming tutorial</h1><p><span id="dr">DR</span> restores service after a regional failure.</p><p>SLO defines a service availability objective.</p></article>';});
+ await setArticle();const start=calls.length;
+ await inject(page);
+ await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
+ await page.locator('#dr').hover();
+ await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('灾难恢复');
+ expect(completed).toBe(initialCompleted);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ const after=calls.length;expect(after).toBeGreaterThan(start);
+ await page.reload();await setArticle();await inject(page);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ expect(calls.length).toBe(after);
+ await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('灾难恢复');
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
+ await settings.getByRole('button',{name:'清除术语缓存',exact:true}).click();await expect(settings.getByRole('status')).toContainText('缓存已清除');
+ await page.reload();await setArticle();await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');expect(calls.length).toBeGreaterThan(after);
+ await settings.close();await page.close();
+});
+
+test('jumping ahead prioritizes the new reading position in the next available batch',async()=>{
+ responseDelay=600;const page=await context.newPage();await page.goto(`${base}/jump-reading`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Chapter jump</h1>'+Array.from({length:30},(_,i)=>`<p id="chapter-${i}" style="height:200px">DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
+ const start=calls.length;await inject(page);
+ await expect.poll(()=>calls.length-start).toBe(2);
+ await page.locator('#chapter-25').scrollIntoViewIfNeeded();
+ await expect.poll(()=>calls.length-start).toBeGreaterThan(2);
+ expect(calls[start+2].candidates.some((c:any)=>c.context.includes('number 25'))).toBe(true);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');await page.close();
 });

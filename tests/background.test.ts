@@ -108,3 +108,29 @@ it('offline mode blocks model requests while preserving other reading preference
  expect((await send('AI',{request:{operation:'analyze',context}},pageSender)).ok).toBe(false);
  expect((await send('TEST')).ok).toBe(false);expect(model).not.toHaveBeenCalled();
 });
+
+it('routes incremental results only to the requesting document and ignores obsolete progress',async()=>{
+ const c=port(pageSender,'content'),p=port(panelSender,'panel');api.runtime.onConnect.emit(c);api.runtime.onConnect.emit(p);
+ let resolve!:(v:any)=>void;
+ model.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+ const pending=send('AI',{requestId:'batch-1',request:{operation:'analyze',context}},pageSender);
+ await vi.waitFor(()=>expect(model).toHaveBeenCalledTimes(1));
+ const progress=model.mock.calls[0][3];progress({concepts:[concept],skipped:[]});
+ expect(c.postMessage).toHaveBeenCalledWith({type:'AI_PROGRESS',requestId:'batch-1',concepts:[concept],skipped:[]});
+ expect(p.postMessage).not.toHaveBeenCalled();
+ c.onDisconnect.emit();c.postMessage.mockClear();progress({concepts:[concept],skipped:[]});expect(c.postMessage).not.toHaveBeenCalled();
+ resolve({concepts:[concept]});expect((await pending).ok).toBe(false);
+});
+
+it('reuses persistent terms after a document reload, remaps IDs, and clears them on opt out',async()=>{
+ const candidates=[{id:'c0',anchor:'DR',kind:'abbreviation',heading:'Recovery',context:'Recover from a regional failure.'}];
+ model.mockResolvedValue({concepts:[{...concept,id:'c0',summary:'恢复服务'}],missing:[]});
+ await send('AI',{request:{operation:'analyze',context,candidates}},pageSender);
+ const reload={...pageSender,documentId:'reloaded'};
+ const result=await send('AI',{request:{operation:'analyze',context,candidates:[{...candidates[0],id:'c8'}]}},reload);
+ expect(result).toMatchObject({ok:true,data:{__cached:true,concepts:[{id:'c8',summary:'恢复服务'}]}});expect(model).toHaveBeenCalledTimes(1);
+ expect((await send('CLEAR_ANNOTATION_CACHE',{},pageSender)).ok).toBe(false);
+ await send('SET_REMEMBER_ANNOTATIONS',{enabled:false});
+ await send('AI',{request:{operation:'analyze',context,candidates}},{...reload,documentId:'after-clear'});expect(model).toHaveBeenCalledTimes(2);
+ expect(data.annotationCacheV1).toEqual([]);
+});
