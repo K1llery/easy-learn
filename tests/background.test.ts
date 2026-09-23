@@ -82,6 +82,14 @@ it('keeps credentials out of public settings and rejects untrusted privileged me
   expect((await send('GET_SETTINGS',{}, {...optionSender,id:'other-extension'})).ok).toBe(false);
   expect(api.storage.local.setAccessLevel).toHaveBeenCalledWith({accessLevel:'TRUSTED_CONTEXTS'});
 });
+it('upgrades a saved local CPA preset to GPT-6 Luna while retaining its access key',async()=>{
+ data.config={...cfg,baseUrl:'http://127.0.0.1:8317/v1',model:'gpt-5.6-luna'};
+ const settings=await send('GET_SETTINGS');
+ expect(settings.data.config).toMatchObject({model:'gpt-6-luna',apiKey:'secret'});
+ expect(data.config.model).toBe('gpt-6-luna');
+ await send('TEST');
+ expect(model).toHaveBeenCalledWith(expect.objectContaining({model:'gpt-6-luna'}),expect.anything());
+});
 it('denied host permission never saves configuration or calls the model', async () => {
   api.permissions.contains.mockResolvedValue(false);
   expect((await send('SAVE_SETTINGS',{config:{...cfg,model:'changed'}})).ok).toBe(false);

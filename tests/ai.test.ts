@@ -20,6 +20,21 @@ it('uses the Qwen workspace output-limit and no-thinking fields',async()=>{
  expect(body).toMatchObject({enable_thinking:false,max_completion_tokens:3000});
  expect(body).not.toHaveProperty('max_tokens');
 });
+it('uses GPT-6 Luna without reasoning for compact translations and low effort otherwise',async()=>{
+ const cpa:Config={...config,baseUrl:'http://127.0.0.1:8317/v1',model:'gpt-6-luna'};
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('{"translation":"缓存保持有效，除非上游架构发生变化。"}'));
+ const translated=await callModel(cpa,{operation:'explain',mode:'translate',context:{...request.context,text:'The cache remains valid unless the upstream schema changes.'}});
+ expect(translated).toMatchObject({translation:'缓存保持有效，除非上游架构发生变化。'});
+ const translateBody=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(translateBody).toMatchObject({model:'gpt-6-luna',reasoning_effort:'none',temperature:0.2});
+ expect(translateBody.messages[0].content).toContain('{"translation":"完整中文译文"}');
+ expect(translateBody.messages[0].content).not.toContain('"prerequisites"');
+ fetcher.mockResolvedValue(response('{"explanation":"这是一个解释。"}'));
+ await callModel(cpa,{operation:'explain',mode:'explain',context:request.context});
+ const explainBody=JSON.parse(fetcher.mock.calls[1][1]!.body as string);
+ expect(explainBody.reasoning_effort).toBe('low');
+ expect(explainBody).not.toHaveProperty('temperature');
+});
 it('never makes a paid automatic repair request on unusable output',async()=>{
  const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async()=>response('无法对应两个候选的自由文本'));
  await expect(callModel(config,request)).rejects.toThrow('未自动重试');expect(fetcher).toHaveBeenCalledTimes(1);

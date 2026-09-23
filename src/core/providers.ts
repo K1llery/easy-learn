@@ -3,10 +3,10 @@
 export const providers = [
   {
     id: 'local-cpa', market: 'local', name: 'ChatGPT Plus · 本机 CPA（个人使用）',
-    baseUrl: 'http://127.0.0.1:8317/v1', model: 'gpt-5.6-luna',
+    baseUrl: 'http://127.0.0.1:8317/v1', model: 'gpt-6-luna',
     signup: 'https://github.com/router-for-me/CLIProxyAPI',
     docs: 'https://github.com/router-for-me/CLIProxyAPI',
-    note: '使用本机运行的 CPA 和当前 ChatGPT Plus 账户的 Codex 用量。填写本机 CPA 的访问密钥；无需在扩展中填写 ChatGPT 密码。此方案仅供当前个人使用，关闭本机代理后无法调用模型。'
+    note: '使用本机 CPA 和当前 ChatGPT Plus 账户的 Codex 用量。GPT-6 Luna 在翻译时关闭思考，其他任务使用低强度思考。填写本机 CPA 的访问密钥；无需在扩展中填写 ChatGPT 密码。此方案仅供当前个人使用。'
   },
   {
     id: 'deepseek', market: 'cn', name: 'DeepSeek · Flash（中国大陆）',
@@ -84,8 +84,9 @@ export function providerFor(baseUrl: string, model: string) {
   return undefined;
 }
 
-export function providerOptions(baseUrl: string, model: string) {
+export function providerOptions(baseUrl: string, model: string, mode?: 'translate' | 'explain' | 'followup') {
   const host = new URL(baseUrl).hostname;
+  if (host === '127.0.0.1' && new URL(baseUrl).port === '8317' && model === 'gpt-6-luna') return { reasoning_effort: mode === 'translate' ? 'none' : 'low' };
   if (host === 'api.deepseek.com' && ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-chat'].includes(model)) return { thinking: { type: 'disabled' } };
   if (host === 'open.bigmodel.cn' && model === 'glm-4.7-flash') return { thinking: { type: 'disabled' } };
   if ((host === 'dashscope.aliyuncs.com' || host.endsWith('.maas.aliyuncs.com')) && model === 'qwen3.8-flash') return { enable_thinking: false };

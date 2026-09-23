@@ -30,12 +30,18 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   return scope;
 }
 function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html'].includes(sender.url.split(/[?#]/)[0]); }
+function upgradeLocalCpaModel(cfg: Config): Config {
+  return cfg.baseUrl.replace(/\/+$/, '') === 'http://127.0.0.1:8317/v1' && cfg.model === 'gpt-5.6-luna'
+    ? {...cfg, model: 'gpt-6-luna'} : cfg;
+}
 async function config(): Promise<Config> {
   await initialized;
   const data = await chrome.storage.local.get('config');
   const parsed = configSchema.safeParse(data.config);
   if (!parsed.success) throw new Error('请先打开设置，填写模型地址、模型名称和 API Key。');
-  return parsed.data;
+  const upgraded = upgradeLocalCpaModel(parsed.data);
+  if (upgraded !== parsed.data) await chrome.storage.local.set({config: upgraded});
+  return upgraded;
 }
 function clearScope(scope: string) {
   caches.delete(scope);
@@ -217,7 +223,18 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     await chrome.storage.local.set({ [LEARNING_KEY]: next });
     return updated;
   }
-  if (msg.type === 'GET_SETTINGS') return chrome.storage.local.get(['config', 'mastered', 'reading']);
+  if (msg.type === 'GET_SETTINGS') {
+    const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
+    const parsed = configSchema.safeParse(data.config);
+    if (parsed.success) {
+      const upgraded = upgradeLocalCpaModel(parsed.data);
+      if (upgraded !== parsed.data) {
+        await chrome.storage.local.set({config: upgraded});
+        data.config = upgraded;
+      }
+    }
+    return data;
+  }
   if (msg.type === 'SAVE_SETTINGS') {
     const cfg = configSchema.parse(msg.config); endpoint(cfg.baseUrl);
     if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('未获得模型服务器权限，设置没有保存。');

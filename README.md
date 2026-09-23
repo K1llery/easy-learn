@@ -18,7 +18,7 @@
 
 ## 当前个人试用：ChatGPT Plus 本机代理
 
-本机已通过 CLIProxyAPI 连接当前 ChatGPT Plus 账号的 Codex 通道。扩展设置里选择「ChatGPT Plus · 本机 CPA（个人使用）」，将 `.cache/cpa/extension-key` 中的访问密钥填入 API Key，保存授权并测试连接。更新扩展后，先在扩展管理页重新加载。此项是当前本机试用方案，不作为商店上架后的默认连接方式；不需要在扩展里填写 ChatGPT 密码。
+本机已通过 CLIProxyAPI 连接当前 ChatGPT Plus 账号的 Codex 通道。该预设使用 GPT-6 Luna；翻译采用无思考强度和精简输出，其他任务采用低思考强度。扩展设置里选择「ChatGPT Plus · 本机 CPA（个人使用）」，将 `.cache/cpa/extension-key` 中的访问密钥填入 API Key，保存授权并测试连接。更新扩展后，先在扩展管理页重新加载。此项是当前本机试用方案，不作为商店上架后的默认连接方式；不需要在扩展里填写 ChatGPT 密码。
 
 代理可用 `python3 scripts/cpa-local.py status` 检查，用 `start` / `stop` 启停。换机首次准备时执行 `python3 scripts/cpa-local.py setup --auth-file <已登录 Codex 的 auth.json 路径> [--proxy-url <本机代理地址>]`，工具会下载并验证固定版本的 CPA，生成本机访问密钥，导入已有登录凭据并启动服务。凭据、密钥、程序和日志都放在 Git 忽略的 `.cache/cpa/`。更多兼容性和发布边界见 [Plus 接入记录](docs/chatgpt-plus-integration.md)。
 

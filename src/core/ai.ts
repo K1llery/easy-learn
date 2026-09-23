@@ -18,8 +18,9 @@ export function parseResult(operation: AIRequest['operation'], raw: string) {
   return parseModelOutput(operation,raw);
 }
 export async function callModel(config:Config, request:AIRequest, signal?:AbortSignal, onProgress?:(progress:AnalysisProgress)=>void) {
+  const translating = request.operation === 'explain' && request.mode === 'translate';
   const learningInstruction = request.operation === 'quiz' ? '出题必须能仅根据所给选段回答；学习目标仅用于调整侧重点，不得为满足目标补造原文事实。application 单独作为答题后的实践任务，禁止把参考答案放进 question。' : request.operation === 'choice' ? '仅根据用户主动选中的文字出一道简单单选题，提供 A、B、C、D 四个不同且只有一个正确的选项。只有原文支持的内容才能作为正确答案；错误选项应可由原文排除。所选文字信息不足时，询问原文实际能支持的判断，不补充外部背景。题干和选项不得暴露答案；explanation 只解释原文依据。将正确选项放在单独的 correctOption 字段中，前端会等用户作答后才展示。' : request.operation === 'evaluate' ? '按 question 对照 answer 和原文反馈，引用回答中的具体表述，明确哪些判断缺乏原文依据；不因措辞不同判错。不给分数、人格判断或长期掌握结论。reference 必须非空；若无法判断，应说明缺少什么信息。' : '';
-  const system=`${SYSTEM}\n${learningInstruction}\n任务：${request.operation}。结构：${contracts[request.operation]}\n${request.operation==='analyze'?'只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。':''}${request.operation==='analyze'&&request.candidates?.some(c=>c.kind==='vocabulary')?'\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。':''}`;
+  const system=`${SYSTEM}\n${learningInstruction}${translating?'只翻译所给原文，保留否定、条件、数字、单位和代码；不补充解释、例子或判断依据。':''}\n任务：${request.operation}。结构：${translating?'{"translation":"完整中文译文"}':contracts[request.operation]}\n${request.operation==='analyze'?'只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。':''}${request.operation==='analyze'&&request.candidates?.some(c=>c.kind==='vocabulary')?'\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。':''}`;
   // Batch requests contain short snippets only. Do not resend neighboring paragraphs.
   const input=request.candidates?{operation:request.operation,profile:config.profile,title:request.context.title.slice(0,160),candidates:request.candidates}:{profile:config.profile,...request};
   const streaming=request.operation==='analyze'&&!!request.candidates?.length;
@@ -43,7 +44,8 @@ export async function callModel(config:Config, request:AIRequest, signal?:AbortS
     try {
       const tokenLimit = streaming ? Math.min(2200, 300 + (request.candidates ?? []).reduce((n, c) => n + (c.kind === 'code' || c.kind === 'command' ? 500 : 180), 0)) : 3000;
       const tokenLimitField = new URL(config.baseUrl).hostname.endsWith('.maas.aliyuncs.com') ? 'max_completion_tokens' : 'max_tokens';
-      const body = {...providerOptions(config.baseUrl, config.model),model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],temperature:0.2,[tokenLimitField]:tokenLimit,stream:streaming,...(streaming?{stream_options:{include_usage:true}}:{})};
+      const options = providerOptions(config.baseUrl, config.model, translating ? 'translate' : request.mode);
+      const body = {...options,model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],...('reasoning_effort' in options && options.reasoning_effort !== 'none' ? {} : {temperature:0.2}),[tokenLimitField]:tokenLimit,stream:streaming,...(streaming?{stream_options:{include_usage:true}}:{})};
       response=await fetch(endpoint(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.apiKey}`},body:JSON.stringify(body),signal:combined});
     } catch(error) {
       if(signal?.aborted)throw new Error('请求已取消。');

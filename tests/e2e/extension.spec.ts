@@ -221,7 +221,7 @@ test('provider presets clear credentials on changes and offline mode is usable',
  const count=calls.length;
  await expect(settings.locator('#provider optgroup[label="本机个人方案"] option')).toHaveCount(1);
  await settings.getByLabel('服务方案').selectOption('local-cpa');
- await expect(settings.getByLabel('模型名称')).toHaveValue('gpt-5.6-luna');
+ await expect(settings.getByLabel('模型名称')).toHaveValue('gpt-6-luna');
  await expect(settings.getByLabel('API Base URL')).toHaveValue('http://127.0.0.1:8317/v1');
  await expect(settings.locator('#provider optgroup[label="中国大陆服务"] option')).toHaveCount(3);
  await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(6);

@@ -4,9 +4,9 @@
 
 ## 当前本机试用
 
-已在这台电脑上安装并校验 CLIProxyAPI v7.3.15，导入当前 Codex 登录的 `auth.json`，在 `127.0.0.1:8317` 启动仅本机可访问的服务。使用现有 SOCKS5 代理出站，`gpt-5.6-luna` 的普通和流式 Chat Completions 调用均返回成功；Windows 侧也能连接 WSL 的本机端口。**无需再次进行 OAuth。** 这验证的是当前账号、当前模型和当前版本的可用性，不承诺以后持续兼容或无限额度。
+已在这台电脑上安装并校验 CLIProxyAPI v7.3.15，导入当前 Codex 登录的 `auth.json`，在 `127.0.0.1:8317` 启动仅本机可访问的服务。使用现有 SOCKS5 代理出站，`gpt-6-luna` 的普通与流式 Chat Completions 调用已验证，`reasoning_effort=none` 和 `low` 均可用。Windows 侧也能连接 WSL 的本机端口。**无需再次进行 OAuth。** 这验证的是当前账号、当前模型和当前版本的可用性，不承诺以后持续兼容或无限额度。
 
-项目设置页新增“ChatGPT Plus · 本机 CPA（个人使用）”可选预设，填好本机访问密钥后保存授权即可切换。密钥位于本机的 `.cache/cpa/extension-key`；代理配置、凭据副本、安装包和日志均在被 Git 忽略的 `.cache/cpa/`。不要将此目录或 Codex 的 `auth.json` 上传到仓库或发给别人。扩展只保存 CPA 本机访问密钥，不接收 ChatGPT 密码和 OAuth 令牌。
+项目设置页新增“ChatGPT Plus · 本机 CPA（个人使用）”可选预设，默认选择 GPT-6 Luna。翻译使用 `reasoning_effort=none` 和仅含译文的短 JSON；注释、解释、练习使用 `low`。GPT-6 Luna 默认为 `medium`，官方文档说明降低思考强度有助于减少延迟；非 `none` 请求移除了 `temperature`。网络及代理耗时仍会影响实际速度。[GPT-6 Luna 模型页][gpt6-luna]、[推理强度说明][reasoning]、[GPT-6 迁移说明][gpt6-migration]。如果浏览器里保存的是此前的本机 CPA / GPT-5.6 Luna 配置，扩展重新加载后会自动升级模型并保留本机访问密钥；其他服务的配置不变。新接入时，填好本机访问密钥后保存授权即可切换。密钥位于本机的 `.cache/cpa/extension-key`；代理配置、凭据副本、安装包和日志均在被 Git 忽略的 `.cache/cpa/`。不要将此目录或 Codex 的 `auth.json` 上传到仓库或发给别人。扩展只保存 CPA 本机访问密钥，不接收 ChatGPT 密码和 OAuth 令牌。
 
 可用项目自带的 `scripts/cpa-local.py` 管理：`status` 检查运行状态，`start` 启动，`stop` 停止。首次换机时执行 `setup --auth-file <Codex auth.json 路径> [--proxy-url <本机代理地址>]`；脚本从官方发布页下载固定版本并核对 SHA-256，再生成随机本机密钥和仅绑定 localhost 的配置。当前这台电脑的网络需要 `socks5://127.0.0.1:7890`，该地址不应硬编码到其他设备。
 
@@ -60,3 +60,7 @@ Chrome 允许扩展向远程 API 发送请求，但要求扩展的可执行逻�
 [chrome-mv3]: https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements
 [chrome-disclosure]: https://developer.chrome.com/docs/webstore/program-policies/disclosure-requirements
 [chrome-identity]: https://developer.chrome.com/docs/extensions/reference/api/identity
+
+[gpt6-luna]: https://developers.openai.com/api/docs/models/gpt-6-luna
+[reasoning]: https://developers.openai.com/api/docs/guides/reasoning
+[gpt6-migration]: https://developers.openai.com/api/docs/guides/latest-model

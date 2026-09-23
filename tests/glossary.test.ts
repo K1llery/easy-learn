@@ -16,8 +16,9 @@ it('never resolves ambiguous initials or overrides an explicit alternative defin
 it('presets keep the local CPA endpoint distinct from official API hosts',()=>{
  expect(providers).toHaveLength(10);expect(providers.filter(p=>p.market!=='local').every(p=>p.baseUrl.startsWith('https:'))).toBe(true);
  expect(providers.filter(p=>p.market==='local')).toHaveLength(1);expect(providers.filter(p=>p.market==='cn')).toHaveLength(3);expect(providers.filter(p=>p.market==='global')).toHaveLength(6);
- expect(providerFor('http://127.0.0.1:8317/v1','gpt-5.6-luna')?.id).toBe('local-cpa');
- expect(providerOptions('http://127.0.0.1:8317/v1','gpt-5.6-luna')).toEqual({});
+ expect(providerFor('http://127.0.0.1:8317/v1','gpt-6-luna')?.id).toBe('local-cpa');
+ expect(providerOptions('http://127.0.0.1:8317/v1','gpt-6-luna')).toEqual({reasoning_effort:'low'});
+ expect(providerOptions('http://127.0.0.1:8317/v1','gpt-6-luna','translate')).toEqual({reasoning_effort:'none'});
  expect(providerFor('https://llm-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1','qwen3.8-flash')?.id).toBe('qwen');
  expect(providerOptions('https://api.groq.com/openai/v1','qwen/qwen3.8-27b')).toEqual({reasoning_effort:'none'});
  expect(providerOptions('https://open.bigmodel.cn/api/paas/v4','glm-4.7-flash')).toEqual({thinking:{type:'disabled'}});
