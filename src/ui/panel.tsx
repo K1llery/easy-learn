@@ -4,15 +4,47 @@ import { type AIRequest, type Concept, type Explanation, type TextContext, type 
 import { rpc } from './rpc';
 import { connectSurface } from '../core/connection';
 import './style.css';
-type Payload = { context: TextContext; expandedContext: TextContext; concept?: Concept; mode: 'explain' | 'translate' };
+type Payload = { context: TextContext; expandedContext: TextContext; concept?: Concept; mode: 'explain' | 'translate'; notice?: string };
+type PdfSelection = { id: string; mode: 'explain' | 'translate'; text: string; title: string; truncated: boolean };
+const isSidePanelSurface = window.location.pathname.endsWith('/sidepanel.html');
+const sourceTabParam = new URLSearchParams(window.location.search).get('sourceTab');
 function Panel() {
   const [payload, setPayload] = useState<Payload | null>(null), [expanded, setExpanded] = useState(false), [paste, setPaste] = useState('');
   const [explanation, setExplanation] = useState<Explanation | null>(null), [translation, setTranslation] = useState('');
   const [history, setHistory] = useState<{role:'user'|'assistant';content:string}[]>([]), [followup, setFollowup] = useState(''), [mastered, setMastered] = useState<Mastered | null>(null);
   const [busy, setBusy] = useState(''), [error, setError] = useState('');
   const epoch = useRef(0), port = useRef<chrome.runtime.Port | null>(null), retry = useRef<(() => void) | null>(null);
+  const loadedPdfSelection = useRef('');
   function reset(next: Payload | null) { epoch.current++; setPayload(next); setExpanded(false); setExplanation(null); setTranslation(''); setHistory([]); setMastered(null); setError(''); setBusy(''); setFollowup(''); retry.current = null; }
-  useEffect(() => { const connection = connectSurface('panel'); const p = connection.port; port.current = p; p.onMessage.addListener(msg => { if (msg.type === 'CONTEXT') reset(msg.payload); }); return () => connection.disconnect(); }, []);
+  useEffect(() => {
+    const connection = connectSurface('panel'); const p = connection.port; port.current = p;
+    p.onMessage.addListener(msg => { if (msg.type === 'CONTEXT') reset(msg.payload); });
+    async function loadPdfSelection(tabId: number) {
+      if (!Number.isInteger(tabId) || tabId < 0) return;
+      try {
+        const selection = await rpc<PdfSelection | null>('TAKE_PDF_SELECTION', { tabId });
+        if (!selection || selection.id === loadedPdfSelection.current) return;
+        loadedPdfSelection.current = selection.id;
+        const context: TextContext = { title: selection.title, heading: '', text: selection.text, before: '', after: '' };
+        reset({ context, expandedContext: context, mode: selection.mode, ...(selection.truncated ? { notice: '选区超过 16,000 字符，当前只使用前 16,000 字符。为了保留语境，建议选取一个段落。' } : {}) });
+      } catch (e) { setError((e as Error).message); }
+    }
+    function onExtensionMessage(msg: any) {
+      if (!isSidePanelSurface || msg?.type !== 'PDF_SELECTION_READY' || !Number.isInteger(msg.tabId)) return;
+      void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+        if (tab?.id === msg.tabId) void loadPdfSelection(msg.tabId);
+      });
+    }
+    chrome.runtime.onMessage.addListener(onExtensionMessage);
+    const sourceTab = Number(sourceTabParam);
+    if (sourceTabParam !== null && Number.isInteger(sourceTab) && sourceTab >= 0) void loadPdfSelection(sourceTab);
+    else if (isSidePanelSurface) {
+      void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+        if (tab?.id !== undefined) void loadPdfSelection(tab.id);
+      });
+    }
+    return () => { chrome.runtime.onMessage.removeListener(onExtensionMessage); connection.disconnect(); };
+  }, []);
   async function run<T>(label: string, request: AIRequest, accept: (data:T) => void) {
     const current = ++epoch.current; setBusy(label); setError('');
     retry.current = () => { void run(label, request, accept); };
@@ -21,7 +53,15 @@ function Panel() {
     finally { if (epoch.current === current) setBusy(''); }
   }
   function request(operation: AIRequest['operation'], extras: Partial<AIRequest> = {}): AIRequest { return {operation, context: expanded ? payload!.expandedContext : payload!.context, ...(payload?.concept ? {concept:payload.concept} : {}), ...extras}; }
-  useEffect(() => { if (payload) void run<Explanation>('正在结合上下文解释…', {operation:'explain',context:payload.context,concept:payload.concept,mode:payload.mode}, data => {setExplanation(data); if(data.translation) setTranslation(data.translation);}); }, [payload]);
+  useEffect(() => {
+    if (!payload) return;
+    const translating = payload.mode === 'translate';
+    const label = translating ? '正在翻译所选文字…' : '正在结合上下文解释…';
+    void run<Explanation>(label, {operation:'explain',context:payload.context,concept:payload.concept,mode:payload.mode}, data => {
+      if (translating) { setTranslation(data.translation || data.explanation); setExplanation(null); }
+      else { setExplanation(data); if (data.translation) setTranslation(data.translation); }
+    });
+  }, [payload]);
   function pasteText(mode: 'explain'|'translate') { const context = {title:'粘贴文本',heading:'',text:paste.trim().slice(0,16000),before:'',after:''}; if(context.text) reset({context,expandedContext:context,mode}); }
   async function toggleMastered() {
     try {
@@ -32,9 +72,9 @@ function Panel() {
       }
     } catch(e) {setError((e as Error).message);}
   }
-  return <><header className="topbar"><div className="brand"><span className="brandmark">✦</span><div>Easy Learn<div className="muted">读懂，再学会</div></div></div><div><button className="quiet" title="设置" onClick={() => void rpc('OPEN_OPTIONS')}>设置</button><button className="quiet" aria-label="关闭学习面板" onClick={() => {port.current?.postMessage({type:'CLOSE'}); if(window.top === window) window.close();}}>✕</button></div></header>
-    <main className="panel-main">{!payload ? <><div className="intro"><div className="eyebrow">A LITTLE CLARITY, EVERY DAY</div><h1>从不懂的地方，<br/>再往前一步。</h1><p>悬停原文下划线即可阅读准备好的注释。想继续追问时，再打开这个面板；也可以选中或粘贴一段文字。</p></div><div className="card"><span className="tag">也可以从一段文字开始</span><label htmlFor="paste">粘贴想理解的内容</label><textarea id="paste" rows={7} maxLength={16000} value={paste} onChange={e => setPaste(e.target.value)} placeholder="粘贴英文文档、术语或让你困惑的一段话…"/><div className="actions"><button className="primary" disabled={!paste.trim()} onClick={() => pasteText('explain')}>帮我理解</button><button disabled={!paste.trim()} onClick={() => pasteText('translate')}>翻译成中文</button></div><p className="muted">最多 16,000 字符。内容仅发送给你配置的模型服务。</p></div><div className="notice">第一次使用？先在设置中连接模型。文章中的“阅读注释”也有设置入口。</div></> : <>
-      <div className="row"><span className="eyebrow">READ & UNDERSTAND</span><button className="quiet" onClick={() => reset(null)}>新文本</button></div><h1 style={{fontSize:25,marginTop:10}}>{payload.concept?.anchor ?? '理解这一段'}</h1><div className="source">{payload.context.text}</div>
+  return <><header className="topbar"><div className="brand"><span className="brandmark">✦</span><div>Easy Learn<div className="muted">读懂，再学会</div></div></div><div><button className="quiet" title="设置" onClick={() => void rpc('OPEN_OPTIONS')}>设置</button><button className="quiet" aria-label={isSidePanelSurface ? '清空当前内容' : '关闭学习面板'} title={isSidePanelSurface ? '清空当前内容' : '关闭学习面板'} onClick={() => { if (isSidePanelSurface) { reset(null); return; } port.current?.postMessage({type:'CLOSE'}); if(window.top === window) window.close(); }}>✕</button></div></header>
+    <main className="panel-main">{!payload ? <><div className="intro"><div className="eyebrow">A LITTLE CLARITY, EVERY DAY</div><h1>从不懂的地方，<br/>再往前一步。</h1><p>{isSidePanelSurface ? '在网页或 PDF 中选中文字，右键选择 Easy Learn，即可解释或翻译。也可以粘贴一段文字。' : '悬停原文下划线即可阅读准备好的注释。想继续追问时，再打开这个面板；也可以选中或粘贴一段文字。'}</p></div><div className="card"><span className="tag">也可以从一段文字开始</span><label htmlFor="paste">粘贴想理解的内容</label><textarea id="paste" rows={7} maxLength={16000} value={paste} onChange={e => setPaste(e.target.value)} placeholder="粘贴英文文档、术语或让你困惑的一段话…"/><div className="actions"><button className="primary" disabled={!paste.trim()} onClick={() => pasteText('explain')}>帮我理解</button><button disabled={!paste.trim()} onClick={() => pasteText('translate')}>翻译成中文</button></div><p className="muted">最多 16,000 字符。内容仅发送给你配置的模型服务。</p></div><div className="notice">第一次使用？先在设置中连接模型。文章中的“阅读注释”也有设置入口。</div></> : <>
+      <div className="row"><span className="eyebrow">READ & UNDERSTAND</span><button className="quiet" onClick={() => reset(null)}>新文本</button></div><h1 style={{fontSize:25,marginTop:10}}>{payload.concept?.anchor ?? (payload.mode === 'translate' ? '翻译所选文字' : '理解这一段')}</h1><div className="source">{payload.context.text}</div>{payload.notice && <div className="notice">{payload.notice}</div>}
       {payload.context.heading && <p className="muted">章节 · {payload.context.heading}</p>}
       {explanation && <section className="card" aria-label="概念解释"><span className="tag">语境中的含义</span><h2 style={{marginTop:12}}>{explanation.meaning}</h2>{explanation.expansion && <p className="muted">{explanation.expansion}</p>}<p style={{marginTop:12}}>{explanation.explanation}</p>{explanation.ambiguity && <div className="notice">仍有歧义：{explanation.ambiguity}</div>}{explanation.evidence && <><h3>为什么这样理解</h3><p>{explanation.evidence}</p></>}{explanation.example && <><h3>举个例子</h3><p>{explanation.example}</p></>}{explanation.prerequisites.length > 0 && <><h3>补一点背景</h3>{explanation.prerequisites.map((item,i) => <details key={i}><summary>{item.term}</summary><p>{item.explanation}</p></details>)}</>}</section>}
       <div className="actions"><button disabled={!!busy} onClick={() => void run<Explanation>('正在翻译原文…',request('explain',{mode:'translate'}),data => setTranslation(data.translation || data.explanation))}>翻译这一段</button><button disabled={!!busy || !explanation?.meaning} onClick={toggleMastered}>{mastered ? '恢复显示' : '我懂了，不再显示'}</button></div>

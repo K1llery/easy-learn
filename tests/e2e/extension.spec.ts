@@ -298,6 +298,29 @@ test('toolbar action uses the popup and hover reveals persistent annotation sett
  await options.close();await page.close();
 });
 
+test('selected text is consumed once and only that excerpt reaches the PDF reading side panel',async()=>{
+ const source=await context.newPage();await source.goto(`${base}/paper-preview`);
+ const tabId=await worker.evaluate(async url=>{const tab=(await chrome.tabs.query({url}))[0];if(tab?.id===undefined)throw new Error('Source tab missing');return tab.id;},source.url());
+ const excerpt='The selected paragraph describes attention as a way to route information.';
+ await worker.evaluate(async ({tabId,excerpt})=>chrome.storage.session.set({[`pdfSelection:${tabId}`]:{id:'selection-test',mode:'translate',text:excerpt,title:'Attention Paper',truncated:false}}),{tabId,excerpt});
+ const panel=await context.newPage();await panel.goto(`chrome-extension://${id}/sidepanel.html?sourceTab=${tabId}`);
+ await expect(panel.getByRole('heading',{name:'翻译所选文字'})).toBeVisible();
+ await expect(panel.getByLabel('段落翻译')).toContainText('使用灾难恢复（DR）应对区域故障。');
+ const request=calls.at(-1);expect(request.mode).toBe('translate');expect(request.context).toEqual({title:'Attention Paper',heading:'',text:excerpt,before:'',after:''});
+ await expect(panel.getByRole('button',{name:'清空当前内容'})).toBeVisible();
+ await panel.getByRole('button',{name:'清空当前内容'}).click();
+ await expect(panel.getByText(/在网页或 PDF 中选中文字/)).toBeVisible();
+ const remaining=await worker.evaluate(async tabId=>(await chrome.storage.session.get(`pdfSelection:${tabId}`))[`pdfSelection:${tabId}`],tabId);expect(remaining).toBeUndefined();
+ await panel.close();
+ const explanationText='The selected sentence describes recovery across regions.';
+ await worker.evaluate(async ({tabId,text})=>chrome.storage.session.set({[`pdfSelection:${tabId}`]:{id:'explain-selection-test',mode:'explain',text,title:'Recovery Paper',truncated:false}}),{tabId,text:explanationText});
+ const explainPanel=await context.newPage();await explainPanel.goto(`chrome-extension://${id}/sidepanel.html?sourceTab=${tabId}`);
+ await expect(explainPanel.getByRole('heading',{name:'理解这一段'})).toBeVisible();
+ await expect(explainPanel.getByLabel('概念解释')).toContainText('灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。');
+ const explainRequest=calls.at(-1);expect(explainRequest.mode).toBe('explain');expect(explainRequest.context).toEqual({title:'Recovery Paper',heading:'',text:explanationText,before:'',after:''});
+ await explainPanel.close();await source.close();
+});
+
 test('opening the toolbar popup auto-injects the reader into the active article',async()=>{
  const page=await context.newPage();await page.goto(`${base}/popup-startup`);
  const popupTabId=await worker.evaluate(async()=>{const tab=await chrome.tabs.create({url:chrome.runtime.getURL('popup.html'),active:false});return tab.id;});
@@ -312,6 +335,7 @@ test('restricted pages keep the popup open with retry and paste-panel options',a
  await expect(page.getByRole('heading',{name:'当前页面无法开启伴读'})).toBeVisible();
  await expect(page.getByRole('button',{name:'重试'})).toBeVisible();
  await expect(page.getByRole('button',{name:'打开粘贴文本面板'})).toBeVisible();
+ await expect(page.getByText(/原生 PDF.*选中文字.*扫描版 PDF/)).toBeVisible();
  await page.close();
 });
 

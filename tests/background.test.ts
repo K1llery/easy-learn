@@ -14,23 +14,66 @@ const panelSender = {id:'test-id',url:extensionUrl+'panel.html',tab:{id:3},docum
 const optionSender = {id:'test-id',url:extensionUrl+'options.html',documentId:'options'};
 const context = {title:'Recovery',heading:'DR',text:'DR restores service after a regional failure.',before:'',after:''};
 const concept = {anchor:'DR',category:'缩写',meaning:'灾难恢复',expansion:'Disaster Recovery',evidence:'regional failure',ambiguity:''};
-let api: any, data: Record<string, any>;
+let api: any, data: Record<string, any>, sessionData: Record<string, any>;
 async function send(type: string, fields: any = {}, sender: any = optionSender): Promise<any> {
   return new Promise(resolve => api.runtime.onMessage.listeners[0]({type,...fields},sender,resolve));
 }
 function port(sender: any, name: string) { return {sender,name,onMessage:event(),onDisconnect:event(),postMessage:vi.fn()}; }
 beforeEach(async () => {
-  vi.resetModules(); model.mockReset().mockResolvedValue({concepts:[concept]}); data={config:structuredClone(cfg)};
+  vi.resetModules(); model.mockReset().mockResolvedValue({concepts:[concept]}); data={config:structuredClone(cfg)}; sessionData={};
   const storage = {
     setAccessLevel:vi.fn().mockResolvedValue(undefined),
     get:vi.fn(async (keys: string | string[]) => Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(k=>[k,structuredClone(data[k])]))),
     set:vi.fn(async (next: any) => {await Promise.resolve();Object.assign(data,structuredClone(next));}),
     clear:vi.fn(async () => {data={};}),
   };
-  api={storage:{local:storage,session:{setAccessLevel:vi.fn().mockResolvedValue(undefined)}},permissions:{contains:vi.fn().mockResolvedValue(true)},runtime:{id:'test-id',getURL:(p:string)=>extensionUrl+p,openOptionsPage:vi.fn(),onMessage:event(),onConnect:event()},tabs:{onRemoved:event(),onUpdated:event(),create:vi.fn()}};
+  const sessionStorage = {
+    setAccessLevel:vi.fn().mockResolvedValue(undefined),
+    get:vi.fn(async (keys: string | string[]) => Object.fromEntries((Array.isArray(keys)?keys:[keys]).map(k=>[k,structuredClone(sessionData[k])]))),
+    set:vi.fn(async (next: any) => {await Promise.resolve();Object.assign(sessionData,structuredClone(next));}),
+    remove:vi.fn(async (keys: string | string[]) => { for(const key of (Array.isArray(keys)?keys:[keys])) delete sessionData[key]; }),
+  };
+  api={
+    storage:{local:storage,session:sessionStorage},permissions:{contains:vi.fn().mockResolvedValue(true)},
+    runtime:{id:'test-id',getURL:(p:string)=>extensionUrl+p,openOptionsPage:vi.fn(),sendMessage:vi.fn().mockResolvedValue(undefined),onInstalled:event(),onMessage:event(),onConnect:event()},
+    tabs:{onRemoved:event(),onUpdated:event(),create:vi.fn().mockResolvedValue({id:99})},
+    contextMenus:{removeAll:vi.fn((callback:()=>void)=>callback()),create:vi.fn(),onClicked:event()},
+    sidePanel:{open:vi.fn().mockResolvedValue(undefined)},
+  };
   vi.stubGlobal('chrome',api); await import('../src/background');
 });
 afterEach(()=>vi.unstubAllGlobals());
+
+it('adds selection actions and passes only the chosen PDF text through a trusted panel', async () => {
+  api.runtime.onInstalled.listeners[0]();
+  expect(api.contextMenus.removeAll).toHaveBeenCalledOnce();
+  expect(api.contextMenus.create).toHaveBeenCalledWith({id:'easy-learn-explain-selection',title:'用 Easy Learn 解释选中文字',contexts:['selection']});
+  expect(api.contextMenus.create).toHaveBeenCalledWith({id:'easy-learn-translate-selection',title:'用 Easy Learn 翻译选中文字',contexts:['selection']});
+
+  api.contextMenus.onClicked.listeners[0]({menuItemId:'easy-learn-translate-selection',selectionText:'  Explain this selected paragraph.  '},{id:3,title:'Research Paper'});
+  expect(api.sidePanel.open).toHaveBeenCalledWith({tabId:3});
+  await vi.waitFor(()=>expect(sessionData['pdfSelection:3']).toBeDefined());
+  expect(sessionData['pdfSelection:3']).toMatchObject({mode:'translate',text:'Explain this selected paragraph.',title:'Research Paper',truncated:false});
+  expect(Object.keys(sessionData['pdfSelection:3'])).toEqual(['id','mode','text','title','truncated']);
+
+  expect((await send('TAKE_PDF_SELECTION',{tabId:3},pageSender)).ok).toBe(false);
+  const taken=await send('TAKE_PDF_SELECTION',{tabId:3},panelSender);
+  expect(taken.data).toMatchObject({mode:'translate',text:'Explain this selected paragraph.'});
+  expect(sessionData['pdfSelection:3']).toBeUndefined();
+  expect((await send('TAKE_PDF_SELECTION',{tabId:3},panelSender)).data).toBeNull();
+});
+it('ignores empty text selections instead of opening the panel', async () => {
+  api.contextMenus.onClicked.listeners[0]({menuItemId:'easy-learn-explain-selection',selectionText:'   '},{id:5,title:'Scanned PDF'});
+  expect(api.sidePanel.open).not.toHaveBeenCalled();
+  expect(sessionData['pdfSelection:5']).toBeUndefined();
+});
+it('caps selected PDF text to the existing context limit and records truncation', async () => {
+  const longSelection='x'.repeat(16020);
+  api.contextMenus.onClicked.listeners[0]({menuItemId:'easy-learn-explain-selection',selectionText:longSelection},{id:4,title:'Paper'});
+  await vi.waitFor(()=>expect(sessionData['pdfSelection:4']).toBeDefined());
+  expect(sessionData['pdfSelection:4'].text).toHaveLength(16000);
+  expect(sessionData['pdfSelection:4'].truncated).toBe(true);
+});
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
   const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false});
   expect(JSON.stringify(result)).not.toContain('secret');

@@ -17,6 +17,8 @@ const extensionRoot = chrome.runtime.getURL('');
 const tabScopes = new Map<number, Set<string>>();
 const documentPorts = new Map<string, chrome.runtime.Port>();
 let mutationTail: Promise<unknown> = Promise.resolve();
+const pdfSelectionKey = (tabId: number) => `pdfSelection:${tabId}`;
+const PDF_SELECTION_LIMIT = 16000;
 function scopeFor(sender: chrome.runtime.MessageSender) {
   if (!sender.documentId) throw new Error('无法识别页面会话，请刷新后重试。');
   const scope = sender.documentId;
@@ -26,7 +28,7 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   }
   return scope;
 }
-function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html'].includes(sender.url.split(/[?#]/)[0]); }
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html'].includes(sender.url.split(/[?#]/)[0]); }
 async function config(): Promise<Config> {
   await initialized;
   const data = await chrome.storage.local.get('config');
@@ -76,7 +78,38 @@ chrome.runtime.onConnect.addListener(port => {
     port.onDisconnect.addListener(() => { if (panelPorts.get(id) === port) panelPorts.delete(id); });
   }
 });
-chrome.tabs.onRemoved.addListener(clearTab);
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'easy-learn-explain-selection', title: '用 Easy Learn 解释选中文字', contexts: ['selection'] });
+    chrome.contextMenus.create({ id: 'easy-learn-translate-selection', title: '用 Easy Learn 翻译选中文字', contexts: ['selection'] });
+  });
+});
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const mode = info.menuItemId === 'easy-learn-explain-selection' ? 'explain'
+    : info.menuItemId === 'easy-learn-translate-selection' ? 'translate' : null;
+  const tabId = tab?.id;
+  const selectedText = info.selectionText?.trim();
+  if (!mode || tabId === undefined || !selectedText) return;
+
+  const selection = {
+    id: crypto.randomUUID(),
+    mode,
+    text: selectedText.slice(0, PDF_SELECTION_LIMIT),
+    title: (tab?.title || '选中的英文内容').slice(0, 500),
+    truncated: selectedText.length > PDF_SELECTION_LIMIT,
+  };
+  // Open synchronously in the context-menu click handler so Chrome retains the user gesture.
+  const opening = chrome.sidePanel.open({ tabId }).then(() => true, () => false);
+  void chrome.storage.session.set({ [pdfSelectionKey(tabId)]: selection }).then(async () => {
+    if (await opening) {
+      void chrome.runtime.sendMessage({ type: 'PDF_SELECTION_READY', tabId }).catch(() => undefined);
+      return;
+    }
+    // Keep the selected document open if a browser does not expose the side panel API.
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`panel.html?sourceTab=${tabId}`) });
+  }).catch(() => undefined);
+});
+chrome.tabs.onRemoved.addListener(id => { clearTab(id); void chrome.storage.session.remove(pdfSelectionKey(id)); });
 // Navigation/scroll tracking may report loading without replacing the document.
 // Content-port disconnection and tab closure own cancellation, not tab status.
 async function handle(msg: any, sender: chrome.runtime.MessageSender) {
@@ -84,6 +117,16 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   if (sender.id !== chrome.runtime.id) throw new Error('不允许的消息来源。');
   const isTrusted = trusted(sender);
   if (msg.type === 'OPEN_OPTIONS') { await chrome.runtime.openOptionsPage(); return null; }
+  if (msg.type === 'TAKE_PDF_SELECTION') {
+    if (!isTrusted) throw new Error('该操作仅限扩展界面。');
+    if (!Number.isInteger(msg.tabId) || msg.tabId < 0) throw new Error('无法识别当前 PDF 页面。');
+    const key = pdfSelectionKey(msg.tabId);
+    const saved = await chrome.storage.session.get(key);
+    const selection = saved[key];
+    if (!selection) return null;
+    await chrome.storage.session.remove(key);
+    return selection;
+  }
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
     return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [] };
