@@ -19,12 +19,16 @@ export const analyzeSchema = z.object({ concepts: z.array(conceptSchema.extend({
 export const explainSchema = z.object({ meaning: z.string().max(2000), expansion: z.string().max(500), evidence: z.string().max(2000), ambiguity: z.string().max(2000), explanation: z.string().min(1).max(6000), example: z.string().max(2000), prerequisites: z.array(z.object({ term: z.string().max(200), explanation: z.string().max(2000) })).max(5), translation: z.string().max(10000) });
 export type Explanation = z.infer<typeof explainSchema>;
 export const quizSchema = z.object({ question: z.string().trim().min(1).max(2000), application: z.string().trim().min(1).max(2000) });
+export const choiceQuizSchema = z.object({ question: z.string().trim().min(1).max(1200), options: z.array(z.object({ id: z.enum(['A', 'B', 'C', 'D']), text: z.string().trim().min(1).max(500) })).length(4), correctOption: z.enum(['A', 'B', 'C', 'D']), explanation: z.string().trim().min(1).max(1500) }).superRefine((value, ctx) => {
+  if (new Set(value.options.map(option => option.id)).size !== 4) ctx.addIssue({ code: 'custom', message: '选项编号必须包含 A、B、C、D 且不重复。' });
+});
+export type ChoiceQuiz = z.infer<typeof choiceQuizSchema>;
 export type Quiz = z.infer<typeof quizSchema>;
 export const evaluationSchema = z.object({ correct: z.string().trim().min(1).max(3000), gaps: z.string().trim().min(1).max(3000), reference: z.string().trim().min(1).max(4000) });
 export type Evaluation = z.infer<typeof evaluationSchema>;
 export const candidateSchema = z.object({ id:z.string().regex(/^c\d+$/).max(20), anchor:z.string().min(1).max(300), kind:z.enum(['term','abbreviation','command','code','vocabulary']), heading:z.string().max(120), context:z.string().max(420) });
 export type Candidate = z.infer<typeof candidateSchema>;
-export const aiRequestSchema = z.object({ operation: z.enum(['analyze', 'explain', 'quiz', 'evaluate']), candidates:z.array(candidateSchema).min(1).max(8).optional(), context: contextSchema, concept: conceptSchema.optional(), mode: z.enum(['explain', 'translate', 'followup']).optional(), goal: z.string().trim().max(300).optional(), question: z.string().max(2000).optional(), answer: z.string().max(5000).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(10000) })).max(8).optional() }).superRefine((value, ctx) => {
+export const aiRequestSchema = z.object({ operation: z.enum(['analyze', 'explain', 'quiz', 'choice', 'evaluate']), candidates:z.array(candidateSchema).min(1).max(8).optional(), context: contextSchema, concept: conceptSchema.optional(), mode: z.enum(['explain', 'translate', 'followup']).optional(), goal: z.string().trim().max(300).optional(), question: z.string().max(2000).optional(), answer: z.string().max(5000).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(10000) })).max(8).optional() }).superRefine((value, ctx) => {
   if (value.operation === 'evaluate' && (!value.question?.trim() || !value.answer?.trim())) ctx.addIssue({ code: 'custom', message: '请先写下自己的回答。' });
   if (value.candidates && value.operation !== 'analyze') ctx.addIssue({ code: 'custom', message: '候选词仅用于注释分析。' });
 });

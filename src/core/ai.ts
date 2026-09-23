@@ -9,6 +9,7 @@ export type ModelTiming = {firstContentMs:number|null;firstItemMs:number|null;to
 const contracts = {
   analyze: '{"items":[{"id":"输入候选的id","meaning":"简短中文名称","summary":"一句话说明在这里的作用","expansion":"仅缩写填写英文全称","ambiguity":"仅不确定时填写","parts":[{"text":"原文片段","explanation":"简短解释"}]}]}；普通常见词或不值得标注的候选请返回 {"id":"对应id","skip":true}。parts 仅命令和代码需要；其他字段可省略。',
   explain: '{"meaning":"中文含义","expansion":"缩写全称或空字符串","evidence":"判断依据","ambiguity":"不确定之处、候选解释和缺少的信息，确定时为空字符串","explanation":"通俗解释或追问回答","example":"短例子","prerequisites":[{"term":"前置概念","explanation":"简短解释"}],"translation":"仅翻译模式填写完整目标段落译文，否则空字符串"}',
+  choice: '{"question":"一道基于所选文字的简单单选题；信息不足时询问所选文字能支持的判断","options":[{"id":"A","text":"选项"},{"id":"B","text":"选项"},{"id":"C","text":"选项"},{"id":"D","text":"选项"}],"correctOption":"A/B/C/D 之一","explanation":"用选中的文字简短说明判断依据"}',
   quiz: '{"question":"围绕学习目标和所给选段的一道简短开放题，要求用自己的话解释原因或做判断；不含答案、提示答案或评分","application":"一个可在10分钟内尝试的迁移应用任务，说明具体情境、要交付的小成果和自查标准，不给出解法；信息不足时请用户选自己的情境"}',
   evaluate: '{"correct":"回答中正确的部分；无则明确说明","gaps":"具体遗漏或误解；无则说明","reference":"参考解释，不声称用户已长期掌握"}',
 };
@@ -17,7 +18,7 @@ export function parseResult(operation: AIRequest['operation'], raw: string) {
   return parseModelOutput(operation,raw);
 }
 export async function callModel(config:Config, request:AIRequest, signal?:AbortSignal, onProgress?:(progress:AnalysisProgress)=>void) {
-  const learningInstruction = request.operation === 'quiz' ? '出题必须能仅根据所给选段回答；学习目标仅用于调整侧重点，不得为满足目标补造原文事实。application 单独作为答题后的实践任务，禁止把参考答案放进 question。' : request.operation === 'evaluate' ? '按 question 对照 answer 和原文反馈，引用回答中的具体表述，明确哪些判断缺乏原文依据；不因措辞不同判错。不给分数、人格判断或长期掌握结论。reference 必须非空；若无法判断，应说明缺少什么信息。' : '';
+  const learningInstruction = request.operation === 'quiz' ? '出题必须能仅根据所给选段回答；学习目标仅用于调整侧重点，不得为满足目标补造原文事实。application 单独作为答题后的实践任务，禁止把参考答案放进 question。' : request.operation === 'choice' ? '仅根据用户主动选中的文字出一道简单单选题，提供 A、B、C、D 四个不同且只有一个正确的选项。只有原文支持的内容才能作为正确答案；错误选项应可由原文排除。所选文字信息不足时，询问原文实际能支持的判断，不补充外部背景。题干和选项不得暴露答案；explanation 只解释原文依据。将正确选项放在单独的 correctOption 字段中，前端会等用户作答后才展示。' : request.operation === 'evaluate' ? '按 question 对照 answer 和原文反馈，引用回答中的具体表述，明确哪些判断缺乏原文依据；不因措辞不同判错。不给分数、人格判断或长期掌握结论。reference 必须非空；若无法判断，应说明缺少什么信息。' : '';
   const system=`${SYSTEM}\n${learningInstruction}\n任务：${request.operation}。结构：${contracts[request.operation]}\n${request.operation==='analyze'?'只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。':''}${request.operation==='analyze'&&request.candidates?.some(c=>c.kind==='vocabulary')?'\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。':''}`;
   // Batch requests contain short snippets only. Do not resend neighboring paragraphs.
   const input=request.candidates?{operation:request.operation,profile:config.profile,title:request.context.title.slice(0,160),candidates:request.candidates}:{profile:config.profile,...request};

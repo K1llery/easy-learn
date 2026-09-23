@@ -24,8 +24,8 @@ export function Practice({ context, concept, onReview }: { context: TextContext;
   // Keep the practice tied to the selected paragraph. Neighbors and entire sections are not needed.
   const selected: TextContext = { title: context.title, heading: context.heading, text: context.text, before: '', after: '', kind: context.kind };
   return <section className="practice" aria-label="主动练习">
-    <div className="practice-heading"><span className="eyebrow">TURN READING INTO ABILITY</span><h2>读懂之后，让自己说一遍。</h2><p className="muted">先回忆，再对照，最后把它用在一个小场景里。原文和解释已收起，可随时返回阅读。</p></div>
-    <ol className="learning-steps" aria-label="练习步骤"><li className={!quiz ? 'current' : ''}>定目标</li><li className={quiz && !feedback ? 'current' : ''}>先回答</li><li className={feedback ? 'current' : ''}>反馈与应用</li></ol>
+    <div className="practice-heading"><span className="eyebrow">主动练习</span><h2>读懂之后，让自己说一遍。</h2><p className="muted">先回忆，再对照，最后把它用在一个小场景里。原文和解释已收起，可随时返回阅读。</p></div>
+    <ol className="learning-steps" aria-label="练习步骤"><li className={!quiz ? 'current' : ''}>定目标</li><li className={quiz && !feedback ? 'current' : ''}>先回答</li><li className={feedback ? 'current' : ''}>反馈 + 应用任务</li></ol>
     {!quiz ? <form className="card" onSubmit={event => {
       event.preventDefault();
       void run('正在根据选段准备练习…', () => rpc<Quiz>('AI', { request: { operation: 'quiz', context: selected, concept, goal } }), setQuiz);
@@ -48,7 +48,7 @@ export function Practice({ context, concept, onReview }: { context: TextContext;
       </form>
       {feedback && <>
         <section className="card" aria-label="练习反馈"><span className="tag">02 · 对照与补充</span><Feedback value={feedback}/></section>
-        <section className="card application-card" aria-label="应用小任务"><span className="tag">03 · 花十分钟，用一次</span><p className="learning-question">{quiz.application}</p><p className="muted">在真实项目或自己的例子里尝试。保存后，可以在“我的复习”记录做法、结果和仍未解决的问题。</p></section>
+        <section className="card application-card" aria-label="应用小任务"><span className="tag">03 · 应用小任务</span><p className="learning-question">{quiz.application}</p><p className="muted">在真实项目或自己的例子里尝试。保存后，可以在“我的复习”记录做法、结果和仍未解决的问题。</p></section>
         <section className="save-practice">
           {saved ? <><p className="success" role="status">已保存，明天再回忆一次。也可以现在留下实践记录。</p><button onClick={onReview}>去我的复习</button></> : <>
             <button className="primary" disabled={!!busy} onClick={() => void run('正在保存到本机…', () => rpc<LearningCard>('LEARNING_SAVE', { draft: { id, title: selected.title || '我的练习', sourceText: selected.text, goal, question: quiz.question, application: quiz.application, answer: answer.trim(), feedback } }), setSaved)}>保存练习，明天复习</button>

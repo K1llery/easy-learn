@@ -82,7 +82,7 @@ export function ReviewDesk({ active, onRead }: { active: boolean; onRead: () => 
   }
   return <div className="review-desk">
     {selected ? <ReviewCard key={selected.card.id} initial={selected.card} initialMode={selected.mode} onBack={() => setSelected(null)} onChange={next => { setCards(prev => prev.map(card => card.id === next.id ? next : card)); setSelected(prev => prev ? { ...prev, card: next } : null); }}/>
-    : <><div className="intro"><div className="eyebrow">A LITTLE PRACTICE, EVERY DAY</div><h1>让昨天读过的，<br/>成为今天会用的。</h1><p>每天找几分钟，先独立回忆，再去做一件小事。</p></div>
+    : <><div className="intro"><div className="eyebrow">我的学习记录</div><h1>让昨天读过的，<br/>成为今天会用的。</h1><p>每天找几分钟，先独立回忆，再去做一件小事。</p></div>
       <div className="learning-stats"><div><strong>{due.length}</strong><span>到期复习</span></div><div><strong>{cards.length}</strong><span>保存的练习</span></div><div><strong>{cards.filter(card => !!card.actionRecordedAt).length}</strong><span>有实践记录</span></div></div>
       {loadError && <div className="error" role="alert">{loadError}<button onClick={() => void run('正在重新读取…', () => rpc<LearningCard[]>('LEARNING_LIST'), next => { setCards(next); setLoaded(true); setLoadError(''); })}>重新读取</button></div>}
       {!loaded && !loadError && <p className="busy" role="status">正在读取本机练习…</p>}

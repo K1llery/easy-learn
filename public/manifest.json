@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Easy Learn · 读懂，再学会",
-  "description": "英文技术文章伴读；选段解释、主动练习与本地复习，让读过的知识真正用起来。",
-  "version": "0.10.0",
+  "description": "英文技术文章伴读；选段解释、选择题快测、主动练习与本地复习，让读过的知识真正用起来。",
+  "version": "0.11.0",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",
