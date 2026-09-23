@@ -27,16 +27,10 @@ beforeEach(async () => {
     set:vi.fn(async (next: any) => {await Promise.resolve();Object.assign(data,structuredClone(next));}),
     clear:vi.fn(async () => {data={};}),
   };
-  api={storage:{local:storage,session:{setAccessLevel:vi.fn().mockResolvedValue(undefined)}},permissions:{contains:vi.fn().mockResolvedValue(true)},runtime:{id:'test-id',getURL:(p:string)=>extensionUrl+p,openOptionsPage:vi.fn(),onMessage:event(),onConnect:event()},tabs:{onRemoved:event(),onUpdated:event(),create:vi.fn()},action:{onClicked:event()},scripting:{executeScript:vi.fn()}};
+  api={storage:{local:storage,session:{setAccessLevel:vi.fn().mockResolvedValue(undefined)}},permissions:{contains:vi.fn().mockResolvedValue(true)},runtime:{id:'test-id',getURL:(p:string)=>extensionUrl+p,openOptionsPage:vi.fn(),onMessage:event(),onConnect:event()},tabs:{onRemoved:event(),onUpdated:event(),create:vi.fn()}};
   vi.stubGlobal('chrome',api); await import('../src/background');
 });
 afterEach(()=>vi.unstubAllGlobals());
-it('starts reading immediately when the extension action is clicked',async()=>{
- api.action.onClicked.emit({id:3,url:'https://article.example/'});
- await vi.waitFor(()=>expect(api.scripting.executeScript).toHaveBeenCalledWith({target:{tabId:3},files:['content.js']}));
- expect(api.tabs.create).not.toHaveBeenCalled();
-});
-
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
   const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false});
   expect(JSON.stringify(result)).not.toContain('secret');

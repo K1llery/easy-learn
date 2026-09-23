@@ -77,11 +77,6 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 chrome.tabs.onRemoved.addListener(clearTab);
-chrome.action.onClicked.addListener(async tab => {
-  if (tab.id === undefined) return;
-  try { await initialized; await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); }
-  catch { await chrome.tabs.create({ url: chrome.runtime.getURL('panel.html') }); }
-});
 // Navigation/scroll tracking may report loading without replacing the document.
 // Content-port disconnection and tab closure own cancellation, not tab status.
 async function handle(msg: any, sender: chrome.runtime.MessageSender) {

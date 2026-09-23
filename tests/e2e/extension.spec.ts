@@ -277,8 +277,8 @@ test('jumping ahead prioritizes the new reading position in the next available b
  await expect(page.getByRole('status')).toContainText('当前内容已处理');await page.close();
 });
 
-test('toolbar action starts immediately and hover reveals persistent annotation settings',async()=>{
- const manifest=JSON.parse(await readFile('dist/manifest.json','utf8'));expect(manifest.action.default_popup).toBeUndefined();
+test('toolbar action uses the popup and hover reveals persistent annotation settings',async()=>{
+ const manifest=JSON.parse(await readFile('dist/manifest.json','utf8'));expect(manifest.action.default_popup).toBe('popup.html');
  const page=await context.newPage();await page.goto(`${base}/vocabulary-toggle`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Vocabulary toggle</h1><p>The transient scheduler reroutes requests during failover.</p></article>';});
  const start=calls.length;await inject(page);await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toBeVisible();await expect(page.getByRole('status')).toContainText('当前内容已处理');expect(calls.length).toBe(start);
@@ -296,6 +296,23 @@ test('toolbar action starts immediately and hover reveals persistent annotation 
  await expect(options.getByLabel('专有名词与技术术语')).not.toBeChecked();await expect(options.getByLabel('扩展词汇（常用词表外，试验）')).toBeChecked();
  await expect(options.locator('section.card').first().getByLabel('代码注释（不含命令行）')).toBeVisible();
  await options.close();await page.close();
+});
+
+test('opening the toolbar popup auto-injects the reader into the active article',async()=>{
+ const page=await context.newPage();await page.goto(`${base}/popup-startup`);
+ const popupTabId=await worker.evaluate(async()=>{const tab=await chrome.tabs.create({url:chrome.runtime.getURL('popup.html'),active:false});return tab.id;});
+ await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toBeVisible();
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ if(popupTabId!==undefined)await worker.evaluate(tabId=>chrome.tabs.remove(tabId),popupTabId).catch(()=>{});
+ await page.close();
+});
+
+test('restricted pages keep the popup open with retry and paste-panel options',async()=>{
+ const page=await context.newPage();await page.goto(`chrome-extension://${id}/popup.html`);
+ await expect(page.getByRole('heading',{name:'当前页面无法开启伴读'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'重试'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'打开粘贴文本面板'})).toBeVisible();
+ await page.close();
 });
 
 test('offline documentation fixtures cover repeated terms, shell prompts, sed and common CLI commands',async()=>{
