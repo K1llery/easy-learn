@@ -189,3 +189,34 @@ it('reuses persistent terms after a document reload, remaps IDs, and clears them
  await send('AI',{request:{operation:'analyze',context,candidates}},{...reload,documentId:'after-clear'});expect(model).toHaveBeenCalledTimes(2);
  expect(data.annotationCacheV1).toEqual([]);
 });
+
+const learningDraft = () => ({id:crypto.randomUUID(),title:'Recovery',sourceText:context.text,goal:'设计恢复方案',question:'为什么需要异地副本？',application:'画一张恢复流程图。',answer:'为了恢复服务。',feedback:{correct:'理解了恢复。',gaps:'需要说明故障范围。',reference:'在另一地区保留可用副本。'}});
+it('keeps saved learning private and supports offline records without model configuration', async () => {
+  const draft=learningDraft();delete data.config;data.reading={localOnly:true};
+  for(const type of ['LEARNING_LIST','LEARNING_SAVE','LEARNING_REVIEW','LEARNING_NOTE','LEARNING_DELETE']) expect((await send(type,{draft,id:draft.id},pageSender)).ok).toBe(false);
+  const result=await send('LEARNING_SAVE',{draft:{...draft,apiKey:'do-not-persist',before:'unselected-neighbor'}},panelSender);
+  expect(result.ok).toBe(true);expect(data.learningCardsV1).toHaveLength(1);
+  expect(JSON.stringify(data.learningCardsV1)).not.toMatch(/do-not-persist|unselected-neighbor/);
+  expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.learningCardsV1).toBeUndefined();
+  expect((await send('LEARNING_LIST',{},panelSender)).data).toHaveLength(1);
+  expect(model).not.toHaveBeenCalled();
+});
+it('serializes concurrent learning saves and rejects stale review updates', async () => {
+  const first=learningDraft(),second=learningDraft();
+  const saved=await Promise.all([send('LEARNING_SAVE',{draft:first}),send('LEARNING_SAVE',{draft:second}),send('LEARNING_SAVE',{draft:first})]);
+  expect(saved.every(result=>result.ok)).toBe(true);expect(data.learningCardsV1).toHaveLength(2);
+  const input={id:first.id,revision:0,rating:'remembered',answer:'整个区域出故障时，本地副本也可能不可用。'};
+  const reviewed=await Promise.all([send('LEARNING_REVIEW',input),send('LEARNING_REVIEW',input)]);
+  expect(reviewed.filter(result=>result.ok)).toHaveLength(1);
+  expect(data.learningCardsV1[0]).toMatchObject({revision:1,reviewCount:1,lastAnswer:input.answer});
+  expect((await send('LEARNING_NOTE',{id:first.id,revision:0,note:'旧记录'})).ok).toBe(false);
+  expect((await send('LEARNING_NOTE',{id:first.id,revision:1,note:'画了流程图。'})).ok).toBe(true);
+  expect(data.learningCardsV1[0]).toMatchObject({revision:2,actionNote:'画了流程图。'});
+  await send('LEARNING_DELETE',{id:first.id});expect(data.learningCardsV1.map((card:any)=>card.id)).toEqual([second.id]);
+  await send('CLEAR_SETTINGS');expect((await send('LEARNING_LIST')).data).toEqual([]);
+});
+it('retains existing records when storage fails, allowing an explicit save retry', async () => {
+  const draft=learningDraft();api.storage.local.set.mockRejectedValueOnce(new Error('Storage quota exceeded'));
+  expect((await send('LEARNING_SAVE',{draft})).ok).toBe(false);expect(data.learningCardsV1).toBeUndefined();
+  expect((await send('LEARNING_SAVE',{draft})).ok).toBe(true);expect(data.learningCardsV1).toHaveLength(1);
+});

@@ -2,6 +2,7 @@ import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfil
 import { callModel, type AnalysisProgress } from './core/ai';
 import { AnnotationCache } from './core/annotation-cache';
 import { cacheKey, Queue, SessionCache } from './core/session';
+import { LEARNING_KEY, learningDraftSchema, learningIdSchema, reviewInputSchema, actionInputSchema, readLearningCards, saveLearningCard, findLearningCard, reviewLearningCard, assertLearningCapacity } from './core/learning';
 const initialized = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
@@ -195,6 +196,27 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     await chrome.storage.local.set({config:{...cfg,profile}}); refresh(); return null;
   }
   if (!isTrusted && msg.type !== 'MASTER') throw new Error('该操作仅限扩展界面。');
+  if (msg.type === 'LEARNING_LIST') return readLearningCards((await chrome.storage.local.get(LEARNING_KEY))[LEARNING_KEY]);
+  if (['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE'].includes(msg.type)) {
+    const cards = readLearningCards((await chrome.storage.local.get(LEARNING_KEY))[LEARNING_KEY]);
+    if (msg.type === 'LEARNING_SAVE') {
+      const saved = saveLearningCard(cards, learningDraftSchema.parse(msg.draft));
+      await chrome.storage.local.set({ [LEARNING_KEY]: saved.cards });
+      return saved.card;
+    }
+    if (msg.type === 'LEARNING_DELETE') {
+      const id = learningIdSchema.parse(msg.id);
+      await chrome.storage.local.set({ [LEARNING_KEY]: cards.filter(card => card.id !== id) });
+      return null;
+    }
+    const input = msg.type === 'LEARNING_REVIEW' ? reviewInputSchema.parse(msg) : actionInputSchema.parse(msg);
+    const card = findLearningCard(cards, input.id, input.revision);
+    const updated = 'rating' in input ? reviewLearningCard(card, input) : { ...card, actionNote: input.note, actionRecordedAt: input.note ? Date.now() : null, revision: card.revision + 1 };
+    const next = cards.map(item => item.id === updated.id ? updated : item);
+    assertLearningCapacity(next);
+    await chrome.storage.local.set({ [LEARNING_KEY]: next });
+    return updated;
+  }
   if (msg.type === 'GET_SETTINGS') return chrome.storage.local.get(['config', 'mastered', 'reading']);
   if (msg.type === 'SAVE_SETTINGS') {
     const cfg = configSchema.parse(msg.config); endpoint(cfg.baseUrl);
@@ -232,7 +254,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
 }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Serialize read/modify/write settings operations across tabs.
-  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
+  const mutate = ['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE', 'SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
   const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
   if (mutate) mutationTail = task.catch(() => undefined);
   task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));

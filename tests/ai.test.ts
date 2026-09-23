@@ -48,3 +48,20 @@ describe('local output normalization',()=>{
   expect(parseModelOutput('analyze','c0: 恢复流程\nc1: 程序接口',request)).toMatchObject({concepts:[{anchor:'DR'},{anchor:'API'}],missing:[]});
  });
 });
+
+it('requires both a grounded question and an application task, without paid repair', async () => {
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('{"question":"为什么需要副本？"}'));
+ await expect(callModel(config,{operation:'quiz',context:request.context,goal:'设计备份方案'})).rejects.toThrow('模型未返回完整');
+ expect(fetcher).toHaveBeenCalledTimes(1);
+ expect(()=>parseModelOutput('evaluate','{}')).toThrow();
+ expect(()=>parseModelOutput('evaluate','{"correct":"truncated')).toThrow();
+ expect(parseModelOutput('quiz','{"question":"为什么需要副本？","application":"画一张恢复流程图。"}')).toEqual({question:'为什么需要副本？',application:'画一张恢复流程图。'});
+});
+it('keeps the learner goal and attempted answer in data rather than system instructions', async () => {
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('{"correct":"提到了副本。","gaps":"遗漏故障范围。","reference":"区域故障会影响本地副本。"}'));
+ await callModel(config,{operation:'evaluate',context:request.context,goal:'learner-goal-untrusted',question:'Why?',answer:'attempt-untrusted'});
+ const body=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(body.messages[0].content).not.toContain('learner-goal-untrusted');
+ expect(body.messages[0].content).not.toContain('attempt-untrusted');
+ expect(JSON.parse(body.messages[1].content)).toMatchObject({goal:'learner-goal-untrusted',question:'Why?',answer:'attempt-untrusted'});
+});

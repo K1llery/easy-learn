@@ -11,7 +11,7 @@ function output(request: any) {
   if(request.candidates)return {items:request.candidates.map((c:any)=>({id:c.id,meaning:c.context.includes('daily run')?'每日运行':c.anchor==='API'?'应用程序编程接口':'灾难恢复',summary:'按当前语境解释：'+(c.context.includes('daily run')?'每日运行':c.anchor==='API'?'应用程序编程接口':'灾难恢复')}))};
   const concept = (anchor: string, meaning: string, expansion: string) => ({anchor,category:'缩写',meaning,expansion,evidence:'来自当前段落的用途描述。',ambiguity:'',summary:'按当前语境解释：'+meaning,parts:[]});
   if(request.operation === 'analyze') return {concepts: text.includes('DR') ? [concept('DR',text.includes('daily run') ? '每日运行' : '灾难恢复',text.includes('daily run') ? 'Daily Run' : 'Disaster Recovery')] : text.includes('API') ? [concept('API','应用程序编程接口','Application Programming Interface')] : []};
-  if(request.operation === 'quiz') return {question:'为什么灾难恢复还需要异地副本？'};
+  if(request.operation === 'quiz') return {question:'为什么灾难恢复还需要异地副本？',application:'为自己的服务画一张异地恢复流程图，标出故障点与接管步骤。'};
   if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。'};
   return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。' : ''};
 }
@@ -55,7 +55,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   responseStatus=200;responseStyle='json';responseDelay=0;
   const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
-  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'CLEAR_ANNOTATION_CACHE'});await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SET_ANNOTATION_TYPES',types:['abbreviation','term','command']}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
+  await settings.evaluate(async base => { await chrome.storage.local.remove('learningCardsV1');await chrome.runtime.sendMessage({type:'CLEAR_ANNOTATION_CACHE'});await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SET_ANNOTATION_TYPES',types:['abbreviation','term','command']}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
   await settings.close();
 });
 test.afterEach(async ({},info)=>{
@@ -373,4 +373,74 @@ test('offline documentation fixtures cover repeated terms, shell prompts, sed an
   }
   await page.close();
  }
+});
+
+test('practices before seeing explanations, retains failed attempts, and saves only on demand', async () => {
+  const panel=await context.newPage();await panel.setViewportSize({width:410,height:1000});await panel.goto(`chrome-extension://${id}/panel.html`);
+  const start=calls.length;
+  const source='DR restores service after a regional failure. Copies in another region can remain available.';
+  await panel.getByLabel('粘贴想理解的内容').fill(source);await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await expect(panel.getByLabel('主动练习')).toBeVisible();expect(calls.length).toBe(start);
+  await expect(panel.locator('.source')).toBeHidden();await expect(panel.getByLabel('概念解释')).toHaveCount(0);
+  await panel.getByLabel('这段内容，你想拿来做什么？').fill('为自己的项目设计恢复方案');
+  responseStatus=429;await panel.getByRole('button',{name:'出一道练习题'}).click();await expect(panel.getByRole('alert')).toContainText('限流');
+  await expect(panel.getByLabel('这段内容，你想拿来做什么？')).toHaveValue('为自己的项目设计恢复方案');expect(calls.length-start).toBe(1);
+  responseStatus=200;await panel.getByRole('button',{name:'出一道练习题'}).click();
+  await expect(panel.getByText('为什么灾难恢复还需要异地副本？')).toBeVisible();await expect(panel.getByLabel('练习反馈')).toHaveCount(0);await expect(panel.getByLabel('应用小任务')).toHaveCount(0);
+  await expect(panel.getByRole('button',{name:'请 AI 找出理解缺口'})).toBeDisabled();
+  await panel.getByLabel('我的回答',{exact:true}).fill('因为发生故障时需要恢复服务。');
+  responseStatus=429;await panel.getByRole('button',{name:'请 AI 找出理解缺口'}).click();await expect(panel.getByRole('alert')).toContainText('限流');
+  await expect(panel.getByLabel('我的回答',{exact:true})).toHaveValue('因为发生故障时需要恢复服务。');
+  responseStatus=200;await panel.getByRole('button',{name:'请 AI 找出理解缺口'}).click();
+  await expect(panel.getByLabel('练习反馈')).toContainText('本地副本可能一起不可用');await expect(panel.getByLabel('应用小任务')).toContainText('标出故障点与接管步骤');
+  const sent=calls.slice(start);expect(sent.map(call=>call.operation)).toEqual(['quiz','quiz','evaluate','evaluate']);
+  for(const call of sent){expect(call.context).toMatchObject({text:source,before:'',after:''});expect(call.context.section).toBeUndefined();expect(call.goal).toBe('为自己的项目设计恢复方案');}
+  const readCards=()=>panel.evaluate(async()=> (await chrome.storage.local.get('learningCardsV1')).learningCardsV1??[]);
+  expect(await readCards()).toEqual([]);
+  await panel.screenshot({path:'test-results/active-practice.png',fullPage:true});
+  await panel.getByRole('button',{name:'保存练习，明天复习'}).click();await expect(panel.getByRole('status')).toContainText('明天再回忆');
+  const cards=await readCards();expect(cards).toHaveLength(1);expect(cards[0]).toMatchObject({sourceText:source,answer:'因为发生故障时需要恢复服务。',reviewCount:0});
+  expect(cards[0].dueAt-cards[0].createdAt).toBe(86400000);expect(calls.length-start).toBe(4);
+  await panel.getByRole('button',{name:'阅读解释',exact:true}).click();await expect(panel.getByLabel('概念解释')).toBeVisible();expect(calls.length-start).toBe(5);expect(calls.at(-1).operation).toBe('explain');
+  await panel.reload();await panel.getByRole('button',{name:'我的复习',exact:true}).click();
+  await expect(panel.getByText('为自己的项目设计恢复方案',{exact:true})).toBeVisible();await panel.close();
+});
+
+async function seedPractice(panel: Page) {
+  return panel.evaluate(async()=>{
+    const result=await chrome.runtime.sendMessage({type:'LEARNING_SAVE',draft:{id:crypto.randomUUID(),title:'灾难恢复 · 公开测试选段',sourceText:'DR restores service after a regional failure.',goal:'设计一个可靠的恢复方案',question:'为什么需要异地副本？',application:'画一张恢复流程图，标出故障点。',answer:'为了恢复服务。',feedback:{correct:'理解了恢复服务。',gaps:'要说明故障范围。',reference:'异地副本在区域故障后仍可用。'}}});
+    if(!result.ok)throw new Error(result.error);
+    await chrome.storage.local.set({learningCardsV1:[{...result.data,dueAt:Date.now()-1000}]});
+    return result.data;
+  });
+}
+test('offline review hides references until an attempt, records practice, exports and deletes',async()=>{
+  const panel=await context.newPage();await panel.setViewportSize({width:380,height:1000});await panel.goto(`chrome-extension://${id}/panel.html?view=review`);
+  await expect(panel.getByText('先练会一个小知识点',{exact:true})).toBeVisible();await seedPractice(panel);
+  await panel.evaluate(()=>chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:true}));const start=calls.length;
+  await panel.getByRole('button',{name:'开始复习',exact:true}).click();
+  await expect(panel.getByLabel('复习参考')).toHaveCount(0);await expect(panel.getByRole('button',{name:'写好了，对照参考'})).toBeDisabled();
+  await panel.getByLabel('这次我能想起什么？').fill('本地区域故障可能影响所有本地副本。');await panel.getByRole('button',{name:'写好了，对照参考'}).click();
+  await expect(panel.getByLabel('复习参考')).toContainText('异地副本在区域故障后仍可用。');await expect(panel.getByText('DR restores service after a regional failure.',{exact:true})).toBeHidden();
+  await panel.getByRole('button',{name:'能独立解释 · 3 天后',exact:true}).click();await expect(panel.getByRole('status')).toContainText('已记录这次回忆');
+  await panel.getByRole('button',{name:'应用记录',exact:true}).click();await panel.getByLabel('我做了什么，结果怎样？').fill('画了两地切换图，下一步做故障演练。');await panel.getByRole('button',{name:'保存实践记录'}).click();await expect(panel.getByRole('status')).toContainText('实践记录已保存');
+  await panel.getByRole('button',{name:'返回复习列表'}).click();await expect(panel.getByText('今天没有到期的练习。',{exact:false})).toBeVisible();await expect(panel.getByText('已复习 1 次')).toBeVisible();
+  const downloadPromise=panel.waitForEvent('download');await panel.getByRole('button',{name:'导出学习记录'}).click();const download=await downloadPromise;
+  const exported=await readFile((await download.path())!,'utf8');expect(exported).toContain('画了两地切换图，下一步做故障演练。');expect(exported).toContain('本地区域故障可能影响所有本地副本。');expect(exported).not.toContain('fixture-key');
+  await panel.reload();await expect(panel.getByText('已留下实践记录')).toBeVisible();
+  expect(await panel.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await panel.screenshot({path:'test-results/learning-review.png',fullPage:true});
+  panel.once('dialog',dialog=>dialog.accept());await panel.getByRole('button',{name:'删除练习：为什么需要异地副本？',exact:true}).click();await expect(panel.getByText('先练会一个小知识点',{exact:true})).toBeVisible();
+  expect(calls.length).toBe(start);await panel.close();
+});
+
+test('late quiz responses never replace a new text session',async()=>{
+  const panel=await context.newPage();await panel.goto(`chrome-extension://${id}/panel.html`);
+  await panel.getByLabel('粘贴想理解的内容').fill('The first document discusses disaster recovery.');await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await panel.getByLabel('这段内容，你想拿来做什么？').fill('旧目标');responseDelay=700;const initialCompleted=completed;
+  await panel.getByRole('button',{name:'出一道练习题'}).click();await expect(panel.getByRole('status')).toContainText('正在根据选段');
+  await panel.getByRole('button',{name:'新文本',exact:true}).click();await panel.getByLabel('粘贴想理解的内容').fill('A new document discusses API design.');await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await expect.poll(()=>completed).toBeGreaterThan(initialCompleted);
+  await expect(panel.getByRole('button',{name:'出一道练习题'})).toBeVisible();await expect(panel.getByLabel('这段内容，你想拿来做什么？')).toHaveValue('');await expect(panel.getByText('为什么灾难恢复还需要异地副本？')).toHaveCount(0);
+  await panel.close();
 });
