@@ -15,7 +15,18 @@ function textNodes(element: Element) {
   return nodes;
 }
 export function readableText(element: Element): string { return textNodes(element).map(n => n.data).join('').trim(); }
-export function isCommand(text: string) { return /^(?:\$\s+)?(?:uv|uvx|pip3?|python3?|fastapi|cd|npm|pnpm|git|docker|curl)\s+/.test(text.trim()); }
+const SHELL_COMMANDS = 'apt|apt-get|awk|basename|bash|brew|cargo|cat|conda|go|pipx|poetry|chmod|chown|clear|cmp|comm|cp|curl|cut|date|diff|dirname|docker|echo|env|export|fastapi|file|find|git|grep|gunzip|head|hostname|jq|kill|less|ln|ls|make|man|mkdir|mktemp|more|mv|nc|node|npm|npx|openssl|pgrep|pip3?|pkill|pnpm|printf|ps|pwd|python3?|rm|rmdir|rsync|ruff|sed|seq|sh|sort|source|ssh|stat|sudo|tail|tar|tee|time|touch|tr|true|uname|uniq|uvx?|vim|wc|wget|which|whoami|xargs|yarn';
+const COMMAND = new RegExp('^(?:\\$\\s+)?(?:(?:sudo|time|command)\\s+(?:-[^\\s]+\\s+)*)?(?:' + SHELL_COMMANDS + ')(?=\\s|$)', 'i');
+const SHELL_PROMPT = /^(?:\([^)]+\)\s+)?(?:(?:[\w.-]+@[\w.-]+)\s*:?[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|[\w.-]+[ \t]*:[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|PS\s+[^>\n]*>\s*)/i;
+function commandLine(line: string): { text: string; offset: number; prompted: boolean } | null {
+  const prompt = SHELL_PROMPT.exec(line) ?? /^\s*\$\s+/.exec(line);
+  const tail = line.slice(prompt?.[0].length ?? 0);
+  const leading = tail.length - tail.trimStart().length;
+  const text = tail.trim();
+  return text && isCommand(text) ? { text, offset: (prompt?.[0].length ?? 0) + leading, prompted: !!prompt } : null;
+}
+function hasShellPrompt(line: string) { return SHELL_PROMPT.test(line) || /^\s*\$\s+/.test(line); }
+export function isCommand(text: string) { return COMMAND.test(text.trim()); }
 export function extractBlocks(root: ParentNode = document, includeHeadings = false): Block[] {
   const main = root.querySelector('article') ?? root.querySelector('main') ?? root.querySelector('[role="main"]') ?? root;
   const nodes = [...main.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,li,td,blockquote,pre,[data-ty="input"]')];
@@ -35,15 +46,23 @@ export function extractBlocks(root: ParentNode = document, includeHeadings = fal
       if (element.querySelector('[data-termynal],[data-ty]')) continue;
       const target = element.querySelector<HTMLElement>('code') ?? element;
       const sourceText = readableText(target); if (!sourceText) continue;
-      const lines = sourceText.split('\n'); let offset = 0;
+      const lines = sourceText.split('\n'); let offset = 0, terminalOutput = false;
       for (let i = 0; i < lines.length; ) {
-        const command = isCommand(lines[i]);
+        const command = commandLine(lines[i]);
+        if (command) {
+          if (command.text.length <= 8000) blocks.push({element:target,text:command.text,heading,sectionId,kind:'command',offset:offset+command.offset,sourceText});
+          if(command.prompted)terminalOutput=true;
+          offset += lines[i].length + 1; i++; continue;
+        }
+        // A prompt without an input is terminal output; never treat it as code or a command.
+        if (hasShellPrompt(lines[i])) { terminalOutput=true; offset += lines[i].length + 1; i++; continue; }
+        if(terminalOutput){offset += lines[i].length + 1;i++;continue;}
         let count = 1;
         // A shell input after comments/code is still a command, independent of the code switch.
-        if (!command) while (count < 8 && i + count < lines.length && !isCommand(lines[i + count])) count++;
+        if (!command) while (count < 8 && i + count < lines.length && !commandLine(lines[i + count]) && !hasShellPrompt(lines[i + count])) count++;
         const chunk = lines.slice(i, i + count).join('\n');
         const text = chunk.trim(), leading = chunk.length - chunk.trimStart().length;
-        if (text && text.length <= 8000) blocks.push({element:target,text,heading,sectionId,kind:command?'command':'code',offset:offset+leading,sourceText});
+        if (text && text.length <= 8000) blocks.push({element:target,text,heading,sectionId,kind:'code',offset:offset+leading,sourceText});
         offset += chunk.length + 1; i += count;
       }
       continue;

@@ -15,8 +15,10 @@ function output(request: any) {
   if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。'};
   return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。' : ''};
 }
-async function rpc(type: string, fields: Record<string, unknown> = {}) { return worker.evaluate(async ({type,fields}) => { return chrome.runtime.sendMessage({type,...fields}); }, {type,fields}); }
-async function inject(page: Page) { await worker.evaluate(async url => { const tab = (await chrome.tabs.query({})).find(t=>t.url?.split('#')[0]===url.split('#')[0]); if(!tab)throw new Error('Fixture tab missing'); await chrome.scripting.executeScript({target:{tabId:tab.id!},files:['content.js']}); }, page.url()); }
+async function currentWorker():Promise<Worker> { const active=context.serviceWorkers()[0];if(active){worker=active;return active;}worker=await context.waitForEvent('serviceworker');return worker; }
+async function rpc(type: string, fields: Record<string, unknown> = {}) { return (await currentWorker()).evaluate(async ({type,fields}) => { return chrome.runtime.sendMessage({type,...fields}); }, {type,fields}); }
+async function inject(page: Page) { await (await currentWorker()).evaluate(async url => { const tab = (await chrome.tabs.query({})).find(t=>t.url?.split('#')[0]===url.split('#')[0]); if(!tab)throw new Error('Fixture tab missing'); await chrome.scripting.executeScript({target:{tabId:tab.id!},files:['content.js']}); }, page.url()); }
+async function highlightedRanges(page:Page) { return (await currentWorker()).evaluate(async url=>{const tab=(await chrome.tabs.query({})).find(t=>t.url?.split('#')[0]===url.split('#')[0]);if(!tab)return [];const [result]=await chrome.scripting.executeScript({target:{tabId:tab.id!},func:()=>{const registry=(CSS as any).highlights as Map<string,any>|undefined;return registry?[...registry.entries()].filter(([key])=>key.endsWith('-primary')||key.endsWith('-repeat')).map(([key,value])=>({key,text:[...value].map((range:any)=>range.toString())})):[];}});return result?.result??[];},page.url()); }
 test.beforeAll(async () => {
   server = createServer(async (req,res) => {
     if(req.url === '/v1/chat/completions') {
@@ -53,7 +55,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   responseStatus=200;responseStyle='json';responseDelay=0;
   const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
-  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'CLEAR_ANNOTATION_CACHE'});await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
+  await settings.evaluate(async base => { await chrome.runtime.sendMessage({type:'CLEAR_ANNOTATION_CACHE'});await chrome.runtime.sendMessage({type:'SET_LOCAL_ONLY',enabled:false}); await chrome.runtime.sendMessage({type:'SET_CODE_ANNOTATIONS',enabled:false}); await chrome.runtime.sendMessage({type:'SET_ANNOTATION_TYPES',types:['abbreviation','term','command']}); await chrome.runtime.sendMessage({type:'SAVE_SETTINGS',config:{baseUrl:base+'/v1',model:'fixture-model',apiKey:'fixture-key',profile:{domain:'软件开发',level:'入门'}}}); },base);
   await settings.close();
 });
 test.afterEach(async ({},info)=>{
@@ -175,7 +177,7 @@ test('side settings toggle code independently of commands and remember the choic
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  const count=calls.length;await checkbox.uncheck();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
  await checkbox.check();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);expect(calls.length).toBe(count);
- const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await expect(settings.getByRole('checkbox',{name:'代码注释（不含命令行）'})).toBeChecked();
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await settings.locator('details.section-line summary').click();await expect(settings.getByRole('checkbox',{name:'代码注释（不含命令行）'})).toBeChecked();
  await page.screenshot({path:'test-results/side-settings.png',caret:'initial'});await settings.close();await page.close();
 });
 
@@ -209,8 +211,8 @@ test('two remote batches run concurrently and local marks appear before either r
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(12);
  await writeFile('test-results/status-timeline.json',JSON.stringify(await page.evaluate(()=>(window as any).__statusTrace)));
- expect((await page.evaluate(()=>(window as any).__completedAt))-start).toBeGreaterThanOrEqual(900);
- await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:12,delayPerBatchMs:300,elapsedMs:(await page.evaluate(()=>(window as any).__completedAt))-start,peakInFlight,serialDelayAloneMs:3600}));
+ const elapsedMs=Date.now()-start;expect(elapsedMs).toBeGreaterThanOrEqual(900);
+ await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:12,delayPerBatchMs:300,elapsedMs,peakInFlight,serialDelayAloneMs:3600}));
  await page.close();
 });
 
@@ -272,4 +274,56 @@ test('jumping ahead prioritizes the new reading position in the next available b
  await expect.poll(()=>calls.length-start).toBeGreaterThan(2);
  expect(calls[start+2].candidates.some((c:any)=>c.context.includes('number 25'))).toBe(true);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');await page.close();
+});
+
+test('toolbar popup persists selected annotation types with vocabulary expansion off by default',async()=>{
+ const popup=await context.newPage();await popup.goto(`chrome-extension://${id}/popup.html`);
+ await expect(popup.getByRole('heading',{name:'这次想看哪些注释？'})).toBeVisible();
+ await expect(popup.getByLabel('英文缩写')).toBeChecked();
+ await expect(popup.getByLabel('专有名词与技术术语')).toBeChecked();
+ await expect(popup.getByLabel('CLI 命令')).toBeChecked();
+ await expect(popup.getByLabel('扩展词汇（常用词表外，试验）')).not.toBeChecked();
+ const page=await context.newPage();await page.goto(`${base}/vocabulary-toggle`);
+ await page.evaluate(()=>{document.body.innerHTML='<article><h1>Vocabulary toggle</h1><p>The transient scheduler reroutes requests during failover.</p></article>';});
+ const start=calls.length;await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');expect(calls.length).toBe(start);
+ await popup.getByLabel('专有名词与技术术语').uncheck();
+ await popup.getByLabel('扩展词汇（常用词表外，试验）').check();
+ await expect.poll(()=>calls.slice(start).flatMap(call=>call.candidates??[]).some(candidate=>candidate.kind==='vocabulary'&&candidate.anchor==='transient')).toBe(true);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');
+ expect(calls.slice(start).flatMap(call=>call.candidates??[]).filter(candidate=>candidate.kind==='vocabulary')).toHaveLength(1);
+ await popup.reload();
+ await expect(popup.getByLabel('专有名词与技术术语')).not.toBeChecked();
+ await expect(popup.getByLabel('扩展词汇（常用词表外，试验）')).toBeChecked();
+ await popup.close();await page.close();
+});
+
+test('offline documentation fixtures cover repeated terms, shell prompts, sed and common CLI commands',async()=>{
+ const files=['fastapi-python-types','missing-semester-course-shell','python-cli','http-methods'];
+ for(const name of files){
+  const html=await readFile(`tests/fixtures/sites/${name}.html`,'utf8');
+  const page=await context.newPage();await page.goto(`${base}/site-fixture/${name}`);
+  await page.evaluate(markup=>{document.body.innerHTML=markup;},html);
+  const start=calls.length;await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  const requests=calls.slice(start).filter(call=>call.operation==='analyze');
+  if(name==='fastapi-python-types'){
+   const registry=await highlightedRanges(page);
+   expect(registry.find(item=>item.key.endsWith('-primary'))?.text.map((text:string)=>text.toLowerCase())).toContain('type hints');
+   expect(registry.find(item=>item.key.endsWith('-repeat'))?.text.map((text:string)=>text.toLowerCase())).toContain('type hints');
+   const beforeHover=calls.length;await page.locator('#repeat-type-hints').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('类型提示');expect(calls.length).toBe(beforeHover);
+  }
+  if(name==='missing-semester-course-shell'){
+   const candidates=requests.flatMap(call=>call.candidates??[]);
+   expect(candidates.some(candidate=>candidate.kind==='command'&&candidate.anchor.startsWith('sed -i'))).toBe(true);
+   expect(candidates.some(candidate=>candidate.kind==='command'&&candidate.anchor.startsWith('sed -n'))).toBe(true);
+   expect(candidates.every(candidate=>!candidate.anchor.includes('missing:~$')&&!candidate.context.includes('\npattern/replacement/g'))).toBe(true);
+  }
+  if(name==='python-cli'){
+   await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 3 条注释/);
+  }
+  if(name==='http-methods'){
+   expect(requests.flatMap(call=>call.candidates??[]).some(candidate=>candidate.kind==='command'&&candidate.anchor.startsWith('curl -I'))).toBe(true);
+  }
+  await page.close();
+ }
 });

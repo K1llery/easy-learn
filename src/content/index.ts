@@ -1,4 +1,4 @@
-import { conceptKey, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
+import { conceptKey, defaultAnnotationTypes, type AnnotationType, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
 import { contextFor, extractBlocks, locateText, matchesSnapshot, type Block } from './document';
 import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
@@ -21,7 +21,8 @@ else {
   let connection: ReturnType<typeof connectSurface> | undefined, observer: MutationObserver | undefined;
   let blocks: Block[]=[], annotations: Annotation[]=[], payload: Payload | undefined, selected: Payload | undefined, shown: Annotation | undefined;
   let profile: Profile={domain:'软件开发',level:'入门'}, mastered: Mastered[]=[];
-  let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false;
+  let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false,vocabularyError='';
+  let annotationTypes:AnnotationType[]=[...defaultAnnotationTypes],commonWords:Set<string>|undefined,vocabularyLoad:Promise<void>|undefined;
   let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;
   type Work = {candidate:Candidate;state:'pending'|'loading'|'ready'|'skipped'|'failed';concept?:Concept;error?:string};
   type Target = {block:Block;work:Work;offset:number};
@@ -31,11 +32,11 @@ else {
   let lastTiming:ModelTiming|undefined,cacheHits=0,nextRequest=0;
   let progress:HTMLSpanElement;const observedNodes=new Set<HTMLElement>();
 
-  const highlightName=`easy-learn-${chrome.runtime.id}`;
+  const highlightName=`easy-learn-${chrome.runtime.id}-primary`,repeatHighlightName=`easy-learn-${chrome.runtime.id}-repeat`;
   const highlights=(CSS as unknown as {highlights?:Map<string,unknown>}).highlights;
   const HighlightClass=(globalThis as any).Highlight;
   const style=document.createElement('style');style.dataset.easyLearn='';
-  style.textContent=`::highlight(${highlightName}){background-color:#ffe08acc;color:#173c31;text-decoration:underline solid #b17700 2px;text-underline-offset:3px}`;
+  style.textContent=`::highlight(${highlightName}){background-color:#ffe08acc;color:#173c31;text-decoration:underline solid #b17700 2px;text-underline-offset:3px}::highlight(${repeatHighlightName}){background-color:transparent;color:inherit;text-decoration:underline dotted #84958b 1px;text-underline-offset:3px}`;
   function status() {
     if(!active)return;
     const works=[...new Set(targets.map(t=>t.work))];
@@ -49,26 +50,37 @@ else {
     const visibleReady=visible.filter(w=>w.state==='ready').length;
     progress.textContent=`当前屏幕 ${visibleReady}/${visible.length} 已就绪 · 本地识别 ${works.length} · 已解释 ${ready} · 已过滤 ${skipped} · 未完成 ${failures.length} · ${phase}`;
     statusNode.title=`已准备 ${annotations.filter(a=>!a.part).length} 条注释。悬停下划线即可阅读。`;
-    diagnostic.textContent=[`API ${batchCount} 批 · 本地缓存 ${cacheHits} 条${usageKnown?` · ${tokenCount} tokens`:''}`,lastTiming?`最近一批：排队 ${Math.round(lastTiming.queueMs??0)} ms · 首条 ${lastTiming.firstItemMs===null?'—':Math.round(lastTiming.firstItemMs)} ms · 请求 ${Math.round(lastTiming.totalMs)} ms`:'',settingsError,...new Set(failures.map(w=>w.error))].filter(Boolean).join('\n');
+    diagnostic.textContent=[`API ${batchCount} 批 · 本地缓存 ${cacheHits} 条${usageKnown?` · ${tokenCount} tokens`:''}`,lastTiming?`最近一批：排队 ${Math.round(lastTiming.queueMs??0)} ms · 首条 ${lastTiming.firstItemMs===null?'—':Math.round(lastTiming.firstItemMs)} ms · 请求 ${Math.round(lastTiming.totalMs)} ms`:'',settingsError,vocabularyError,...new Set(failures.map(w=>w.error))].filter(Boolean).join('\n');
+  }
+  function conceptIdentity(concept:Concept){
+    const words=concept.anchor.trim().toLocaleLowerCase().split(/\s+/);
+    const last=words.at(-1)??'';
+    if(concept.category==='术语'||concept.category==='缩写'||concept.category==='词汇'){
+      if(/(?:ches|shes|xes|zes|sses)$/.test(last))words[words.length-1]=last.slice(0,-2);
+      else if(last.endsWith('ies'))words[words.length-1]=last.slice(0,-3)+'y';
+      else if(/[^s]s$/.test(last)&&!/(?:us|is|ous)$/.test(last))words[words.length-1]=last.slice(0,-1);
+    }
+    return JSON.stringify([concept.category,words.join(' '),concept.meaning.trim().toLocaleLowerCase(),concept.expansion.trim().toLocaleLowerCase()]);
   }
   function rebuild() {
-    const next:Annotation[]=[];const valid=new Map<Block,boolean>();
+    const next:Annotation[]=[],primary:Range[]=[],repeat:Range[]=[],valid=new Map<Block,boolean>(),seen=new Set<string>();
     for(const {block,work,offset} of targets){
       if(work.state!=='ready'||!work.concept)continue;
       if(!valid.has(block))valid.set(block,matchesSnapshot(block));if(!valid.get(block))continue;
       const concept=work.concept;
       if(mastered.some(m=>m.key===conceptKey(profile.domain,concept.meaning)))continue;
+      const identity=conceptIdentity(concept),isPrimary=!seen.has(identity);seen.add(identity);
       const start=(block.offset??0)+offset;
       const range=locateText(block.element,concept.anchor,start);if(!range)continue;
       let cursor=0;
       for(const part of concept.parts??[]){
         const index=concept.anchor.indexOf(part.text,cursor);if(index<0)continue;
-        const partRange=locateText(block.element,part.text,start+index);if(partRange)next.push({range:partRange,concept,block,part});cursor=index+part.text.length;
+        const partRange=locateText(block.element,part.text,start+index);if(partRange){next.push({range:partRange,concept,block,part});(isPrimary?primary:repeat).push(partRange);}cursor=index+part.text.length;
       }
-      next.push({range,concept,block});
+      next.push({range,concept,block});(isPrimary?primary:repeat).push(range);
     }
     annotations=next;
-    if(highlights&&HighlightClass)highlights.set(highlightName,new HighlightClass(...next.map(a=>a.range)));
+    if(highlights&&HighlightClass){highlights.set(highlightName,new HighlightClass(...primary));highlights.set(repeatHighlightName,new HighlightClass(...repeat));}
     if(shown&&!matchesSnapshot(shown.block))hideTip();status();
   }
   function sendContext(){try{connection?.port.postMessage({type:'CONTEXT',payload:payload??null});}catch{/* worker gone */}}
@@ -102,7 +114,12 @@ else {
     const item=annotations.find(a=>matchesSnapshot(a.block)&&[...a.range.getClientRects()].some(r=>event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom));
     if(item)showTip(item,event.clientX,event.clientY);else hoverTimer=window.setTimeout(hideTip,180);
   }
-  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
+  async function loadCommonWords(){
+    if(commonWords)return;
+    vocabularyLoad??=(async()=>{const response=await fetch(chrome.runtime.getURL('vocabulary/common-words-10k.txt'));if(!response.ok)throw new Error('无法读取本地常用词表。');const content=await response.text();commonWords=new Set(content.split(/\s+/).map(word=>word.trim().toLowerCase()).filter(Boolean));})();
+    try{await vocabularyLoad;vocabularyError='';}catch{vocabularyLoad=undefined;vocabularyError='本地词汇表暂不可用，扩展词汇候选未加入。';}
+  }
+  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[]}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
     if(!toolbar.isConnected){const article=document.querySelector('article,main,[role="main"]')??document.body;article.prepend(toolbar);}
     blocks=extractBlocks(document,true);const next:Target[]=[];
@@ -110,11 +127,21 @@ else {
     for(const [i,block] of blocks.entries()){
       if(block.kind==='code'&&!codeAnnotations)continue;
       const local=block.kind==='command'?explainCommand(block.text):null;
-      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block,{...environment,nearby:[blocks[i-1],blocks[i+1]].filter(b=>b?.sectionId===block.sectionId).map(b=>b.text.slice(0,120)).join(' ')});
+      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block,{...environment,unknownVocabulary:annotationTypes.includes('vocabulary')&&!!commonWords,commonWords,nearby:[blocks[i-1],blocks[i+1]].filter(b=>b?.sectionId===block.sectionId).map(b=>b.text.slice(0,120)).join(' ')});
       for(const c of candidates){
+        if(c.kind==='code'&&!codeAnnotations)continue;
+        if(c.kind!=='code'&&!annotationTypes.includes(c.kind as AnnotationType))continue;
         const identity=candidateKey(c,JSON.stringify(profile));let work=workByKey.get(identity);
         if(!work){const immediate=local?.[0]??localExplanation(c,profile);work={candidate:{id:`c${nextId++}`,anchor:c.anchor.slice(0,300),kind:c.kind,heading:c.heading,context:c.context},state:immediate?'ready':'pending',concept:immediate};workByKey.set(identity,work);}
-        next.push({block,work,offset:c.start});
+        // One explanation serves every exact occurrence in the same block; later ranges receive the quieter style.
+        let from=c.start;
+        while(from<=block.text.length-c.anchor.length){
+          const occurrence=block.text.indexOf(c.anchor,from);if(occurrence<0)break;
+          const before=block.text[occurrence-1]??'',after=block.text[occurrence+c.anchor.length]??'';
+          const wordLike=/[A-Za-z0-9_]/;
+          if(!(wordLike.test(c.anchor[0])&&wordLike.test(before))&&!(wordLike.test(c.anchor.at(-1)??'')&&wordLike.test(after)))next.push({block,work,offset:occurrence});
+          from=occurrence+c.anchor.length;
+        }
       }
     }
     targets=next;
@@ -228,7 +255,7 @@ else {
   function stop(){
     active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();
     try{connection?.port.postMessage({type:'STOP'});}catch{/* closed */}connection?.disconnect();connection=undefined;
-    host?.remove();toolbar?.remove();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
+    host?.remove();toolbar?.remove();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);highlights?.delete(repeatHighlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
     document.removeEventListener('mousemove',hovered);document.removeEventListener('mouseup',selection);document.removeEventListener('keyup',keyboard);window.removeEventListener('scroll',onScroll,true);window.removeEventListener('resize',onScroll);
   }
   state.__easyLearn={toggle(){if(active)stop();else void start();}};void start();

@@ -54,3 +54,17 @@ it('does not misidentify another package with standard extras as FastAPI', () =>
   const [concept]=explainCommand('uv add "another-package[standard]"')!;
   expect(concept.parts?.[2].explanation).not.toContain('fastapi');
 });
+
+it('recognizes MIT/WSL prompts, strips them from command context, and skips terminal output',()=>{
+ document.body.innerHTML=`<article><h2>Shell</h2><pre><code>missing:~$ sed -i 's/pattern/replacement/g' file
+mr@Mechrevo-Jiaolong16pro :~$ sed -n '1,5p' file
+missing:~$
+pattern/replacement/g
+</code></pre></article>`;
+ const blocks=extractBlocks(),commands=blocks.filter(b=>b.kind==='command');
+ expect(commands.map(b=>b.text)).toEqual(["sed -i 's/pattern/replacement/g' file","sed -n '1,5p' file"]);
+ expect(commands.every(b=>matchesSnapshot(b))).toBe(true);
+ expect(locateText(commands[0].element,'sed',commands[0].offset)?.toString()).toBe('sed');
+ expect(blocks.some(b=>b.kind==='code')).toBe(false);
+ expect(blocks.every(b=>!b.text.includes('missing:~$'))).toBe(true);
+});

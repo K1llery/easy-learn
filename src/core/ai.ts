@@ -17,7 +17,7 @@ export function parseResult(operation: AIRequest['operation'], raw: string) {
   return parseModelOutput(operation,raw);
 }
 export async function callModel(config:Config, request:AIRequest, signal?:AbortSignal, onProgress?:(progress:AnalysisProgress)=>void) {
-  const system=`${SYSTEM}\n任务：${request.operation}。结构：${contracts[request.operation]}\n${request.operation==='analyze'?'只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。':''}`;
+  const system=`${SYSTEM}\n任务：${request.operation}。结构：${contracts[request.operation]}\n${request.operation==='analyze'?'只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。':''}${request.operation==='analyze'&&request.candidates?.some(c=>c.kind==='vocabulary')?'\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。':''}`;
   // Batch requests contain short snippets only. Do not resend neighboring paragraphs.
   const input=request.candidates?{operation:request.operation,profile:config.profile,title:request.context.title.slice(0,160),candidates:request.candidates}:{profile:config.profile,...request};
   const streaming=request.operation==='analyze'&&!!request.candidates?.length;

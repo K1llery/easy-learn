@@ -7,7 +7,7 @@ beforeEach(()=>{
   request=vi.fn(async(msg:any)=>msg.type==='PUBLIC_SETTINGS'?{ok:true,data:{profile:{domain:'软件开发',level:'入门'},mastered:[]}}:{ok:true,data:{concepts:[concept]}});
   const port={postMessage:vi.fn(),disconnect:vi.fn(),onDisconnect:{addListener:vi.fn()},onMessage:{addListener:vi.fn()}};
   vi.stubGlobal('chrome',{runtime:{id:'test',getURL:(p:string)=>`chrome-extension://test/${p}`,sendMessage:request,connect:()=>port}});
-  vi.stubGlobal('CSS',{highlights:new Map()});vi.stubGlobal('Highlight',class {constructor(..._ranges:Range[]){}});
+  vi.stubGlobal('CSS',{highlights:new Map()});vi.stubGlobal('Highlight',class {ranges:Range[];constructor(...ranges:Range[]){this.ranges=ranges;}});
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue(rect);
   Object.defineProperty(Range.prototype,'getClientRects',{configurable:true,value:()=>[rect]});
   Object.defineProperty(Range.prototype,'getBoundingClientRect',{configurable:true,value:()=>rect});
@@ -63,4 +63,14 @@ it('leaves code disabled by default while still explaining shell commands',async
  const root=document.querySelector('div[data-easy-learn]')!.shadowRoot!;
  expect(root.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(false);
  hover();expect(root.querySelector('.tip')!.textContent).toContain('uv');
+});
+
+it('emphasizes only the first repeated occurrence and keeps later occurrences quietly hoverable',async()=>{
+ document.body.innerHTML='<article><h1>HTTP API guide</h1><p>An API links one service to another API.</p></article>';
+ await import('../src/content/index');await vi.advanceTimersByTimeAsync(300);
+ const registry=(globalThis.CSS as any).highlights as Map<string,{ranges:Range[]}>;
+ const primary=registry.get('easy-learn-test-primary'),repeat=registry.get('easy-learn-test-repeat');
+ expect(primary?.ranges.map(range=>range.toString())).toEqual(['API']);
+ expect(repeat?.ranges.map(range=>range.toString())).toEqual(['API']);
+ const count=request.mock.calls.filter(([msg])=>msg.type==='AI').length;hover();expect(request.mock.calls.filter(([msg])=>msg.type==='AI')).toHaveLength(count);
 });

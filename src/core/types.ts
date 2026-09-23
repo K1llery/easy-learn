@@ -4,9 +4,16 @@ export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.st
 export type Profile = z.infer<typeof profileSchema>;
 export type Config = z.infer<typeof configSchema>;
 export const defaultProfile: Profile = { domain: '软件开发', level: '入门' };
+export const annotationTypeValues = ['abbreviation', 'term', 'command', 'vocabulary'] as const;
+export type AnnotationType = typeof annotationTypeValues[number];
+export const defaultAnnotationTypes: AnnotationType[] = ['abbreviation', 'term', 'command'];
+export function normalizeAnnotationTypes(value: unknown): AnnotationType[] {
+  if (!Array.isArray(value)) return [...defaultAnnotationTypes];
+  return [...new Set(value.filter((item): item is AnnotationType => typeof item === 'string' && annotationTypeValues.includes(item as AnnotationType)))];
+}
 export const contextSchema = z.object({ title: z.string().max(500), heading: z.string().max(500), text: z.string().min(1).max(16000), before: z.string().max(4000), after: z.string().max(4000), section: z.string().max(24000).optional(), kind: z.enum(['prose', 'command', 'code']).optional() });
 export type TextContext = z.infer<typeof contextSchema>;
-export const conceptSchema = z.object({ anchor: z.string().min(1).max(500), category: z.enum(['缩写', '术语', '背景', '命令', '代码']), meaning: z.string().min(1).max(300), expansion: z.string().max(300), evidence: z.string().max(1500), ambiguity: z.string().max(1500), summary: z.string().max(1200).default(''), id:z.string().max(20).optional(), parts: z.array(z.object({ text: z.string().min(1).max(300), explanation: z.string().min(1).max(600) })).max(16).default([]) });
+export const conceptSchema = z.object({ anchor: z.string().min(1).max(500), category: z.enum(['缩写', '术语', '词汇', '背景', '命令', '代码']), meaning: z.string().min(1).max(300), expansion: z.string().max(300), evidence: z.string().max(1500), ambiguity: z.string().max(1500), summary: z.string().max(1200).default(''), id:z.string().max(20).optional(), parts: z.array(z.object({ text: z.string().min(1).max(300), explanation: z.string().min(1).max(600) })).max(16).default([]) });
 export type Concept = z.input<typeof conceptSchema>;
 export const analyzeSchema = z.object({ concepts: z.array(conceptSchema.extend({ summary: z.string().min(1).max(1200), expansion:z.string().max(300).default(''), evidence:z.string().max(1500).default(''), ambiguity:z.string().max(1500).default('') })).max(12) });
 export const explainSchema = z.object({ meaning: z.string().max(2000), expansion: z.string().max(500), evidence: z.string().max(2000), ambiguity: z.string().max(2000), explanation: z.string().min(1).max(6000), example: z.string().max(2000), prerequisites: z.array(z.object({ term: z.string().max(200), explanation: z.string().max(2000) })).max(5), translation: z.string().max(10000) });
@@ -14,7 +21,7 @@ export type Explanation = z.infer<typeof explainSchema>;
 export const quizSchema = z.object({ question: z.string().min(1).max(2000) });
 export const evaluationSchema = z.object({ correct: z.string().max(3000), gaps: z.string().max(3000), reference: z.string().max(4000) });
 export type Evaluation = z.infer<typeof evaluationSchema>;
-export const candidateSchema = z.object({ id:z.string().regex(/^c\d+$/).max(20), anchor:z.string().min(1).max(300), kind:z.enum(['term','abbreviation','command','code']), heading:z.string().max(120), context:z.string().max(420) });
+export const candidateSchema = z.object({ id:z.string().regex(/^c\d+$/).max(20), anchor:z.string().min(1).max(300), kind:z.enum(['term','abbreviation','command','code','vocabulary']), heading:z.string().max(120), context:z.string().max(420) });
 export type Candidate = z.infer<typeof candidateSchema>;
 export const aiRequestSchema = z.object({ operation: z.enum(['analyze', 'explain', 'quiz', 'evaluate']), candidates:z.array(candidateSchema).min(1).max(8).optional(), context: contextSchema, concept: conceptSchema.optional(), mode: z.enum(['explain', 'translate', 'followup']).optional(), question: z.string().max(2000).optional(), answer: z.string().max(5000).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(10000) })).max(8).optional() });
 export type AIRequest = z.input<typeof aiRequestSchema>;

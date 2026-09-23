@@ -1,4 +1,4 @@
-import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, profileSchema, endpoint, type Config, type Mastered } from './core/types';
+import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, normalizeAnnotationTypes, profileSchema, endpoint, type Config, type Mastered } from './core/types';
 import { callModel, type AnalysisProgress } from './core/ai';
 import { AnnotationCache } from './core/annotation-cache';
 import { cacheKey, Queue, SessionCache } from './core/session';
@@ -26,7 +26,7 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   }
   return scope;
 }
-function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html'].includes(sender.url.split(/[?#]/)[0]); }
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'popup.html'].includes(sender.url.split(/[?#]/)[0]); }
 async function config(): Promise<Config> {
   await initialized;
   const data = await chrome.storage.local.get('config');
@@ -79,11 +79,6 @@ chrome.runtime.onConnect.addListener(port => {
 chrome.tabs.onRemoved.addListener(clearTab);
 // Navigation/scroll tracking may report loading without replacing the document.
 // Content-port disconnection and tab closure own cancellation, not tab status.
-chrome.action.onClicked.addListener(async tab => {
-  if (tab.id === undefined) return;
-  try { await initialized; await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); }
-  catch { await chrome.tabs.create({ url: chrome.runtime.getURL('panel.html') }); }
-});
 async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   await initialized;
   if (sender.id !== chrome.runtime.id) throw new Error('不允许的消息来源。');
@@ -91,7 +86,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   if (msg.type === 'OPEN_OPTIONS') { await chrome.runtime.openOptionsPage(); return null; }
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
-    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [] };
+    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [] };
   }
   if ((msg.type === 'AI'||msg.type === 'TEST')&&(await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
   if (msg.type === 'AI') {
@@ -145,6 +140,13 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     const data=await chrome.storage.local.get('reading');
     await chrome.storage.local.set({reading:{...data.reading,[msg.type==='SET_LOCAL_ONLY'?'localOnly':'codeAnnotations']:msg.enabled}}); refresh(false); return null;
   }
+  if (msg.type === 'SET_ANNOTATION_TYPES') {
+    if (!Array.isArray(msg.types) || msg.types.length > 8 || msg.types.some((item: unknown) => typeof item !== 'string')) throw new Error('注释类型设置无效。');
+    const types=normalizeAnnotationTypes(msg.types);
+    if(types.length!==new Set(msg.types).size)throw new Error('注释类型设置包含未知选项。');
+    const data=await chrome.storage.local.get('reading');
+    await chrome.storage.local.set({reading:{...data.reading,annotationTypes:types}}); refresh(false); return null;
+  }
   if (msg.type === 'SET_PROFILE') {
     const profile=profileSchema.parse(msg.profile); const cfg=await config();
     await chrome.storage.local.set({config:{...cfg,profile}}); refresh(); return null;
@@ -187,7 +189,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
 }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Serialize read/modify/write settings operations across tabs.
-  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
+  const mutate = ['SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
   const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
   if (mutate) mutationTail = task.catch(() => undefined);
   task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));

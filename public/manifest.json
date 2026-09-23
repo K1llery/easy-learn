@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Easy Learn · 读懂，再学会",
   "description": "整页预载英文技术文章注解，悬停阅读，按需翻译与追问。",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",
@@ -19,14 +19,16 @@
     "type": "module"
   },
   "action": {
-    "default_title": "开启 / 关闭 Easy Learn 伴读"
+    "default_title": "选择注释类型并开启 Easy Learn",
+    "default_popup": "popup.html"
   },
   "options_page": "options.html",
   "web_accessible_resources": [
     {
       "resources": [
         "panel.html",
-        "assets/*"
+        "assets/*",
+        "vocabulary/*"
       ],
       "matches": [
         "http://*/*",

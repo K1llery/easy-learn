@@ -9,7 +9,7 @@ export class AnnotationCache {
   constructor(private storage:Storage){}
   private serial<T>(fn:()=>Promise<T>):Promise<T>{const next=this.tail.then(fn);this.tail=next.catch(()=>undefined);return next;}
   async key(config:Config,title:string,candidate:Candidate){
-    if(!['term','abbreviation'].includes(candidate.kind)||candidate.anchor.length>80)return null;
+    if(!['term','abbreviation','vocabulary'].includes(candidate.kind)||candidate.anchor.length>80)return null;
     const {id,...context}=candidate;
     const data=JSON.stringify(['short-explanation-v1',endpoint(config.baseUrl).href,config.model,config.profile,title,context]);
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(data));

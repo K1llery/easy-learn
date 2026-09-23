@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 afterEach(()=>vi.unstubAllGlobals());
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,localOnly:false});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);
@@ -91,6 +91,18 @@ it('does not cancel live requests on same-document loading/status changes', asyn
   const signal=model.mock.calls[0][2] as AbortSignal;
   api.tabs.onUpdated.emit(3,{status:'loading',url:'https://article.example/#install'});
   expect(signal.aborted).toBe(false);resolve({concepts:[concept]});expect((await pending).ok).toBe(true);
+});
+
+it('persists the selected annotation types and leaves command/code preferences independent',async()=>{
+ const popup={id:'test-id',url:extensionUrl+'popup.html',documentId:'popup'};
+ expect((await send('GET_SETTINGS',{},popup)).ok).toBe(true);
+ expect((await send('SET_ANNOTATION_TYPES',{types:['abbreviation','command','vocabulary']},popup)).ok).toBe(true);
+ expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.annotationTypes).toEqual(['abbreviation','command','vocabulary']);
+ await send('SET_CODE_ANNOTATIONS',{enabled:true},pageSender);
+ expect(data.reading).toEqual({annotationTypes:['abbreviation','command','vocabulary'],codeAnnotations:true});
+ expect((await send('SET_ANNOTATION_TYPES',{types:['not-a-type']},popup)).ok).toBe(false);
+ expect((await send('GET_SETTINGS',{}, {...popup,url:extensionUrl+'popup.html-forged'})).ok).toBe(false);
+ expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.annotationTypes).toEqual(['abbreviation','command','vocabulary']);
 });
 
 it('persists a safe code switch without exposing credentials or clearing the model cache',async()=>{

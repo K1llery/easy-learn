@@ -14,7 +14,9 @@ it('reuses across IDs but separates meanings, profiles and providers without sto
  expect(await cache.key({...config,profile:{...config.profile,level:'进阶'}},'Doc',candidate)).not.toBe(key);
  await cache.put([{key,concept}]);expect((await cache.get([key]))[0]).toMatchObject({summary:concept.summary});
  expect(JSON.stringify(values)).not.toContain(candidate.context);expect(JSON.stringify(values)).not.toContain(config.apiKey);
+ expect(await cache.key(config,'Doc',{...candidate,kind:'vocabulary'})).not.toBeNull();
  expect(await cache.key(config,'Doc',{...candidate,kind:'code'})).toBeNull();
+ expect(await cache.key(config,'Doc',{...candidate,kind:'command'})).toBeNull();
 });
 it('serializes simultaneous writes, supports clearing and rejects stale in-flight writes',async()=>{
  const {cache}=setup();await Promise.all([cache.put([{key:'a',concept}]),cache.put([{key:'b',concept}])]);

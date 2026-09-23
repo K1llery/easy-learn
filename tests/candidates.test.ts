@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { it,expect } from 'vitest';
 import { extractBlocks } from '../src/content/document';
-import { findCandidates,candidateEnvironment,candidateKey,packCandidates } from '../src/content/candidates';
+import { findCandidates,candidateEnvironment,candidateKey,packCandidates,isOutsideCommonVocabulary } from '../src/content/candidates';
 function article(text:string){document.body.innerHTML='<article><p></p></article>';document.querySelector('p')!.textContent=text;return extractBlocks()[0];}
 it.each(['python-classes','fastapi-readme','attention-paper'])('finds a small set of technical candidates in the real %s excerpt',name=>{
  const fixture=JSON.parse(readFileSync(`tests/fixtures/references/${name}.json`,'utf8'));
@@ -56,4 +56,16 @@ it('does not confuse ordinary verbs or notices with HTTP methods',()=>{
  expect(findCandidates(block).map(c=>c.anchor)).toEqual(['HTTP']);
  expect(findCandidates(article('GET your tickets and POST a letter today.'))).toHaveLength(0);
  expect(findCandidates(article('Use the HTTP get method and a post request.')).map(c=>c.anchor)).toEqual(expect.arrayContaining(['get','post']));
+});
+
+it('adds at most one out-of-frequency-list word only when the optional mode is enabled',()=>{
+ const block=article('The transient scheduler reroutes requests during failover.');
+ const common=new Set(['the','requests','during']);
+ expect(findCandidates(block).some(c=>c.kind==='vocabulary')).toBe(false);
+ const expanded=findCandidates(block,{technical:false,web:false,unknownVocabulary:true,commonWords:common});
+ expect(expanded.filter(c=>c.kind==='vocabulary')).toHaveLength(1);
+ expect(expanded.find(c=>c.kind==='vocabulary')?.anchor).toBe('transient');
+ expect(isOutsideCommonVocabulary('running',new Set(['run']))).toBe(false);
+ expect(isOutsideCommonVocabulary('classes',new Set(['class']))).toBe(false);
+ expect(isOutsideCommonVocabulary('transient',common)).toBe(true);
 });
