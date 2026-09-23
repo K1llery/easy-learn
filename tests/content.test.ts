@@ -61,7 +61,7 @@ it('leaves code disabled by default while still explaining shell commands',async
  await import('../src/content/index');await vi.advanceTimersByTimeAsync(300);
  expect(request.mock.calls.filter(([m])=>m.type==='AI')).toHaveLength(0);
  const root=document.querySelector('div[data-easy-learn]')!.shadowRoot!;
- expect(root.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(false);
+ expect(root.querySelector<HTMLInputElement>('input[aria-label="代码注释（不含命令行）"]')!.checked).toBe(false);
  hover();expect(root.querySelector('.tip')!.textContent).toContain('uv');
 });
 

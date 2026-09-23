@@ -170,14 +170,14 @@ test('side settings toggle code independently of commands and remember the choic
  const start=calls.length;await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(calls.slice(start)).toHaveLength(0);
  await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
- await page.getByRole('button',{name:'✦ 伴读设置',exact:true}).click();
- const dock=page.getByRole('dialog',{name:'伴读设置',exact:true});const checkbox=dock.getByRole('checkbox',{name:'代码注释（不含命令行）'});
+ await page.getByRole('button',{name:'阅读注释',exact:true}).hover();
+ const dock=page.getByRole('dialog',{name:'伴读设置',exact:true});await expect(dock).toBeVisible();const checkbox=dock.getByRole('checkbox',{name:'代码注释（不含命令行）'});
  await expect(checkbox).not.toBeChecked();await checkbox.check();
  await expect.poll(()=>calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.kind==='code')).toBe(true);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  const count=calls.length;await checkbox.uncheck();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
  await checkbox.check();await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);expect(calls.length).toBe(count);
- const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await settings.locator('details.section-line summary').click();await expect(settings.getByRole('checkbox',{name:'代码注释（不含命令行）'})).toBeChecked();
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);await expect(settings.getByRole('checkbox',{name:'代码注释（不含命令行）'})).toBeChecked();
  await page.screenshot({path:'test-results/side-settings.png',caret:'initial'});await settings.close();await page.close();
 });
 
@@ -250,6 +250,7 @@ test('a streamed annotation is readable before its batch finishes and a reload r
  await setArticle();const start=calls.length;
  await inject(page);
  await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 1 /);
+ await expect.poll(async()=> (await highlightedRanges(page)).some(item=>item.key.endsWith('-primary')&&item.text.includes('DR'))).toBe(true);
  await page.locator('#dr').hover();
  await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('灾难恢复');
  expect(completed).toBe(initialCompleted);
@@ -276,29 +277,29 @@ test('jumping ahead prioritizes the new reading position in the next available b
  await expect(page.getByRole('status')).toContainText('当前内容已处理');await page.close();
 });
 
-test('toolbar popup persists selected annotation types with vocabulary expansion off by default',async()=>{
- const popup=await context.newPage();await popup.goto(`chrome-extension://${id}/popup.html`);
- await expect(popup.getByRole('heading',{name:'这次想看哪些注释？'})).toBeVisible();
- await expect(popup.getByLabel('英文缩写')).toBeChecked();
- await expect(popup.getByLabel('专有名词与技术术语')).toBeChecked();
- await expect(popup.getByLabel('CLI 命令')).toBeChecked();
- await expect(popup.getByLabel('扩展词汇（常用词表外，试验）')).not.toBeChecked();
+test('toolbar action starts immediately and hover reveals persistent annotation settings',async()=>{
+ const manifest=JSON.parse(await readFile('dist/manifest.json','utf8'));expect(manifest.action.default_popup).toBeUndefined();
  const page=await context.newPage();await page.goto(`${base}/vocabulary-toggle`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Vocabulary toggle</h1><p>The transient scheduler reroutes requests during failover.</p></article>';});
- const start=calls.length;await inject(page);await expect(page.getByRole('status')).toContainText('当前内容已处理');expect(calls.length).toBe(start);
- await popup.getByLabel('专有名词与技术术语').uncheck();
- await popup.getByLabel('扩展词汇（常用词表外，试验）').check();
+ const start=calls.length;await inject(page);await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toBeVisible();await expect(page.getByRole('status')).toContainText('当前内容已处理');expect(calls.length).toBe(start);
+ await page.getByRole('button',{name:'阅读注释',exact:true}).hover();
+ const settings=page.getByRole('dialog',{name:'伴读设置',exact:true});await expect(settings).toBeVisible();
+ await expect(settings.getByLabel('英文缩写')).toBeChecked();await expect(settings.getByLabel('专有名词与技术术语')).toBeChecked();await expect(settings.getByLabel('CLI 命令')).toBeChecked();await expect(settings.getByLabel('扩展词汇（试验）')).not.toBeChecked();
+ await settings.getByLabel('专有名词与技术术语').uncheck();await settings.getByLabel('扩展词汇（试验）').check();
  await expect.poll(()=>calls.slice(start).flatMap(call=>call.candidates??[]).some(candidate=>candidate.kind==='vocabulary'&&candidate.anchor==='transient')).toBe(true);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(calls.slice(start).flatMap(call=>call.candidates??[]).filter(candidate=>candidate.kind==='vocabulary')).toHaveLength(1);
- await popup.reload();
- await expect(popup.getByLabel('专有名词与技术术语')).not.toBeChecked();
- await expect(popup.getByLabel('扩展词汇（常用词表外，试验）')).toBeChecked();
- await popup.close();await page.close();
+ await page.reload();await page.evaluate(()=>{document.body.innerHTML='<article><h1>Vocabulary toggle</h1><p>The transient scheduler reroutes requests during failover.</p></article>';});await inject(page);
+ await expect(page.getByRole('status')).toContainText('当前内容已处理');await page.getByRole('button',{name:'阅读注释',exact:true}).hover();
+ await expect(settings.getByLabel('专有名词与技术术语')).not.toBeChecked();await expect(settings.getByLabel('扩展词汇（试验）')).toBeChecked();
+ const options=await context.newPage();await options.goto(`chrome-extension://${id}/options.html`);
+ await expect(options.getByLabel('专有名词与技术术语')).not.toBeChecked();await expect(options.getByLabel('扩展词汇（常用词表外，试验）')).toBeChecked();
+ await expect(options.locator('section.card').first().getByLabel('代码注释（不含命令行）')).toBeVisible();
+ await options.close();await page.close();
 });
 
 test('offline documentation fixtures cover repeated terms, shell prompts, sed and common CLI commands',async()=>{
- const files=['fastapi-python-types','missing-semester-course-shell','python-cli','http-methods'];
+ const files=['fastapi-python-types','missing-semester-course-shell','python-cli','http-methods','noise-exclusions'];
  for(const name of files){
   const html=await readFile(`tests/fixtures/sites/${name}.html`,'utf8');
   const page=await context.newPage();await page.goto(`${base}/site-fixture/${name}`);
@@ -323,6 +324,11 @@ test('offline documentation fixtures cover repeated terms, shell prompts, sed an
   }
   if(name==='http-methods'){
    expect(requests.flatMap(call=>call.candidates??[]).some(candidate=>candidate.kind==='command'&&candidate.anchor.startsWith('curl -I'))).toBe(true);
+  }
+  if(name==='noise-exclusions'){
+   const candidates=requests.flatMap(call=>call.candidates??[]);
+   expect(candidates.some(candidate=>candidate.anchor==='PKCE')).toBe(true);
+   expect(candidates.some(candidate=>/src\/content|README\.md|fastapi\.tiangolo|docs\.example/i.test(candidate.anchor))).toBe(false);
   }
   await page.close();
  }

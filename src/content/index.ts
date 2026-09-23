@@ -1,4 +1,4 @@
-import { conceptKey, defaultAnnotationTypes, type AnnotationType, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
+import { annotationTypeValues, conceptKey, defaultAnnotationTypes, type AnnotationType, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
 import { contextFor, extractBlocks, locateText, matchesSnapshot, type Block } from './document';
 import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
@@ -15,15 +15,15 @@ const state = globalThis as typeof globalThis & { __easyLearn?: { toggle(): void
 if (state.__easyLearn) state.__easyLearn.toggle();
 else {
   let dirty=true;
-  let active=false, generation=0, running=false, scheduled=0, rescan=false, hoverTimer=0;
-  let host: HTMLDivElement, shadow: ShadowRoot, toolbar: HTMLSpanElement, statusNode: HTMLButtonElement, tools: HTMLDivElement, diagnostic: HTMLParagraphElement;
+  let active=false, generation=0, running=false, scheduled=0, rescan=false, hoverTimer=0, dockOpenTimer=0, dockCloseTimer=0;
+  let host: HTMLDivElement, shadow: ShadowRoot, dock: HTMLDivElement, statusNode: HTMLButtonElement, tools: HTMLDivElement, diagnostic: HTMLParagraphElement;
   let tip: HTMLDivElement, selectionButton: HTMLButtonElement, frame: HTMLIFrameElement | undefined;
   let connection: ReturnType<typeof connectSurface> | undefined, observer: MutationObserver | undefined;
   let blocks: Block[]=[], annotations: Annotation[]=[], payload: Payload | undefined, selected: Payload | undefined, shown: Annotation | undefined;
   let profile: Profile={domain:'软件开发',level:'入门'}, mastered: Mastered[]=[];
   let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false,vocabularyError='';
   let annotationTypes:AnnotationType[]=[...defaultAnnotationTypes],commonWords:Set<string>|undefined,vocabularyLoad:Promise<void>|undefined;
-  let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;
+  let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;let typeToggles=new Map<AnnotationType,HTMLInputElement>();
   type Work = {candidate:Candidate;state:'pending'|'loading'|'ready'|'skipped'|'failed';concept?:Concept;error?:string};
   type Target = {block:Block;work:Work;offset:number};
   const workByKey=new Map<string,Work>();let targets:Target[]=[],nextId=0;
@@ -119,9 +119,8 @@ else {
     vocabularyLoad??=(async()=>{const response=await fetch(chrome.runtime.getURL('vocabulary/common-words-10k.txt'));if(!response.ok)throw new Error('无法读取本地常用词表。');const content=await response.text();commonWords=new Set(content.split(/\s+/).map(word=>word.trim().toLowerCase()).filter(Boolean));})();
     try{await vocabularyLoad;vocabularyError='';}catch{vocabularyLoad=undefined;vocabularyError='本地词汇表暂不可用，扩展词汇候选未加入。';}
   }
-  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[]}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
+  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[]}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];for(const [type,input] of typeToggles)input.checked=annotationTypes.includes(type);if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
-    if(!toolbar.isConnected){const article=document.querySelector('article,main,[role="main"]')??document.body;article.prepend(toolbar);}
     blocks=extractBlocks(document,true);const next:Target[]=[];
     const environment=candidateEnvironment(blocks,document.title);
     for(const [i,block] of blocks.entries()){
@@ -208,32 +207,39 @@ else {
   }
   function mount(){
     host=document.createElement('div');host.dataset.easyLearn='';shadow=host.attachShadow({mode:'open'});
-    const css=node('style',`:host{all:initial;position:fixed;inset:0 auto auto 0;width:0;height:0;z-index:2147483647;font:14px/1.6 system-ui;color:#293a34}*{box-sizing:border-box}button{font:inherit;cursor:pointer;color:inherit;background:transparent;border:0;padding:5px 7px;border-radius:5px}button:hover{background:#71877918}button:focus-visible{outline:2px solid #668c7b}.dock-sheet input:not([type=checkbox]),.dock-sheet select{font:inherit;box-sizing:border-box;border:1px solid #ccd6cf;border-radius:6px;padding:7px 9px;background:#fafcf9;color:#293a34}.dock-sheet button{display:block;margin:5px 0;text-align:left}.dock-sheet input[type=checkbox]{accent-color:#206452}.tip{z-index:2;position:fixed;width:min(350px,calc(100vw - 16px));max-height:min(440px,70vh);overflow:auto;border:1px solid #ccd6cf;border-radius:9px;background:#fffffc;color:#293a34;box-shadow:0 4px 22px #152e2224;padding:13px 15px;font:13px/1.65 system-ui}.tip-header{display:flex;align-items:start;justify-content:space-between;gap:12px}.tip strong,.tip dt{font-family:ui-monospace,monospace;overflow-wrap:anywhere}.tip p{margin:9px 0;white-space:pre-wrap}.tip small{display:block;opacity:.68;font-size:11px}.tip dl{margin:10px 0}.tip dt{font-size:12px;margin-top:7px}.tip dd{margin:0;color:inherit;opacity:.85}.more{display:block;margin:9px 0 0 -7px;font-size:11px;text-decoration:underline}.panel{z-index:3;position:fixed;right:14px;top:14px;width:min(420px,calc(100vw - 28px));height:calc(100dvh - 28px);border:1px solid #dce4db;border-radius:12px;background:#fafbf7;box-shadow:0 12px 60px #173a3033}.selection{position:fixed;border:1px solid #ccd6cf;background:#fffffc;color:#293a34;font-size:12px;box-shadow:0 2px 10px #152e2220}[hidden]{display:none!important}@media(prefers-color-scheme:dark){.tip,.selection{background:#242c28;color:#e0e6df;border-color:#536159}}`);
+    const css=node('style',`:host{all:initial;pointer-events:none;position:fixed;inset:0 auto auto 0;width:0;height:0;z-index:2147483647;font:14px/1.6 system-ui;color:#293a34}*{box-sizing:border-box}button{pointer-events:auto;font:inherit;cursor:pointer;color:inherit;background:transparent;border:0;padding:5px 7px;border-radius:5px}button:hover{background:#71877918}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #668c7b}.dock-sheet{pointer-events:auto}.dock-sheet input:not([type=checkbox]),.dock-sheet select{font:inherit;box-sizing:border-box;border:1px solid #ccd6cf;border-radius:6px;padding:7px 9px;background:#fafcf9;color:#293a34}.dock-sheet button{display:block;margin:5px 0;text-align:left}.dock-sheet input[type=checkbox]{accent-color:#206452}.type-row{display:flex;align-items:center;gap:8px;margin:7px 0;font-size:12px}.type-row input{margin:0}.tip{pointer-events:auto;z-index:2;position:fixed;width:min(350px,calc(100vw - 16px));max-height:min(440px,70vh);overflow:auto;border:1px solid #ccd6cf;border-radius:9px;background:#fffffc;color:#293a34;box-shadow:0 4px 22px #152e2224;padding:13px 15px;font:13px/1.65 system-ui}.tip-header{display:flex;align-items:start;justify-content:space-between;gap:12px}.tip strong,.tip dt{font-family:ui-monospace,monospace;overflow-wrap:anywhere}.tip p{margin:9px 0;white-space:pre-wrap}.tip small{display:block;opacity:.68;font-size:11px}.tip dl{margin:10px 0}.tip dt{font-size:12px;margin-top:7px}.tip dd{margin:0;color:inherit;opacity:.85}.more{display:block;margin:9px 0 0 -7px;font-size:11px;text-decoration:underline}.panel{pointer-events:auto;z-index:3;position:fixed;right:14px;top:14px;width:min(420px,calc(100vw - 28px));height:calc(100dvh - 28px);border:1px solid #dce4db;border-radius:12px;background:#fafbf7;box-shadow:0 12px 60px #173a3033}.selection{pointer-events:auto;position:fixed;border:1px solid #ccd6cf;background:#fffffc;color:#293a34;font-size:12px;box-shadow:0 2px 10px #152e2220}[hidden]{display:none!important}@media(prefers-color-scheme:dark){.tip,.selection{background:#242c28;color:#e0e6df;border-color:#536159}}`);
     tip=document.createElement('div');tip.className='tip';tip.hidden=true;tip.setAttribute('role','dialog');tip.setAttribute('aria-label','阅读注释');tip.onmouseenter=()=>clearTimeout(hoverTimer);tip.onmouseleave=()=>{hoverTimer=window.setTimeout(hideTip,180);};
     selectionButton=node('button','解释 / 翻译所选文字') as HTMLButtonElement;selectionButton.className='selection';selectionButton.hidden=true;selectionButton.onmousedown=e=>e.preventDefault();selectionButton.onclick=()=>{if(selected)openPanel(selected);selectionButton.hidden=true;};
-    const dock=document.createElement('div');dock.style.cssText='position:fixed;right:12px;top:42%;pointer-events:auto;z-index:1';
-    const launcher=node('button','✦ 伴读设置') as HTMLButtonElement;launcher.style.cssText='background:#206452;color:white;border:1px solid #ffffff88;border-radius:18px;padding:9px 12px;box-shadow:0 3px 16px #173a3033';launcher.setAttribute('aria-expanded','false');
-    const sheet=document.createElement('div');sheet.hidden=true;sheet.className='dock-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','伴读设置');sheet.style.cssText='width:min(290px,calc(100vw - 30px));max-height:55vh;overflow:auto;background:#fffffc;color:#293a34;border:1px solid #ccd6cf;padding:16px;border-radius:12px;box-shadow:0 5px 24px #173a3033';
-    launcher.onclick=()=>{sheet.hidden=!sheet.hidden;launcher.setAttribute('aria-expanded',String(!sheet.hidden));};
-    sheet.append(node('strong','伴读设置'));
-    const feedback=node('p','');feedback.setAttribute('aria-live','polite');
-    const codeLabel=node('label','');codeLabel.style.cssText='display:block;margin:14px 0';codeToggle=document.createElement('input');codeToggle.type='checkbox';codeLabel.append(codeToggle,document.createTextNode(' 代码注释（不含命令行）'));codeToggle.onchange=async()=>{try{await rpc('SET_CODE_ANNOTATIONS',{enabled:codeToggle.checked});await settings();refreshBlocks();schedule();feedback.textContent='设置已保存';}catch(e){feedback.textContent=(e as Error).message;}};sheet.append(codeLabel);
-    const domainLabel=node('label','学习领域');domainLabel.style.display='block';domainInput=document.createElement('input');domainInput.maxLength=80;domainInput.style.cssText='display:block;width:100%;margin:5px 0 12px';domainLabel.append(domainInput);sheet.append(domainLabel);
-    const levelLabel=node('label','熟悉程度');levelSelect=document.createElement('select');for(const value of ['入门','熟悉','进阶']){const option=node('option',value);levelSelect.append(option);}levelSelect.style.cssText='display:block;width:100%;margin:5px 0 12px';levelLabel.append(levelSelect);sheet.append(levelLabel);
-    const saveProfile=node('button','应用学习偏好') as HTMLButtonElement;saveProfile.onclick=async()=>{try{await rpc('SET_PROFILE',{profile:{domain:domainInput.value,level:levelSelect.value}});feedback.textContent='学习偏好已应用';}catch(e){feedback.textContent=(e as Error).message;}};sheet.append(saveProfile);
-    const allSettings=node('button','模型设置 / 不再显示列表') as HTMLButtonElement;allSettings.onclick=()=>void rpc('OPEN_OPTIONS');sheet.append(allSettings);
-    const pause=node('button','暂停 / 继续预载') as HTMLButtonElement;pause.onclick=()=>{userPaused=!userPaused;status();if(!userPaused)schedule();};sheet.append(pause);
-    sheet.append(node('p','优先准备当前屏幕与后两屏，再继续全文。命令行保持解释；可暂停预载。'));sheet.append(feedback);dock.append(launcher,sheet);
+    dock=document.createElement('div');dock.dataset.easyLearn='';dock.style.cssText='position:fixed;right:12px;bottom:16px;pointer-events:none;z-index:1;display:flex;flex-direction:column;align-items:flex-end;gap:7px;font:13px/1.55 system-ui;color:#293a34';
+    statusNode=node('button','阅读注释') as HTMLButtonElement;statusNode.style.cssText='background:#206452;color:white;border:1px solid #ffffff88;border-radius:18px;padding:9px 13px;box-shadow:0 3px 16px #173a3033';statusNode.setAttribute('aria-expanded','false');statusNode.title='伴读已开启。悬停展开注释与阅读设置。';
+    tools=document.createElement('div');tools.hidden=true;tools.className='dock-sheet';tools.setAttribute('role','dialog');tools.setAttribute('aria-label','伴读设置');tools.style.cssText='width:min(310px,calc(100vw - 30px));max-height:70vh;overflow:auto;background:#fffffc;color:#293a34;border:1px solid #ccd6cf;padding:15px;border-radius:12px;box-shadow:0 5px 24px #173a3033';
+    progress=document.createElement('span');progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');progress.style.cssText='pointer-events:none;display:block;max-width:min(330px,calc(100vw - 28px));font-size:11px;line-height:1.45;color:#52685b;text-align:right;margin:0 2px;padding:5px 8px;border-radius:8px;background:#fffff2eF;box-shadow:0 2px 10px #173a3018';
+    tools.append(node('strong','01 · 注释类型'));
+    const labels:Record<AnnotationType,string>={abbreviation:'英文缩写',term:'专有名词与技术术语',command:'CLI 命令',vocabulary:'扩展词汇（试验）'};
+    async function updateTypes(type:AnnotationType,enabled:boolean){
+      const next=enabled?[...new Set([...annotationTypes,type])]:annotationTypes.filter(item=>item!==type);annotationTypes=next;
+      try{await rpc('SET_ANNOTATION_TYPES',{types:next});await settings();if(active){refreshBlocks();schedule();}feedback.textContent='注释类型已保存。';}
+      catch(e){feedback.textContent=(e as Error).message;await settings();}
+    }
+    for(const type of annotationTypeValues){const label=node('label','');label.className='type-row';const input=document.createElement('input');input.type='checkbox';input.checked=annotationTypes.includes(type);input.setAttribute('aria-label',labels[type]);typeToggles.set(type,input);input.onchange=()=>void updateTypes(type,input.checked);label.append(input,document.createTextNode(labels[type]));tools.append(label);}
+    const vocabularyHelp=node('small','依照常用词频表近似筛选，不等同于四级词表；开启后可能增加 API 用量。');vocabularyHelp.style.cssText='display:block;margin:2px 0 10px';tools.append(vocabularyHelp);
+    const codeLabel=node('label','');codeLabel.className='type-row';codeToggle=document.createElement('input');codeToggle.type='checkbox';codeToggle.setAttribute('aria-label','代码注释（不含命令行）');codeLabel.append(codeToggle,document.createTextNode('代码注释（不含命令行）'));codeToggle.onchange=async()=>{try{await rpc('SET_CODE_ANNOTATIONS',{enabled:codeToggle.checked});await settings();refreshBlocks();schedule();feedback.textContent='设置已保存';}catch(e){feedback.textContent=(e as Error).message;}};tools.append(codeLabel);
+    const codeHelp=node('small','代码默认关闭；命令行由上方的独立开关控制。');codeHelp.style.cssText='display:block;margin:-2px 0 12px';tools.append(codeHelp);
+    tools.append(node('strong','02 · 解释偏好'));
+    const domainLabel=node('label','学习领域');domainLabel.style.cssText='display:block;margin-top:8px';domainInput=document.createElement('input');domainInput.maxLength=80;domainInput.setAttribute('aria-label','学习领域');domainInput.style.cssText='display:block;width:100%;margin:5px 0 10px';domainLabel.append(domainInput);tools.append(domainLabel);
+    const levelLabel=node('label','熟悉程度');levelSelect=document.createElement('select');levelSelect.setAttribute('aria-label','熟悉程度');for(const value of ['入门','熟悉','进阶']){const option=node('option',value);levelSelect.append(option);}levelSelect.style.cssText='display:block;width:100%;margin:5px 0 10px';levelLabel.append(levelSelect);tools.append(levelLabel);
+    const feedback=node('p','');feedback.setAttribute('aria-live','polite');feedback.style.cssText='font-size:11px;color:#527466;margin:7px 0';
+    const saveProfile=node('button','应用学习偏好') as HTMLButtonElement;saveProfile.onclick=async()=>{try{await rpc('SET_PROFILE',{profile:{domain:domainInput.value,level:levelSelect.value}});feedback.textContent='学习偏好已应用';}catch(e){feedback.textContent=(e as Error).message;}};tools.append(saveProfile);
+    const actions:[string,()=>void][]=[['暂停 / 继续预载',()=>{userPaused=!userPaused;status();if(!userPaused)schedule();}],['重试未完成项',()=>{for(const w of workByKey.values())if(w.state==='failed'){w.state='pending';w.error=undefined;}networkPaused=false;settingsError='';void settings().then(schedule);}],['模型设置 / 不再显示列表',()=>void rpc('OPEN_OPTIONS')],['粘贴文本',()=>openPanel()]];
+    for(const [label,action] of actions){const b=node('button',label) as HTMLButtonElement;b.onclick=action;tools.append(b);}
+    diagnostic=document.createElement('p');diagnostic.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;margin:6px 0';tools.append(diagnostic,feedback);
+    function showTools(){clearTimeout(dockOpenTimer);clearTimeout(dockCloseTimer);tools.hidden=false;statusNode.setAttribute('aria-expanded','true');}
+    function hideTools(){clearTimeout(dockOpenTimer);clearTimeout(dockCloseTimer);dockCloseTimer=window.setTimeout(()=>{tools.hidden=true;statusNode.setAttribute('aria-expanded','false');},700);}
+    dock.addEventListener('mouseenter',()=>{clearTimeout(dockCloseTimer);clearTimeout(dockOpenTimer);dockOpenTimer=window.setTimeout(showTools,450);});
+    dock.addEventListener('mouseleave',hideTools);dock.addEventListener('focusin',showTools);dock.addEventListener('focusout',event=>{if(!dock.contains(event.relatedTarget as Node|null))hideTools();});
+    statusNode.onclick=()=>{if(tools.hidden)showTools();else{tools.hidden=true;statusNode.setAttribute('aria-expanded','false');}};
+    dock.append(statusNode,progress,tools);
     shadow.append(css,tip,selectionButton,dock);document.documentElement.append(host,style);
-    // Small, in-flow entry near the article title. No fixed corner badges or alerts.
-    toolbar=document.createElement('span');toolbar.dataset.easyLearn='';toolbar.style.cssText='display:block;position:sticky;top:4px;z-index:2147483646;font-family:inherit;font-size:12px;line-height:1.7;color:inherit;background:Canvas;border:1px solid #80908333;border-radius:6px;padding:6px 9px;margin:6px 0 12px';
-    statusNode=node('button','阅读注释') as HTMLButtonElement;statusNode.style.cssText='font:inherit;color:inherit;background:none;border:0;border-bottom:1px dotted currentColor;cursor:pointer;padding:0';
-    progress=document.createElement('span');progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');progress.style.marginLeft='10px';
-    tools=document.createElement('div');tools.hidden=true;tools.style.cssText='font-size:12px;padding:8px 0';
-    const actions:[string,()=>void][]=[['重试未完成项',()=>{for(const w of workByKey.values())if(w.state==='failed'){w.state='pending';w.error=undefined;}networkPaused=false;settingsError='';void settings().then(schedule);}],['暂停 / 继续',()=>{userPaused=!userPaused;status();if(!userPaused)schedule();}],['粘贴文本',()=>openPanel()],['设置',()=>void rpc('OPEN_OPTIONS')]];
-    for(const [label,action] of actions){const b=node('button',label) as HTMLButtonElement;b.style.cssText='font:inherit;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer;margin-right:12px;padding:0';b.onclick=action;tools.append(b);}
-    diagnostic=document.createElement('p');diagnostic.style.cssText='white-space:pre-wrap;margin:6px 0';tools.append(diagnostic);statusNode.onclick=()=>{tools.hidden=!tools.hidden;};toolbar.append(statusNode,progress,tools);
-    const article=document.querySelector('article,main,[role="main"]')??document.body;const title=article.querySelector('h1');if(title)title.after(toolbar);else article.prepend(toolbar);
   }
   function keyboard(event:KeyboardEvent){if(event.key==='Escape')hideTip();else selection();}
   async function start(){
@@ -253,9 +259,9 @@ else {
     await settings();if(active){refreshBlocks();void scan();}
   }
   function stop(){
-    active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();
+    active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);clearTimeout(dockOpenTimer);clearTimeout(dockCloseTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();
     try{connection?.port.postMessage({type:'STOP'});}catch{/* closed */}connection?.disconnect();connection=undefined;
-    host?.remove();toolbar?.remove();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);highlights?.delete(repeatHighlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
+    host?.remove();typeToggles.clear();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);highlights?.delete(repeatHighlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';
     document.removeEventListener('mousemove',hovered);document.removeEventListener('mouseup',selection);document.removeEventListener('keyup',keyboard);window.removeEventListener('scroll',onScroll,true);window.removeEventListener('resize',onScroll);
   }
   state.__easyLearn={toggle(){if(active)stop();else void start();}};void start();

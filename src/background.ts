@@ -26,7 +26,7 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   }
   return scope;
 }
-function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'popup.html'].includes(sender.url.split(/[?#]/)[0]); }
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html'].includes(sender.url.split(/[?#]/)[0]); }
 async function config(): Promise<Config> {
   await initialized;
   const data = await chrome.storage.local.get('config');
@@ -77,6 +77,11 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 chrome.tabs.onRemoved.addListener(clearTab);
+chrome.action.onClicked.addListener(async tab => {
+  if (tab.id === undefined) return;
+  try { await initialized; await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); }
+  catch { await chrome.tabs.create({ url: chrome.runtime.getURL('panel.html') }); }
+});
 // Navigation/scroll tracking may report loading without replacing the document.
 // Content-port disconnection and tab closure own cancellation, not tab status.
 async function handle(msg: any, sender: chrome.runtime.MessageSender) {

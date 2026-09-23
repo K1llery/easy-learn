@@ -31,6 +31,12 @@ beforeEach(async () => {
   vi.stubGlobal('chrome',api); await import('../src/background');
 });
 afterEach(()=>vi.unstubAllGlobals());
+it('starts reading immediately when the extension action is clicked',async()=>{
+ api.action.onClicked.emit({id:3,url:'https://article.example/'});
+ await vi.waitFor(()=>expect(api.scripting.executeScript).toHaveBeenCalledWith({target:{tabId:3},files:['content.js']}));
+ expect(api.tabs.create).not.toHaveBeenCalled();
+});
+
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
   const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false});
   expect(JSON.stringify(result)).not.toContain('secret');
@@ -94,14 +100,14 @@ it('does not cancel live requests on same-document loading/status changes', asyn
 });
 
 it('persists the selected annotation types and leaves command/code preferences independent',async()=>{
- const popup={id:'test-id',url:extensionUrl+'popup.html',documentId:'popup'};
- expect((await send('GET_SETTINGS',{},popup)).ok).toBe(true);
- expect((await send('SET_ANNOTATION_TYPES',{types:['abbreviation','command','vocabulary']},popup)).ok).toBe(true);
+ const settingsPage=optionSender;
+ expect((await send('GET_SETTINGS',{},settingsPage)).ok).toBe(true);
+ expect((await send('SET_ANNOTATION_TYPES',{types:['abbreviation','command','vocabulary']},settingsPage)).ok).toBe(true);
  expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.annotationTypes).toEqual(['abbreviation','command','vocabulary']);
  await send('SET_CODE_ANNOTATIONS',{enabled:true},pageSender);
  expect(data.reading).toEqual({annotationTypes:['abbreviation','command','vocabulary'],codeAnnotations:true});
- expect((await send('SET_ANNOTATION_TYPES',{types:['not-a-type']},popup)).ok).toBe(false);
- expect((await send('GET_SETTINGS',{}, {...popup,url:extensionUrl+'popup.html-forged'})).ok).toBe(false);
+ expect((await send('SET_ANNOTATION_TYPES',{types:['not-a-type']},settingsPage)).ok).toBe(false);
+ expect((await send('GET_SETTINGS',{}, {...settingsPage,url:extensionUrl+'options.html-forged'})).ok).toBe(false);
  expect((await send('PUBLIC_SETTINGS',{},pageSender)).data.annotationTypes).toEqual(['abbreviation','command','vocabulary']);
 });
 

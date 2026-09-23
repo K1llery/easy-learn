@@ -69,3 +69,12 @@ it('adds at most one out-of-frequency-list word only when the optional mode is e
  expect(isOutsideCommonVocabulary('classes',new Set(['class']))).toBe(false);
  expect(isOutsideCommonVocabulary('transient',common)).toBe(true);
 });
+
+it('filters filenames, filesystem paths, domain names and linked site labels before annotation',()=>{
+ document.body.innerHTML=`<article><p>Use <code>src/content/index.ts</code>, <code>README.md</code>, and <a href="https://fastapi.tiangolo.com/">FastAPI</a> to configure the API. The API uses HTTP.</p><pre><code>./src/content/index.ts</code></pre><pre><code>https://docs.example.com/guide</code></pre></article>`;
+ const blocks=extractBlocks(),prose=blocks.find(block=>block.kind==='prose')!,code=blocks.filter(block=>block.kind==='code');
+ const candidates=findCandidates(prose);
+ expect(candidates.map(candidate=>candidate.anchor)).toContain('API');
+ expect(candidates.map(candidate=>candidate.anchor)).not.toEqual(expect.arrayContaining(['src/content/index.ts','README.md','FastAPI']));
+ expect(code.flatMap(block=>findCandidates(block))).toHaveLength(0);
+});

@@ -18,6 +18,28 @@ const KNOWN_ACRONYMS = new Set('AI ML DR DB OS IP UI IO API HTTP HTTPS REST RPC 
 const IGNORE = new Set(['THE','AND','FOR','NOT','TODO','NOTE','IMPORTANT','WARNING','INFO','ERROR','DEBUG','README','LICENSE','CONTRIBUTING','INSTALL','GETTING','STARTED','TRUE','FALSE','NULL','NONE','RELEASE','CHANGES','FAQ','TIP','VS','ALL','YOU','NEED','WMT2014','GREAT','NEWS','AVAILABLE','SOON','DEFAULT','GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','SET','READ','WRITE','OK']);
 const COMMON = new Set(['python','fastapi','installation','example','examples','project','projects','name','value','data','code','usage','features','performance','documentation','test','tests','run','install','true','false','none','null','main','app','return','def','import']);
 export type LocalCandidate = Omit<Candidate,'id'> & { start:number };
+const FILE_SUFFIX=/\.(?:md|mdx|rst|txt|py|pyi|ipynb|js|jsx|mjs|cjs|ts|tsx|json|jsonc|ya?ml|toml|ini|cfg|conf|env|html?|css|scss|svg|png|jpe?g|gif|pdf|zip|gz|sh|bash|zsh|ps1|bat|sql|go|rs|java|c|h|hpp|cpp|lock|csv|xml|log)$/i;
+const WEB_ADDRESS=/^(?:(?:https?:\/\/)|www\.)?([\w-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s]*)?$/i;
+const PATH_PREFIX=new RegExp('^(?:~[/\\\\]|\\.{1,2}[/\\\\]|[a-z]:[/\\\\]|/(?:home|users?|etc|usr|var|tmp|opt|workspace|workspaces|mnt|src|docs|tests?|lib|packages|examples|scripts|assets|include|vendor|app|repo|projects?|node_modules|public|dist|build)[/\\\\])','i');
+function nonLearningIdentifier(value:string,block:Block):boolean {
+  const text=value.trim().replace(/[),.;:!?]+$/,'');
+  if(!text)return true;
+  if(WEB_ADDRESS.test(text)||/^https?:\/\/\S+$/i.test(text))return true;
+  if(FILE_SUFFIX.test(text)||/^\.(?:env|gitignore|npmrc|editorconfig)$/i.test(text))return true;
+  if(PATH_PREFIX.test(text))return true;
+  const compact=text.toLowerCase().replace(/[^a-z0-9]/g,'');
+  const siteLabels=new Set<string>();
+  const addHost=(host:string)=>host.toLowerCase().replace(/^www\./,'').split('.').filter(part=>part.length>2).forEach(part=>siteLabels.add(part.replace(/[^a-z0-9]/g,'')));
+  if(typeof location!=='undefined'&&location.hostname)addHost(location.hostname);
+  for(const link of block.element.querySelectorAll<HTMLAnchorElement>('a[href]')){
+    let host='';try{host=new URL(link.href,location.href).hostname;}catch{/* Ignore malformed links. */}
+    if(!host)continue;
+    const label=link.textContent?.trim().toLowerCase().replace(/[^a-z0-9]/g,'')??'';
+    const labels=host.toLowerCase().replace(/^www\./,'').split('.').filter(part=>part.length>2).map(part=>part.replace(/[^a-z0-9]/g,''));
+    if(label&&label===compact&&labels.includes(label))return true;
+  }
+  return /^H[1-6]$/.test(block.element.tagName)&&siteLabels.has(compact);
+}
 export function isOutsideCommonVocabulary(word:string,commonWords:ReadonlySet<string>):boolean {
   const value=word.toLowerCase();if(commonWords.has(value))return false;
   const forms=new Set<string>();
@@ -38,7 +60,7 @@ export function findCandidates(block:Block,environment:CandidateEnvironment=cand
   const technical=environment.technical||TECH_CONTEXT.test(block.text+' '+block.heading),web=environment.web||WEB_CONTEXT.test(block.text+' '+block.heading);
   const inlineTerms=new Set([...block.element.querySelectorAll('code')].map(el=>el.textContent?.trim()??''));
   function add(anchor:string,start:number,kind:Candidate['kind'],method=false) {
-    if(!anchor.trim()||anchor.length>300||(!method&&IGNORE.has(anchor))||COMMON.has(anchor.toLowerCase()))return;
+    if(!anchor.trim()||anchor.length>300||nonLearningIdentifier(anchor,block)||(!method&&IGNORE.has(anchor))||COMMON.has(anchor.toLowerCase()))return;
     if(found.some(c=>c.anchor.toLowerCase()===anchor.toLowerCase()))return;
     if(found.some(c=>start<c.start+c.anchor.length&&start+anchor.length>c.start))return;
     found.push({anchor,start,kind,heading:block.heading.slice(0,120),context:snippet(block.text,start,anchor.length)+(block.text.length<120&&environment.nearby?'\n'+environment.nearby.slice(0,250):'')});
@@ -47,7 +69,7 @@ export function findCandidates(block:Block,environment:CandidateEnvironment=cand
   if(block.kind==='code') {
     let offset=0;for(const line of block.text.split('\n')) {
       const trimmed=line.trim();
-      if(trimmed&&(/[=(){}[\].:;+*/<>]|\b(?:import|from|return|raise|yield|await|break|continue|pass)\b/.test(trimmed))&&!/^(?:#|\/\/|\/\*|\*|[{}\]\);,]+$)/.test(trimmed))add(trimmed,offset+line.indexOf(trimmed),'code');
+      if(trimmed&&!nonLearningIdentifier(trimmed,block)&&(/[=(){}[\].:;+*/<>]|\b(?:import|from|return|raise|yield|await|break|continue|pass)\b/.test(trimmed))&&!/^(?:#|\/\/|\/\*|\*|[{}\]\);,]+$)/.test(trimmed))add(trimmed,offset+line.indexOf(trimmed),'code');
       offset+=line.length+1;
     }
     return found.slice(0,8);
