@@ -2,6 +2,13 @@
 // Presets contain no credentials and never switch models or providers automatically.
 export const providers = [
   {
+    id: 'local-cpa', market: 'local', name: 'ChatGPT Plus · 本机 CPA（个人使用）',
+    baseUrl: 'http://127.0.0.1:8317/v1', model: 'gpt-5.6-luna',
+    signup: 'https://github.com/router-for-me/CLIProxyAPI',
+    docs: 'https://github.com/router-for-me/CLIProxyAPI',
+    note: '使用本机运行的 CPA 和当前 ChatGPT Plus 账户的 Codex 用量。填写本机 CPA 的访问密钥；无需在扩展中填写 ChatGPT 密码。此方案仅供当前个人使用，关闭本机代理后无法调用模型。'
+  },
+  {
     id: 'deepseek', market: 'cn', name: 'DeepSeek · Flash（中国大陆）',
     baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash',
     signup: 'https://platform.deepseek.com/api_keys',
