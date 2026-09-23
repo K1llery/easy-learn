@@ -219,6 +219,15 @@ test('two remote batches run concurrently and local marks appear before either r
 test('free presets clear credentials on provider changes and offline mode is usable',async()=>{
  const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
  const count=calls.length;
+ await expect(settings.locator('#provider optgroup[label="中国大陆服务"] option')).toHaveCount(3);
+ await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(6);
+ await settings.getByLabel('服务方案').selectOption('qwen');
+ await expect(settings.getByLabel('模型名称')).toHaveValue('qwen3.8-flash');
+ await expect(settings.getByLabel('API Base URL')).toHaveValue('https://YOUR_WORKSPACE_ID.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
+ await settings.getByLabel('模型名称').fill('custom-model');
+ await settings.getByLabel('API Key',{exact:true}).fill('fixture-not-real');
+ await settings.getByRole('button',{name:'保存并授权'}).click();
+ await expect(settings.getByRole('alert')).toContainText('YOUR_WORKSPACE_ID');
  await settings.getByLabel('服务方案').selectOption('zhipu');await expect(settings.getByLabel('模型名称')).toHaveValue('glm-4.7-flash');
  await settings.getByLabel('服务方案').selectOption('groq');await expect(settings.getByLabel('API Base URL')).toHaveValue('https://api.groq.com/openai/v1');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
  await settings.getByLabel('API Key',{exact:true}).fill('fixture-not-real');await settings.getByLabel('服务方案').selectOption('openrouter');await expect(settings.getByLabel('模型名称')).toHaveValue('openrouter/free');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');

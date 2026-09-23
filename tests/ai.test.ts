@@ -12,6 +12,14 @@ it('sends only compact local candidates and consumes one provider response',asyn
  const input=JSON.parse(JSON.parse(fetcher.mock.calls[0][1]!.body as string).messages[1].content);
  expect(input.context).toBeUndefined();expect(input.candidates).toHaveLength(2);expect(fetcher).toHaveBeenCalledTimes(1);
 });
+it('uses the Qwen workspace output-limit and no-thinking fields',async()=>{
+ const qwenConfig:Config={...config,baseUrl:'https://llm-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',model:'qwen3.8-flash'};
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('这是一个自然语言解释。'));
+ await callModel(qwenConfig,{operation:'explain',context:request.context});
+ const body=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(body).toMatchObject({enable_thinking:false,max_completion_tokens:3000});
+ expect(body).not.toHaveProperty('max_tokens');
+});
 it('never makes a paid automatic repair request on unusable output',async()=>{
  const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async()=>response('无法对应两个候选的自由文本'));
  await expect(callModel(config,request)).rejects.toThrow('未自动重试');expect(fetcher).toHaveBeenCalledTimes(1);

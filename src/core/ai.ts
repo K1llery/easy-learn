@@ -41,7 +41,10 @@ export async function callModel(config:Config, request:AIRequest, signal?:AbortS
   let response:Response;
   try {
     try {
-      response=await fetch(endpoint(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.apiKey}`},body:JSON.stringify({...providerOptions(config.baseUrl,config.model),model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],temperature:0.2,max_tokens:streaming?Math.min(2200,300+(request.candidates??[]).reduce((n,c)=>n+(c.kind==='code'||c.kind==='command'?500:180),0)):3000,stream:streaming,...(streaming?{stream_options:{include_usage:true}}:{})}),signal:combined});
+      const tokenLimit = streaming ? Math.min(2200, 300 + (request.candidates ?? []).reduce((n, c) => n + (c.kind === 'code' || c.kind === 'command' ? 500 : 180), 0)) : 3000;
+      const tokenLimitField = new URL(config.baseUrl).hostname.endsWith('.maas.aliyuncs.com') ? 'max_completion_tokens' : 'max_tokens';
+      const body = {...providerOptions(config.baseUrl, config.model),model:config.model,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],temperature:0.2,[tokenLimitField]:tokenLimit,stream:streaming,...(streaming?{stream_options:{include_usage:true}}:{})};
+      response=await fetch(endpoint(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${config.apiKey}`},body:JSON.stringify(body),signal:combined});
     } catch(error) {
       if(signal?.aborted)throw new Error('请求已取消。');
       if(combined.aborted)throw new Error('模型响应超时，请稍后手动重试。');
