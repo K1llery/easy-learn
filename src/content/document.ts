@@ -15,7 +15,7 @@ function textNodes(element: Element) {
   return nodes;
 }
 export function readableText(element: Element): string { return textNodes(element).map(n => n.data).join('').trim(); }
-const SHELL_COMMANDS = 'apt|apt-get|awk|basename|bash|brew|cargo|cat|conda|go|pipx|poetry|chmod|chown|clear|cmp|comm|cp|curl|cut|date|diff|dirname|docker|echo|env|export|fastapi|file|find|git|grep|gunzip|head|hostname|jq|kill|less|ln|ls|make|man|mkdir|mktemp|more|mv|nc|node|npm|npx|openssl|pgrep|pip3?|pkill|pnpm|printf|ps|pwd|python3?|rm|rmdir|rsync|ruff|sed|seq|sh|sort|source|ssh|stat|sudo|tail|tar|tee|time|touch|tr|true|uname|uniq|uvx?|vim|wc|wget|which|whoami|xargs|yarn';
+const SHELL_COMMANDS = 'apt|apt-get|awk|basename|bash|brew|cargo|cat|cd|conda|go|pipx|poetry|chmod|chown|clear|cmp|comm|cp|curl|cut|date|diff|dirname|docker|echo|env|export|fastapi|file|find|git|grep|gunzip|head|hostname|jq|kill|less|ln|ls|make|man|mkdir|mktemp|more|mv|nc|node|npm|npx|openssl|pgrep|pip3?|pkill|pnpm|printf|ps|pwd|python3?|rm|rmdir|rsync|ruff|sed|seq|sh|sort|source|ssh|stat|sudo|tail|tar|tee|time|touch|tr|true|uname|uniq|uvx?|vim|wc|wget|which|whoami|xargs|yarn';
 const COMMAND = new RegExp('^(?:\\$\\s+)?(?:(?:sudo|time|command)\\s+(?:-[^\\s]+\\s+)*)?(?:' + SHELL_COMMANDS + ')(?=\\s|$)', 'i');
 const SHELL_PROMPT = /^(?:\([^)]+\)\s+)?(?:(?:[\w.-]+@[\w.-]+)\s*:?[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|[\w.-]+[ \t]*:[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|PS\s+[^>\n]*>\s*)/i;
 function commandLine(line: string): { text: string; offset: number; prompted: boolean } | null {

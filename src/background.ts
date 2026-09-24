@@ -75,9 +75,9 @@ chrome.runtime.onConnect.addListener(port => {
     contentPorts.set(id, port);
     port.onMessage.addListener(msg => {
       if (msg?.type === 'CONTEXT') safePost(panelPorts.get(id), msg);
-      if (msg?.type === 'STOP') clearTab(id);
+      if (msg?.type === 'STOP') clearScope(scope);
     });
-    port.onDisconnect.addListener(() => { if (contentPorts.get(id) === port) { contentPorts.delete(id); clearTab(id); } });
+    port.onDisconnect.addListener(() => { if (contentPorts.get(id) === port) { contentPorts.delete(id); clearScope(scope); } });
   } else if (port.name === 'panel' && trusted(port.sender!)) {
     panelPorts.set(id, port);
     safePost(contentPorts.get(id), { type: 'PANEL_READY' });

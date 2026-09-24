@@ -107,7 +107,7 @@ test('dynamic context invalidation, selection, pasted text, and recoverable mode
   await page.locator('#recovery').evaluate(el=>{el.textContent='DR is the daily run job. Here DR stands for daily run and begins at 08:00.';});
   await expect.poll(()=>calls.slice(before).some(c=>c.candidates?.some((x:any)=>x.context.includes('begins at 08:00')))).toBe(true);
   await page.locator('#api').evaluate(el=>{const selection=window.getSelection()!;const range=document.createRange();range.selectNodeContents(el);selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new MouseEvent('mouseup'));});
-  await page.getByRole('button',{name:'解释 / 翻译所选文字'}).click(); const panel=page.frameLocator('iframe[title="Easy Learn 学习面板"]');
+  await page.getByRole('button',{name:'解释',exact:true}).click(); const panel=page.frameLocator('iframe[title="Easy Learn 学习面板"]');
   await expect(panel.getByRole('heading',{name:'理解这一段'})).toBeVisible(); await expect(panel.getByLabel('概念解释')).toBeVisible();
   await panel.getByRole('button',{name:'新文本',exact:true}).click(); await panel.getByLabel('粘贴想理解的内容').fill('A different text with enough context to exercise the model failure boundary.');
   responseStatus=429; await panel.getByRole('button',{name:'帮我理解'}).click(); await expect(panel.getByRole('alert')).toContainText('限流');
@@ -392,7 +392,7 @@ test('practices before seeing explanations, retains failed attempts, and saves o
   const panel=await context.newPage();await panel.setViewportSize({width:410,height:1000});await panel.goto(`chrome-extension://${id}/panel.html`);
   const start=calls.length;
   const source='DR restores service after a regional failure. Copies in another region can remain available.';
-  await panel.getByLabel('粘贴想理解的内容').fill(source);await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await panel.getByLabel('粘贴想理解的内容').fill(source);await panel.getByRole('button',{name:'先练再看',exact:true}).click();
   await expect(panel.getByLabel('主动练习')).toBeVisible();expect(calls.length).toBe(start);
   await expect(panel.locator('.source')).toBeHidden();await expect(panel.getByLabel('概念解释')).toHaveCount(0);
   await panel.getByLabel('这段内容，你想拿来做什么？').fill('为自己的项目设计恢复方案');
@@ -414,7 +414,7 @@ test('practices before seeing explanations, retains failed attempts, and saves o
   await panel.getByRole('button',{name:'保存练习，明天复习'}).click();await expect(panel.getByRole('status')).toContainText('明天再回忆');
   const cards=await readCards();expect(cards).toHaveLength(1);expect(cards[0]).toMatchObject({sourceText:source,answer:'因为发生故障时需要恢复服务。',reviewCount:0});
   expect(cards[0].dueAt-cards[0].createdAt).toBe(86400000);expect(calls.length-start).toBe(4);
-  await panel.getByRole('button',{name:'阅读解释',exact:true}).click();await expect(panel.getByLabel('概念解释')).toBeVisible();expect(calls.length-start).toBe(5);expect(calls.at(-1).operation).toBe('explain');
+  await panel.getByRole('button',{name:'解释',exact:true}).click();await expect(panel.getByLabel('概念解释')).toBeVisible();expect(calls.length-start).toBe(5);expect(calls.at(-1).operation).toBe('explain');
   await panel.reload();await panel.getByRole('button',{name:'我的复习',exact:true}).click();
   await expect(panel.getByText('为自己的项目设计恢复方案',{exact:true})).toBeVisible();await panel.close();
 });
@@ -449,10 +449,10 @@ test('offline review hides references until an attempt, records practice, export
 
 test('late quiz responses never replace a new text session',async()=>{
   const panel=await context.newPage();await panel.goto(`chrome-extension://${id}/panel.html`);
-  await panel.getByLabel('粘贴想理解的内容').fill('The first document discusses disaster recovery.');await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await panel.getByLabel('粘贴想理解的内容').fill('The first document discusses disaster recovery.');await panel.getByRole('button',{name:'先练再看',exact:true}).click();
   await panel.getByLabel('这段内容，你想拿来做什么？').fill('旧目标');responseDelay=700;const initialCompleted=completed;
   await panel.getByRole('button',{name:'出一道练习题'}).click();await expect(panel.getByRole('status')).toContainText('正在根据选段');
-  await panel.getByRole('button',{name:'新文本',exact:true}).click();await panel.getByLabel('粘贴想理解的内容').fill('A new document discusses API design.');await panel.getByRole('button',{name:'直接练习',exact:true}).click();
+  await panel.getByRole('button',{name:'新文本',exact:true}).click();await panel.getByLabel('粘贴想理解的内容').fill('A new document discusses API design.');await panel.getByRole('button',{name:'先练再看',exact:true}).click();
   await expect.poll(()=>completed).toBeGreaterThan(initialCompleted);
   await expect(panel.getByRole('button',{name:'出一道练习题'})).toBeVisible();await expect(panel.getByLabel('这段内容，你想拿来做什么？')).toHaveValue('');await expect(panel.getByText('为什么灾难恢复还需要异地副本？')).toHaveCount(0);
   await panel.close();

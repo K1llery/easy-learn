@@ -68,3 +68,10 @@ pattern/replacement/g
  expect(blocks.some(b=>b.kind==='code')).toBe(false);
  expect(blocks.every(b=>!b.text.includes('missing:~$'))).toBe(true);
 });
+
+it('recognizes cd in ordinary shell blocks as a command with a local explanation',()=>{
+ document.body.innerHTML='<article><pre><code>cd awesome-project</code></pre></article>';
+ const blocks=extractBlocks();
+ expect(blocks).toMatchObject([{kind:'command',text:'cd awesome-project'}]);
+ expect(explainCommand(blocks[0].text)?.[0].meaning).toBe('切换目录');
+});

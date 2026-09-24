@@ -117,6 +117,19 @@ it('closing a panel does not discard the article analysis cache', async () => {
   p.onDisconnect.emit();await send('AI',analysis,pageSender);expect(model).toHaveBeenCalledTimes(2);
   api.tabs.onRemoved.emit(3);await send('AI',analysis,pageSender);expect(model).toHaveBeenCalledTimes(3);
 });
+it('keeps a side panel request alive when the article reader closes', async () => {
+  const c=port(pageSender,'content'),p=port(panelSender,'panel');api.runtime.onConnect.emit(c);api.runtime.onConnect.emit(p);
+  let resolve: (value: unknown) => void = () => {};
+  model.mockImplementationOnce(() => new Promise(r => { resolve=r; }));
+  const pending=send('AI',{request:{operation:'explain',context}},panelSender);
+  await vi.waitFor(() => expect(model).toHaveBeenCalledTimes(1));
+  const signal=model.mock.calls[0][2] as AbortSignal;
+  c.onMessage.emit({type:'STOP'});
+  c.onDisconnect.emit();
+  expect(signal.aborted).toBe(false);
+  resolve({explanation:'Regional recovery.'});
+  expect(await pending).toMatchObject({ok:true});
+});
 it('cancels requests on tab closure and rejects results returned after cancellation', async () => {
   let resolve: (value:unknown)=>void = ()=>{};
   model.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));

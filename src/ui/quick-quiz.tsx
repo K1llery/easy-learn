@@ -4,7 +4,6 @@ import { rpc } from './rpc';
 import { ActionStatus } from './practice';
 import { useAction } from './use-action';
 
-const letters = ['A', 'B', 'C', 'D'] as const;
 export function QuickQuiz({ context, active }: { context: TextContext; active: boolean }) {
   const [quiz, setQuiz] = useState<ChoiceQuiz | null>(null), [answer, setAnswer] = useState(''), [started, setStarted] = useState(false);
   const { busy, error, run } = useAction();
@@ -20,9 +19,9 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
     <div className="quiz-source" aria-label="本次出题依据">{context.text}</div>
     {!quiz && !error && <p className="busy" role="status"><span className="dot"/>正在准备一道简单的题目…</p>}
     {quiz && <><h3 className="quiz-question">{quiz.question}</h3>
-      <div className="quiz-options" role="radiogroup" aria-label="选择一个答案">{quiz.options.map((option, index) => <label key={option.id} className={`quiz-option${answer === option.id ? ' chosen' : ''}${answer && option.id === quiz.correctOption ? ' is-correct' : ''}${answer === option.id && option.id !== quiz.correctOption ? ' is-incorrect' : ''}`}>
+      <div className="quiz-options" role="radiogroup" aria-label="选择一个答案">{quiz.options.map(option => <label key={option.id} className={`quiz-option${answer === option.id ? ' chosen' : ''}${answer && option.id === quiz.correctOption ? ' is-correct' : ''}${answer === option.id && option.id !== quiz.correctOption ? ' is-incorrect' : ''}`}>
         <input type="radio" name="quick-quiz-answer" value={option.id} checked={answer === option.id} disabled={!!answer || !!busy} onChange={() => setAnswer(option.id)}/>
-        <span className="quiz-letter" aria-hidden="true">{letters[index]}</span><span>{option.text}</span>
+        <span className="quiz-letter" aria-hidden="true">{option.id}</span><span>{option.text}</span>
       </label>)}</div>
       {answer && <div className={`quiz-result${answer === quiz.correctOption ? ' result-correct' : ' result-incorrect'}`} role="status" aria-live="polite">
         <strong>{answer === quiz.correctOption ? '答对了' : '再看一眼参考答案'}</strong>
