@@ -1,6 +1,20 @@
 import { z } from 'zod';
 export const profileSchema = z.object({ domain: z.string().trim().min(1).max(80), level: z.enum(['入门', '熟悉', '进阶']) });
-export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.string().trim().min(1).max(150), apiKey: z.string().trim().min(1).max(2000), profile: profileSchema });
+export const apiKinds = ['openai', 'anthropic', 'codex', 'claude-oauth'] as const;
+export type ApiKind = typeof apiKinds[number];
+export const oauthApiKinds: ApiKind[] = ['codex', 'claude-oauth'];
+export const explanationStyles = ['concise', 'balanced', 'deep'] as const;
+export type ExplanationStyle = typeof explanationStyles[number];
+export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.string().trim().min(1).max(150), apiKey: z.string().trim().max(2000).default(''), profile: profileSchema, api: z.enum(apiKinds).optional(), style: z.enum(explanationStyles).optional() }).superRefine((value, ctx) => {
+  const api = value.api ?? 'openai';
+  if (!oauthApiKinds.includes(api) && !value.apiKey) ctx.addIssue({ code: 'custom', message: '请填写 API Key，或改用订阅账户登录。' });
+});
+export const readingPrefsSchema = z.object({
+  quizCount: z.number().int().min(2).max(8).optional(),
+  maxPerBlock: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),
+  batchSize: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),
+});
+export type ReadingPrefs = z.infer<typeof readingPrefsSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type Config = z.infer<typeof configSchema>;
 export const defaultProfile: Profile = { domain: '软件开发', level: '入门' };
@@ -23,14 +37,17 @@ export const choiceQuizSchema = z.object({ question: z.string().trim().min(1).ma
   if (new Set(value.options.map(option => option.id)).size !== 4) ctx.addIssue({ code: 'custom', message: '选项编号必须包含 A、B、C、D 且不重复。' });
 });
 export type ChoiceQuiz = z.infer<typeof choiceQuizSchema>;
+export const pageQuizSchema = z.object({ questions: z.array(choiceQuizSchema).min(1).max(8) });
+export type PageQuiz = z.infer<typeof pageQuizSchema>;
 export type Quiz = z.infer<typeof quizSchema>;
 export const evaluationSchema = z.object({ correct: z.string().trim().min(1).max(3000), gaps: z.string().trim().min(1).max(3000), reference: z.string().trim().min(1).max(4000) });
 export type Evaluation = z.infer<typeof evaluationSchema>;
 export const candidateSchema = z.object({ id:z.string().regex(/^c\d+$/).max(20), anchor:z.string().min(1).max(300), kind:z.enum(['term','abbreviation','command','code','vocabulary']), heading:z.string().max(120), context:z.string().max(420) });
 export type Candidate = z.infer<typeof candidateSchema>;
-export const aiRequestSchema = z.object({ operation: z.enum(['analyze', 'explain', 'quiz', 'choice', 'evaluate']), candidates:z.array(candidateSchema).min(1).max(8).optional(), context: contextSchema, concept: conceptSchema.optional(), mode: z.enum(['explain', 'translate', 'followup']).optional(), goal: z.string().trim().max(300).optional(), question: z.string().max(2000).optional(), answer: z.string().max(5000).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(10000) })).max(8).optional() }).superRefine((value, ctx) => {
+export const aiRequestSchema = z.object({ operation: z.enum(['analyze', 'explain', 'quiz', 'choice', 'evaluate', 'pageQuiz']), count: z.number().int().min(1).max(8).optional(), candidates:z.array(candidateSchema).min(1).max(8).optional(), context: contextSchema, concept: conceptSchema.optional(), mode: z.enum(['explain', 'translate', 'followup']).optional(), goal: z.string().trim().max(300).optional(), question: z.string().max(2000).optional(), answer: z.string().max(5000).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(10000) })).max(8).optional() }).superRefine((value, ctx) => {
   if (value.operation === 'evaluate' && (!value.question?.trim() || !value.answer?.trim())) ctx.addIssue({ code: 'custom', message: '请先写下自己的回答。' });
   if (value.candidates && value.operation !== 'analyze') ctx.addIssue({ code: 'custom', message: '候选词仅用于注释分析。' });
+  if (value.operation === 'pageQuiz' && !value.count) ctx.addIssue({ code: 'custom', message: '整页测验需要指定题目数量。' });
 });
 export type AIRequest = z.input<typeof aiRequestSchema>;
 export type Mastered = { key: string; domain: string; meaning: string; anchor: string; createdAt: number };
@@ -42,4 +59,19 @@ export function endpoint(baseUrl: string) {
   if (url.username || url.password || url.search || url.hash || !(url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('请使用 HTTPS 地址，或本机 localhost / 127.0.0.1 的 HTTP 地址；地址不能包含密钥、查询参数或片段。');
   url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/chat\/completions$/, '') + '/chat/completions';
   return url;
+}
+export const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
+export function apiKindOf(config: Pick<Config, 'api'>): ApiKind { return config.api ?? 'openai'; }
+// Builds the concrete request URL for the configured protocol kind.
+export function requestTarget(baseUrl: string, api: ApiKind): URL {
+  if (api === 'codex') return new URL(CODEX_RESPONSES_URL);
+  if (api === 'anthropic' || api === 'claude-oauth') {
+    let url: URL;
+    try { url = new URL(baseUrl); } catch { throw new Error('模型地址无效，请填写完整的 HTTPS Base URL。'); }
+    if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('请使用 HTTPS 地址，或本机 localhost / 127.0.0.1 的 HTTP 地址。');
+    url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1/messages';
+    url.search = ''; url.hash = '';
+    return url;
+  }
+  return endpoint(baseUrl);
 }

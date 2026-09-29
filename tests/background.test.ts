@@ -75,7 +75,7 @@ it('caps selected PDF text to the existing context limit and records truncation'
   expect(sessionData['pdfSelection:4'].truncated).toBe(true);
 });
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false,quizCount:5,maxPerBlock:6});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);
@@ -88,7 +88,7 @@ it('upgrades a saved local CPA preset to GPT-6 Luna while retaining its access k
  expect(settings.data.config).toMatchObject({model:'gpt-6-luna',apiKey:'secret'});
  expect(data.config.model).toBe('gpt-6-luna');
  await send('TEST');
- expect(model).toHaveBeenCalledWith(expect.objectContaining({model:'gpt-6-luna'}),expect.anything());
+ expect(model).toHaveBeenCalledWith(expect.objectContaining({model:'gpt-6-luna'}),expect.anything(),undefined,undefined,undefined);
 });
 it('denied host permission never saves configuration or calls the model', async () => {
   api.permissions.contains.mockResolvedValue(false);

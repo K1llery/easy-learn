@@ -2,6 +2,15 @@
 
 核对日期：2026-09-23。正式产品目标是仅通过 Chrome / Edge 扩展商店安装；下述本机 CPA 接入只用于当前个人试用，不作为上架后的默认方案。
 
+## 0.13.0：扩展内订阅账户直连（新）
+
+应“把 CPA 高度集成进插件、允许订阅账户 OAuth 登录”的需求，0.13.0 在扩展内部实现了两条订阅直连通道，无需本机代理程序：
+
+- **ChatGPT 订阅（Codex 通道）**：设置页用 PKCE + `chrome.identity.launchWebAuthFlow` 完成 `auth.openai.com` 登录，随后直接调用 `chatgpt.com/backend-api/codex/responses`（Responses 协议，SSE）。令牌（含刷新令牌）保存在 `chrome.storage.local`，由后台在到期前 5 分钟自动刷新；也支持导入 Codex CLI 的 `auth.json`（校验逻辑与本机 CPA 工具一致）。
+- **Claude 订阅**：同样的 PKCE 流程对接 `claude.ai`，令牌用于以 OAuth 方式调用 Anthropic Messages 接口（`anthropic-beta: oauth-2025-04-20`）。
+
+边界没有变化，只是把“代理”换成了“扩展自身”：登录页由官方站点提供，扩展只在本机保管令牌，绝不收集账号密码。`launchWebAuthFlow` 依赖身份提供方允许扩展的回调地址（`https://<扩展ID>.chromiumapp.org/`）；若官方客户端白名单不含该回调，登录会失败并提示，此时仍可退回本机 CPA 预设或 Codex `auth.json` 导入。订阅用量规则、可用性与持续兼容性仍以官方为准，此通道按个人使用设计，不作为上架后的默认模型来源。导入的凭据文件不要上传仓库或发给他人；“清除本机数据”会连同订阅令牌一起删除。
+
 ## 当前本机试用
 
 已在这台电脑上安装并校验 CLIProxyAPI v7.3.15，导入当前 Codex 登录的 `auth.json`，在 `127.0.0.1:8317` 启动仅本机可访问的服务。使用现有 SOCKS5 代理出站，`gpt-6-luna` 的普通与流式 Chat Completions 调用已验证，`reasoning_effort=none` 和 `low` 均可用。Windows 侧也能连接 WSL 的本机端口。**无需再次进行 OAuth。** 这验证的是当前账号、当前模型和当前版本的可用性，不承诺以后持续兼容或无限额度。

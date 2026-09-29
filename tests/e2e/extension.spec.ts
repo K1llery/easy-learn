@@ -13,6 +13,11 @@ function output(request: any) {
   if(request.operation === 'analyze') return {concepts: text.includes('DR') ? [concept('DR',text.includes('daily run') ? '每日运行' : '灾难恢复',text.includes('daily run') ? 'Daily Run' : 'Disaster Recovery')] : text.includes('API') ? [concept('API','应用程序编程接口','Application Programming Interface')] : []};
   if(request.operation === 'quiz') return {question:'为什么灾难恢复还需要异地副本？',application:'为自己的服务画一张异地恢复流程图，标出故障点与接管步骤。'};
   if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。'};
+  if(request.operation === 'choice') return {question:'根据正文，灾难恢复的关键保证是什么？',options:[{id:'A',text:'区域故障时由其他区域恢复服务'},{id:'B',text:'更快的磁盘'},{id:'C',text:'更低的存储成本'},{id:'D',text:'更多的日志'}],correctOption:'A',explanation:'原文说明区域故障时由其他区域恢复服务。'};
+  if(request.operation === 'pageQuiz') return {questions:[
+    {question:'灾难恢复的主要目的是什么？',options:[{id:'A',text:'在区域故障后从其他区域恢复服务'},{id:'B',text:'提高写入速度'},{id:'C',text:'减少存储成本'},{id:'D',text:'简化部署'}],correctOption:'A',explanation:'原文说明 DR 让系统在整个区域不可用时，仍能从其他区域恢复服务。'},
+    {question:'为什么副本不能只放在本机房？',options:[{id:'A',text:'本机房磁盘更贵'},{id:'B',text:'单一区域故障时本地副本可能一起不可用'},{id:'C',text:'副本协议限制'},{id:'D',text:'备份窗口不够'}],correctOption:'B',explanation:'正文提到区域故障时本地副本可能一起不可用。'}
+  ]};
   return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。' : ''};
 }
 async function currentWorker():Promise<Worker> { const active=context.serviceWorkers()[0];if(active){worker=active;return active;}worker=await context.waitForEvent('serviceworker');return worker; }
@@ -40,6 +45,7 @@ test.beforeAll(async () => {
       res.writeHead(responseStatus,{'Content-Type':'application/json'});
       res.end(responseStatus===200 ? JSON.stringify({choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]}) : '{}'); return;
     }
+    if(req.url === '/sample.pdf') { res.writeHead(200,{'Content-Type':'application/pdf'}); res.end(await readFile('tests/fixtures/sample.pdf')); return; }
     res.writeHead(200,{'Content-Type':'text/html'}); res.end(await readFile('tests/fixtures/article.html'));
   });
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve));
@@ -219,12 +225,13 @@ test('two remote batches run concurrently and local marks appear before either r
 test('provider presets clear credentials on changes and offline mode is usable',async()=>{
  const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
  const count=calls.length;
- await expect(settings.locator('#provider optgroup[label="本机个人方案"] option')).toHaveCount(1);
+ await expect(settings.locator('#provider optgroup[label="订阅账户登录"] option')).toHaveCount(2);
+ await expect(settings.locator('#provider optgroup[label="本机与局域网"] option')).toHaveCount(4);
  await settings.getByLabel('服务方案').selectOption('local-cpa');
  await expect(settings.getByLabel('模型名称')).toHaveValue('gpt-6-luna');
  await expect(settings.getByLabel('API Base URL')).toHaveValue('http://127.0.0.1:8317/v1');
- await expect(settings.locator('#provider optgroup[label="中国大陆服务"] option')).toHaveCount(3);
- await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(6);
+ await expect(settings.locator('#provider optgroup[label="中国大陆服务"] option')).toHaveCount(6);
+ await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(11);
  await settings.getByLabel('服务方案').selectOption('qwen');
  await expect(settings.getByLabel('模型名称')).toHaveValue('qwen3.8-flash');
  await expect(settings.getByLabel('API Base URL')).toHaveValue('https://YOUR_WORKSPACE_ID.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
@@ -348,7 +355,7 @@ test('restricted pages keep the popup open with retry and paste-panel options',a
  await expect(page.getByRole('heading',{name:'当前页面无法开启伴读'})).toBeVisible();
  await expect(page.getByRole('button',{name:'重试'})).toBeVisible();
  await expect(page.getByRole('button',{name:'打开粘贴文本面板'})).toBeVisible();
- await expect(page.getByText(/原生 PDF.*选中文字.*扫描版 PDF/)).toBeVisible();
+ await expect(page.getByText(/文本型 PDF.*扫描版 PDF.*粘贴面板/)).toBeVisible();
  await page.close();
 });
 
@@ -456,4 +463,49 @@ test('late quiz responses never replace a new text session',async()=>{
   await expect.poll(()=>completed).toBeGreaterThan(initialCompleted);
   await expect(panel.getByRole('button',{name:'出一道练习题'})).toBeVisible();await expect(panel.getByLabel('这段内容，你想拿来做什么？')).toHaveValue('');await expect(panel.getByText('为什么灾难恢复还需要异地副本？')).toHaveCount(0);
   await panel.close();
+});
+
+test('whole-page quiz scans the page, grades choices in place and reports the score', async () => {
+  const page=await context.newPage(); await page.goto(`${base}/article`);
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  const start=calls.length;
+  await page.getByRole('button',{name:'整页测验',exact:true}).click();
+  const dialog=page.getByRole('region',{name:'整页测验'});
+  await expect(dialog.getByText('灾难恢复的主要目的是什么？')).toBeVisible();
+  await page.getByRole('radio',{name:'在区域故障后从其他区域恢复服务'}).check();
+  await expect(dialog.getByText('答对了')).toBeVisible();
+  await dialog.getByRole('button',{name:'下一题'}).click();
+  await expect(dialog.getByText('为什么副本不能只放在本机房？')).toBeVisible();
+  await page.getByRole('radio',{name:'单一区域故障时本地副本可能一起不可用'}).check();
+  await dialog.getByRole('button',{name:'查看成绩'}).click();
+  await expect(dialog.locator('.elq-score')).toContainText('2 / 2');
+  await expect(dialog.getByText('全部答对，说明这一页读进去了。')).toBeVisible();
+  const request=calls.at(-1); expect(request.operation).toBe('pageQuiz'); expect(request.count).toBe(5);
+  expect(request.context.text).toContain('Disaster recovery');
+  await page.screenshot({path:'test-results/page-quiz.png'});
+  await dialog.getByRole('button',{name:'完成'}).click();
+  await expect(dialog).toHaveCount(0);
+  await page.close();
+});
+
+test('PDF companion extracts text, quizzes the whole document and quizzes a single page', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/sample.pdf')}&title=${encodeURIComponent('Disaster Recovery Paper')}`);
+  await expect(page.getByText('Disaster recovery keeps a second copy of data in another region.')).toBeVisible();
+  const start=calls.length;
+  await page.getByRole('button',{name:'开始整页测验'}).click();
+  const dialog=page.getByRole('region',{name:'整页测验 · PDF'});
+  await expect(dialog.getByText('灾难恢复的主要目的是什么？')).toBeVisible();
+  await page.getByRole('radio',{name:'在区域故障后从其他区域恢复服务'}).check();
+  await expect(dialog.getByText('答对了')).toBeVisible();
+  const request=calls.at(-1); expect(request.operation).toBe('pageQuiz');
+  expect(request.context).toMatchObject({title:'Disaster Recovery Paper'});
+  await dialog.getByRole('button',{name:'收起'}).click();
+  await page.getByRole('button',{name:'考考这一页'}).click();
+  await expect(page.getByLabel('选段单选题')).toBeVisible();
+  await expect(page.getByText('根据正文，灾难恢复的关键保证是什么？')).toBeVisible({timeout:15000});
+  expect(calls.slice(start).map(call=>call.operation)).toContain('choice');
+  await page.screenshot({path:'test-results/pdf-reader.png',fullPage:true});
+  await page.close();
 });

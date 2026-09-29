@@ -1,6 +1,6 @@
 {
   "name": "easy-learn",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.32.1",
@@ -11,19 +11,20 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/chrome": "0.1.24",
     "@types/node": "24.10.1",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "jsdom": "27.2.0",
     "typescript": "5.9.3",
     "vite": "7.2.2",
-    "vitest": "3.2.4",
-    "jsdom": "27.2.0",
-    "@playwright/test": "1.56.1"
+    "vitest": "3.2.4"
   }
 }

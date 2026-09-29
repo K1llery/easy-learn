@@ -1,6 +1,13 @@
 # AI 服务商与模型选择
 
-设置页预设了中国大陆直连接口和海外 / 国际接口。预设仅填写官方 API 地址、模型 ID 和申请入口；需要用户自己的 API Key，不会自动把请求切换到其他模型，也不含免费 API Key。账号资格、区域访问、价格、速率上限和数据保留规则由服务商决定，申请和使用前请查看官方说明。
+设置页按「订阅账户登录」「本机与局域网」「中国大陆服务」「海外 / 国际服务」四组预设。预设仅填写官方 API 地址、模型 ID 和申请入口；需要用户自己的 API Key（订阅登录类除外），不会自动把请求切换到其他模型，也不含免费 API Key。账号资格、区域访问、价格、速率上限和数据保留规则由服务商决定，申请和使用前请查看官方说明。
+
+扩展按服务类型自动选择请求协议：
+
+- **OpenAI Chat Completions（默认）**：绝大多数服务商与 Ollama、LM Studio、vLLM 等本机运行时。
+- **Anthropic Messages**：Anthropic 官方 API（`x-api-key` + `anthropic-version`），扩展自动使用原生协议。
+- **Codex 订阅通道**：ChatGPT 订阅账户 OAuth 登录后直连 `chatgpt.com` 的 Codex Responses 接口。
+- **Claude 订阅 OAuth**：Claude Pro / Max 登录后以 OAuth 令牌调用 Anthropic Messages 接口。
 
 ## 推荐
 
@@ -18,17 +25,27 @@ Qwen 预设使用北京地域业务空间专属 Host。到百炼控制台的工�
 
 | 市场分组 | 服务与模型 | 接口特点 |
 | --- | --- | --- |
+| 订阅账户登录 | ChatGPT Plus / Pro / Team（`gpt-6-luna`，Codex 通道） | 扩展内 OAuth 登录，使用订阅包含的 Codex 用量；无需 API Key，令牌只存本机。 |
+| 订阅账户登录 | Claude Pro / Max（`claude-sonnet-4-5`） | 扩展内 OAuth 登录，使用订阅包含的 Claude Code 用量；无需 API Key，令牌只存本机。 |
+| 本机与局域网 | 本机 CPA（`gpt-6-luna`） | `127.0.0.1:8317` 的 OpenAI 兼容代理；见 [Plus 接入记录](chatgpt-plus-integration.md)。 |
+| 本机与局域网 | Ollama / LM Studio / vLLM | 本机或局域网 OpenAI 兼容接口，零 API 费用；速度取决于本机硬件。 |
 | 中国大陆 | 阿里云百炼 `qwen3.8-flash` | 需把百炼控制台业务空间 API Host 复制到预设地址；北京地域额度和计费见官方价格表。 |
 | 中国大陆 | DeepSeek `deepseek-flash` | OpenAI 兼容；非思考模式。按量计费，价格随时段与缓存变化。 |
 | 中国大陆 | 智谱 `glm-4.7-flash` | OpenAI 兼容免费额度；受账户并发和速率限制。 |
-| 海外 / 国际 | OpenAI `gpt-4.1-mini` | OpenAI 官方 Chat Completions，按量计费。 |
-| 海外 / 国际 | Google `gemini-3.8-flash` | Gemini 官方 OpenAI 兼容接口，按量计费。 |
-| 海外 / 国际 | Moonshot `kimi-k2.6` | Kimi 官方国际 API，按量计费；服务区域与账户条件以平台为准。 |
-| 海外 / 国际 | Groq `qwen/qwen3.8-27b` | 托管 Qwen 模型的 OpenAI 兼容服务；速率限制以 Groq 账户计划为准。 |
+| 中国大陆 | 硅基流动 `Qwen/Qwen3-8B` | 一个 Key 调用多家开源模型；部分小模型有免费额度。 |
+| 中国大陆 | 火山方舟豆包 `doubao-seed-flash` | 需在控制台创建推理接入点，模型名填接入点 ID。 |
+| 中国大陆 | 腾讯混元 `hunyuan-turbos-latest` | OpenAI 兼容接口，需创建混元 API Key。 |
+| 海外 / 国际 | OpenAI 官方 `gpt-6-mini` / `gpt-4.1-mini` | 官方 Chat Completions，按量计费。 |
+| 海外 / 国际 | Anthropic Claude API（`claude-sonnet-4-5`） | 原生 Messages 协议，扩展自动适配；按量计费。 |
+| 海外 / 国际 | Google `gemini-3.8-flash` / `gemini-2.5-flash-lite` | Gemini 官方 OpenAI 兼容接口；免费层规则以官方为准。 |
+| 海外 / 国际 | Moonshot `kimi-k2.6` | Kimi 官方国际 API；服务区域与账户条件以平台为准。 |
+| 海外 / 国际 | Groq `qwen/qwen3.8-27b` | 托管 Qwen 模型；免费计划有请求与 Token 限额。 |
 | 海外 / 国际 | OpenRouter `openrouter/free` | 免费路由到可用模型，实际模型可能改变并可能限流。 |
-| 海外 / 国际 | Google `gemini-2.5-flash-lite` | Gemini 免费额度预设；地区、免费层和数据规则以官方说明为准。 |
+| 海外 / 国际 | Mistral `mistral-small-latest` | 官方 API，兼容 Chat Completions。 |
+| 海外 / 国际 | xAI `grok-4-mini` | 官方 API，兼容 Chat Completions。 |
+| 海外 / 国际 | Together AI `Qwen/Qwen3-30B-A3B` | 开源模型聚合，兼容 Chat Completions。 |
 
-选择预设只改填地址和模型名；换服务时会清除原服务密钥。点击保存并授权后才允许扩展向对应服务域名请求。自定义服务仍可填写兼容 Chat Completions 的 HTTPS API；接口必须支持本扩展使用的消息和流式请求。浏览器里的跨源连接还取决于供应商服务器是否允许扩展来源。
+选择预设只改填地址和模型名；换服务时会清除原服务密钥。点击保存并授权后才允许扩展向对应服务域名请求。订阅登录类预设不需要 API Key：登录窗口由官方站点提供，扩展仅拿到令牌并保存在本机（见 [Plus 接入记录](chatgpt-plus-integration.md)）。自定义服务仍可填写兼容 Chat Completions 的 HTTPS API，或在「接口协议」中选择 Anthropic；接口必须支持本扩展使用的消息和结构化输出请求。浏览器里的跨源连接还取决于供应商服务器是否允许扩展来源。
 
 ## 官方资料
 

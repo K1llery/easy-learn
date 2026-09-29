@@ -1,5 +1,6 @@
-import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, normalizeAnnotationTypes, profileSchema, endpoint, type Config, type Mastered } from './core/types';
+import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, normalizeAnnotationTypes, profileSchema, endpoint, requestTarget, apiKindOf, readingPrefsSchema, explanationStyles, type Config, type Mastered } from './core/types';
 import { callModel, type AnalysisProgress } from './core/ai';
+import { getAccessToken, oauthStatus, signOut, importChatgptCredentials, MODEL_ORIGINS, type OAuthKind } from './core/oauth';
 import { AnnotationCache } from './core/annotation-cache';
 import { cacheKey, Queue, SessionCache } from './core/session';
 import { LEARNING_KEY, learningDraftSchema, learningIdSchema, reviewInputSchema, actionInputSchema, readLearningCards, saveLearningCard, findLearningCard, reviewLearningCard, assertLearningCapacity } from './core/learning';
@@ -29,10 +30,27 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   }
   return scope;
 }
-function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html'].includes(sender.url.split(/[?#]/)[0]); }
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html', extensionRoot + 'pdf.html'].includes(sender.url.split(/[?#]/)[0]); }
 function upgradeLocalCpaModel(cfg: Config): Config {
   return cfg.baseUrl.replace(/\/+$/, '') === 'http://127.0.0.1:8317/v1' && cfg.model === 'gpt-5.6-luna'
     ? {...cfg, model: 'gpt-6-luna'} : cfg;
+}
+function oauthKindOf(cfg: Config): OAuthKind | null {
+  const kind = apiKindOf(cfg);
+  return kind === 'codex' ? 'chatgpt' : kind === 'claude-oauth' ? 'claude' : null;
+}
+function oauthKindInput(value: unknown): OAuthKind {
+  if (value === 'chatgpt' || value === 'claude') return value;
+  throw new Error('未知的订阅服务类型。');
+}
+// Verifies the extension may reach the configured model endpoint (API key or subscription OAuth).
+async function assertModelAccess(cfg: Config) {
+  const kind = oauthKindOf(cfg);
+  if (kind) {
+    if (!(await chrome.permissions.contains({origins: MODEL_ORIGINS[kind]}))) throw new Error('尚未授权订阅账户接口的访问权限，请在设置中重新登录或保存。');
+    return;
+  }
+  if (!(await chrome.permissions.contains({origins: [requestTarget(cfg.baseUrl, apiKindOf(cfg)).origin + '/*']}))) throw new Error('尚未授权访问模型服务器，请在设置中重新保存并授权。');
 }
 async function config(): Promise<Config> {
   await initialized;
@@ -136,14 +154,16 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   }
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
-    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [] };
+    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [], quizCount: Number.isInteger(data.reading?.quizCount) ? data.reading.quizCount : 5, maxPerBlock: Number.isInteger(data.reading?.maxPerBlock) ? data.reading.maxPerBlock : 6 };
   }
   if ((msg.type === 'AI'||msg.type === 'TEST')&&(await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
   if (msg.type === 'AI') {
     const request = aiRequestSchema.parse(msg.request);
-    if (!isTrusted && request.operation !== 'analyze') throw new Error('当前页面只能发起正文难点分析。');
+    if (!isTrusted && request.operation !== 'analyze' && request.operation !== 'pageQuiz') throw new Error('当前页面只能发起正文难点分析和整页测验。');
     const cfg = await config();
-    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请在设置中重新保存并授权。');
+    await assertModelAccess(cfg);
+    const subscription = oauthKindOf(cfg);
+    const auth = subscription ? {getAccessToken: () => getAccessToken(subscription)} : undefined;
     const scope = scopeFor(sender);
     const key = cacheKey(request, cfg.profile, cfg.model, cfg.baseUrl);
     const cache = caches.get(scope) ?? new SessionCache(); caches.set(scope, cache);
@@ -171,7 +191,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
         if (controller.signal.aborted) throw new Error('请求已取消。');
         if((await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。');
         const queueMs=performance.now()-started;
-        const value=await callModel(cfg, missing?{...request,candidates:missing}:request, controller.signal,progress);
+        const value=await callModel(cfg, missing?{...request,candidates:missing}:request, controller.signal,progress,auth);
         return {...value,__timing:{...value.__timing,queueMs}};
       },request.operation==='analyze'?0:100);
       if (controller.signal.aborted) throw new Error('请求已取消。');
@@ -202,6 +222,19 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     await chrome.storage.local.set({config:{...cfg,profile}}); refresh(); return null;
   }
   if (!isTrusted && msg.type !== 'MASTER') throw new Error('该操作仅限扩展界面。');
+  if (msg.type === 'OAUTH_STATUS') return oauthStatus(oauthKindInput(msg.kind));
+  if (msg.type === 'OAUTH_IMPORT') return importChatgptCredentials(String(msg.text ?? '').slice(0, 200000));
+  if (msg.type === 'OAUTH_SIGNOUT') return signOut(oauthKindInput(msg.kind));
+  if (msg.type === 'SET_READING_PREFS') {
+    const prefs = readingPrefsSchema.parse(msg.prefs ?? {});
+    const data = await chrome.storage.local.get('reading');
+    await chrome.storage.local.set({reading: {...data.reading, ...prefs}}); refresh(false); return null;
+  }
+  if (msg.type === 'SET_STYLE') {
+    if (!explanationStyles.includes(msg.style)) throw new Error('解释风格设置无效。');
+    const cfg = await config();
+    await chrome.storage.local.set({config: {...cfg, style: msg.style}}); refresh(); return null;
+  }
   if (msg.type === 'LEARNING_LIST') return readLearningCards((await chrome.storage.local.get(LEARNING_KEY))[LEARNING_KEY]);
   if (['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE'].includes(msg.type)) {
     const cards = readLearningCards((await chrome.storage.local.get(LEARNING_KEY))[LEARNING_KEY]);
@@ -236,9 +269,15 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     return data;
   }
   if (msg.type === 'SAVE_SETTINGS') {
-    const cfg = configSchema.parse(msg.config); endpoint(cfg.baseUrl);
-    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('未获得模型服务器权限，设置没有保存。');
-    await chrome.storage.local.set({ config: cfg }); refresh(); return null;
+    const cfg = configSchema.parse(msg.config);
+    const subscription = oauthKindOf(cfg);
+    if (subscription) {
+      if (!(await chrome.permissions.contains({origins: MODEL_ORIGINS[subscription]}))) throw new Error('未获得订阅账户接口权限，请先完成登录或重新保存授权。设置没有保存。');
+    } else {
+      endpoint(cfg.baseUrl);
+      if (!(await chrome.permissions.contains({origins: [endpoint(cfg.baseUrl).origin + '/*']}))) throw new Error('未获得模型服务器权限，设置没有保存。');
+    }
+    await chrome.storage.local.set({config: cfg}); refresh(); return null;
   }
   if (msg.type === 'SET_REMEMBER_ANNOTATIONS') {
     if(typeof msg.enabled!=='boolean')throw new Error('开关值无效。');
@@ -251,8 +290,9 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   if(msg.type==='CLEAR_ANNOTATION_CACHE'){cacheEpoch++;await annotationCache.clear();return null;}
   if (msg.type === 'TEST') {
     const cfg = await config();
-    if (!(await chrome.permissions.contains({ origins: [endpoint(cfg.baseUrl).origin + '/*'] }))) throw new Error('尚未授权访问模型服务器，请重新保存并授权。');
-    await queue.run(() => callModel(cfg, { operation: 'explain', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }),100);
+    await assertModelAccess(cfg);
+    const subscription = oauthKindOf(cfg);
+    await queue.run(() => callModel(cfg, { operation: 'explain', context: { title: '连接测试', heading: '', text: 'An API is an application programming interface.', before: '', after: '' } }, undefined, undefined, subscription ? {getAccessToken: () => getAccessToken(subscription)} : undefined),100);
     return '连接成功，模型能返回有效的结构化结果。';
   }
   if (msg.type === 'MASTER') {
@@ -271,7 +311,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
 }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Serialize read/modify/write settings operations across tabs.
-  const mutate = ['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE', 'SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
+  const mutate = ['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE', 'SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'SET_READING_PREFS', 'SET_STYLE', 'OAUTH_IMPORT', 'OAUTH_SIGNOUT', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
   const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
   if (mutate) mutationTail = task.catch(() => undefined);
   task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));

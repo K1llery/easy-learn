@@ -88,3 +88,69 @@ it('keeps the learner goal and attempted answer in data rather than system instr
  expect(body.messages[0].content).not.toContain('attempt-untrusted');
  expect(JSON.parse(body.messages[1].content)).toMatchObject({goal:'learner-goal-untrusted',question:'Why?',answer:'attempt-untrusted'});
 });
+const sse=(events:unknown[])=>new Response(events.map(event=>`data: ${JSON.stringify(event)}\n\n`).join('')+'data: [DONE]\n\n',{status:200,headers:{'content-type':'text/event-stream'}});
+const codexConfig:Config={...config,baseUrl:'https://chatgpt.com/backend-api/codex',model:'gpt-6-luna',api:'codex',apiKey:''};
+const oauth={getAccessToken:async()=>({token:'tok-1',accountId:'acc-9'})};
+it('calls the ChatGPT subscription (Codex) endpoint with the OAuth bearer and account header',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(sse([
+  {type:'response.output_text.delta',delta:'{"expla'},
+  {type:'response.output_text.delta',delta:'nation":"订阅通道解释。"}'},
+  {type:'response.completed',response:{usage:{total_tokens:77}}},
+ ]));
+ const result=await callModel(codexConfig,{operation:'explain',context:request.context},undefined,undefined,oauth);
+ expect(result).toMatchObject({explanation:'订阅通道解释。',__usage:77});
+ const [url,init]=fetcher.mock.calls[0];
+ expect(String(url)).toBe('https://chatgpt.com/backend-api/codex/responses');
+ expect(init!.headers).toMatchObject({Authorization:'Bearer tok-1','chatgpt-account-id':'acc-9'});
+ const body=JSON.parse(init!.body as string);
+ expect(body).toMatchObject({model:'gpt-6-luna',stream:true,store:false,reasoning:{effort:'low'}});
+ expect(body.instructions).toContain('任务：explain');
+ expect(JSON.parse(body.input[0].content[0].text)).toMatchObject({operation:'explain'});
+});
+it('uses minimal reasoning effort and a longer explanation budget is irrelevant for translations on Codex',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(sse([{type:'response.output_text.delta',delta:'{"translation":"译文"}'},{type:'response.completed',response:{usage:{total_tokens:9}}}]));
+ await callModel(codexConfig,{operation:'explain',mode:'translate',context:{...request.context,text:'Keep this sentence.'}},undefined,undefined,oauth);
+ const body=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(body.reasoning).toEqual({effort:'minimal'});
+});
+it('surfaces Codex failure events instead of swallowing them',async()=>{
+ vi.spyOn(globalThis,'fetch').mockResolvedValue(sse([{type:'response.failed',response:{error:{message:'usage limit reached'}}}]));
+ await expect(callModel(codexConfig,{operation:'explain',context:request.context},undefined,undefined,oauth)).rejects.toThrow('usage limit reached');
+});
+it('refuses to call subscription endpoints without an authenticated session',async()=>{
+ await expect(callModel(codexConfig,{operation:'explain',context:request.context})).rejects.toThrow('请先在设置中登录');
+});
+it('speaks the native Anthropic Messages protocol for API keys',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({content:[{type:'text',text:'{"explanation":"原生协议解释。"}'}],usage:{input_tokens:12,output_tokens:5}}),{status:200}));
+ const anthropicConfig:Config={...config,baseUrl:'https://api.anthropic.com',model:'claude-sonnet-4-5',api:'anthropic'};
+ const result=await callModel(anthropicConfig,{operation:'explain',context:request.context});
+ expect(result).toMatchObject({explanation:'原生协议解释。',__usage:17});
+ const [url,init]=fetcher.mock.calls[0];
+ expect(String(url)).toBe('https://api.anthropic.com/v1/messages');
+ expect(init!.headers).toMatchObject({'x-api-key':'never-log-me','anthropic-version':'2023-06-01'});
+ const body=JSON.parse(init!.body as string);
+ expect(body).toMatchObject({model:'claude-sonnet-4-5',max_tokens:3000,temperature:0.2,messages:[{role:'user'}]});
+ expect(body.system).toContain('任务：explain');
+});
+it('authorizes Claude subscription calls with the OAuth bearer and beta header',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({content:[{type:'text',text:'{"explanation":"订阅解释。"}'}]}),{status:200}));
+ const claudeConfig:Config={...config,baseUrl:'https://api.anthropic.com',model:'claude-sonnet-4-5',api:'claude-oauth',apiKey:''};
+ await callModel(claudeConfig,{operation:'explain',context:request.context},undefined,undefined,{getAccessToken:async()=>({token:'oauth-tok'})});
+ const init=fetcher.mock.calls[0][1]!;
+ expect(init.headers).toMatchObject({Authorization:'Bearer oauth-tok','anthropic-beta':'oauth-2025-04-20'});
+ expect(init.headers).not.toHaveProperty('x-api-key');
+});
+it('asks for several grounded multiple-choice questions from the whole page',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response(JSON.stringify({questions:[{question:'整页第一题',options:[{id:'A',text:'甲'},{id:'B',text:'乙'},{id:'C',text:'丙'},{id:'D',text:'丁'}],correctOption:'B',explanation:'原文依据'}]})));
+ const result=await callModel(config,{operation:'pageQuiz',count:3,context:{...request.context,text:'whole page body'}});
+ expect(result).toMatchObject({questions:[{question:'整页第一题',correctOption:'B'}]});
+ const body=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(body.messages[0].content).toContain('"questions"');
+ expect(body.messages[0].content).toContain('分布在正文的不同部分');
+ expect(JSON.parse(body.messages[1].content)).toMatchObject({count:3,context:{text:'whole page body'}});
+});
+it('applies the selected explanation style to the system prompt',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('{"explanation":"简洁解释。"}'));
+ await callModel({...config,style:'concise'},{operation:'explain',context:request.context});
+ expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string).messages[0].content).toContain('简洁');
+});

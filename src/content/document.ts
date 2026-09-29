@@ -93,3 +93,18 @@ export function locateText(element: HTMLElement, anchor: string, offset = 0): Ra
   return null;
 }
 export function matchesSnapshot(block: Block) { return block.element.isConnected && readableText(block.element) === (block.sourceText ?? block.text); }
+// Whole-page quiz corpus: prose and headings only; long pages are evenly sampled.
+export function quizText(blocks: Block[], cap = 15000): string {
+  const parts = blocks.filter(block => !block.kind || block.kind === 'prose').map(block => block.text);
+  const joined = parts.join('\n\n');
+  if (joined.length <= cap) return joined;
+  const step = Math.max(1, Math.ceil(parts.length / Math.max(1, Math.floor(cap / 600))));
+  let used = 0; const kept: string[] = [];
+  for (let i = 0; i < parts.length && used < cap; i++) {
+    if (step > 1 && i % step !== 0) continue;
+    const piece = parts[i].slice(0, Math.min(2400, cap - used));
+    if (piece.length < 2) continue;
+    kept.push(piece); used += piece.length + 2;
+  }
+  return kept.join('\n\n');
+}

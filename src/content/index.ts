@@ -1,5 +1,5 @@
 import { annotationTypeValues, conceptKey, defaultAnnotationTypes, type AnnotationType, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
-import { contextFor, extractBlocks, locateText, matchesSnapshot, type Block } from './document';
+import { contextFor, extractBlocks, locateText, matchesSnapshot, quizText, type Block } from './document';
 import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
 import { findCandidates, candidateKey, packCandidates, candidateEnvironment } from './candidates';
@@ -7,6 +7,7 @@ import type { Candidate } from '../core/types';
 import { rpc } from '../ui/rpc';
 import { connectSurface } from '../core/connection';
 import { readingPriority } from './reading-order';
+import { openQuizOverlay } from './quiz';
 import type { AnalysisProgress, ModelTiming } from '../core/ai';
 
 type Annotation = { range: Range; concept: Concept; block: Block; part?: {text:string;explanation:string} };
@@ -16,13 +17,14 @@ if (state.__easyLearn) state.__easyLearn.toggle();
 else {
   let dirty=true;
   let active=false, generation=0, running=false, scheduled=0, rescan=false, hoverTimer=0, dockOpenTimer=0, dockCloseTimer=0;
-  let host: HTMLDivElement, shadow: ShadowRoot, dock: HTMLDivElement, statusNode: HTMLButtonElement, tools: HTMLDivElement, diagnostic: HTMLParagraphElement;
+  let host: HTMLDivElement, shadow: ShadowRoot, dock: HTMLDivElement, statusNode: HTMLButtonElement, quizNode: HTMLButtonElement, tools: HTMLDivElement, diagnostic: HTMLParagraphElement;
   let tip: HTMLDivElement, selectionButton: HTMLDivElement, frame: HTMLIFrameElement | undefined;
   let connection: ReturnType<typeof connectSurface> | undefined, observer: MutationObserver | undefined;
   let blocks: Block[]=[], annotations: Annotation[]=[], payload: Payload | undefined, selected: Payload | undefined, shown: Annotation | undefined;
   let profile: Profile={domain:'软件开发',level:'入门'}, mastered: Mastered[]=[];
   let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false,vocabularyError='';
   let annotationTypes:AnnotationType[]=[...defaultAnnotationTypes],commonWords:Set<string>|undefined,vocabularyLoad:Promise<void>|undefined;
+  let quizCount=5,maxPerBlock=6,batchSize=4;
   let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;let typeToggles=new Map<AnnotationType,HTMLInputElement>();
   type Work = {candidate:Candidate;state:'pending'|'loading'|'ready'|'skipped'|'failed';concept?:Concept;error?:string};
   type Target = {block:Block;work:Work;offset:number};
@@ -119,14 +121,14 @@ else {
     vocabularyLoad??=(async()=>{const response=await fetch(chrome.runtime.getURL('vocabulary/common-words-10k.txt'));if(!response.ok)throw new Error('无法读取本地常用词表。');const content=await response.text();commonWords=new Set(content.split(/\s+/).map(word=>word.trim().toLowerCase()).filter(Boolean));})();
     try{await vocabularyLoad;vocabularyError='';}catch{vocabularyLoad=undefined;vocabularyError='本地词汇表暂不可用，扩展词汇候选未加入。';}
   }
-  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[]}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];for(const [type,input] of typeToggles)input.checked=annotationTypes.includes(type);if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
+  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[];quizCount?:number;maxPerBlock?:number}>('PUBLIC_SETTINGS');localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];if(typeof data.quizCount==='number'&&data.quizCount>=2&&data.quizCount<=8)quizCount=data.quizCount;if(data.maxPerBlock===2||data.maxPerBlock===4||data.maxPerBlock===6)maxPerBlock=data.maxPerBlock;for(const [type,input] of typeToggles)input.checked=annotationTypes.includes(type);if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
     blocks=extractBlocks(document,true);const next:Target[]=[];
     const environment=candidateEnvironment(blocks,document.title);
     for(const [i,block] of blocks.entries()){
       if(block.kind==='code'&&!codeAnnotations)continue;
       const local=block.kind==='command'?explainCommand(block.text):null;
-      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block,{...environment,unknownVocabulary:annotationTypes.includes('vocabulary')&&!!commonWords,commonWords,nearby:[blocks[i-1],blocks[i+1]].filter(b=>b?.sectionId===block.sectionId).map(b=>b.text.slice(0,120)).join(' ')});
+      const candidates=local?[{anchor:block.text,start:0,kind:'command' as const,heading:block.heading.slice(0,120),context:block.text.slice(0,420)}]:findCandidates(block,{...environment,unknownVocabulary:annotationTypes.includes('vocabulary')&&!!commonWords,commonWords,maxPerBlock,nearby:[blocks[i-1],blocks[i+1]].filter(b=>b?.sectionId===block.sectionId).map(b=>b.text.slice(0,120)).join(' ')});
       for(const c of candidates){
         if(c.kind==='code'&&!codeAnnotations)continue;
         if(c.kind!=='code'&&!annotationTypes.includes(c.kind as AnnotationType))continue;
@@ -161,7 +163,7 @@ else {
       const lane=async()=>{while(active&&current===generation&&!networkPaused&&!settingsError&&!userPaused&&!localOnly){
         if(dirty)refreshBlocks();
         const pending=[...new Set(orderedTargets().map(t=>t.work))].filter(w=>w.state==='pending');
-        const batch=packCandidates(pending,4);if(!batch.length)break;
+        const batch=packCandidates(pending,batchSize);if(!batch.length)break;
         batch.forEach(w=>w.state='loading');batchCount++;status();
         const requestId=`${generation}-${++nextRequest}`;
         pendingProgress.set(requestId,data=>{
@@ -218,7 +220,9 @@ else {
     selectionButton.append(explainSelection,quizSelection,translateSelection);
     dock=document.createElement('div');dock.dataset.easyLearn='';dock.style.cssText='position:fixed;right:12px;bottom:16px;pointer-events:none;z-index:1;display:flex;flex-direction:column;align-items:flex-end;gap:7px;font:13px/1.55 system-ui;color:#293a34';
     statusNode=node('button','阅读注释') as HTMLButtonElement;statusNode.style.cssText='background:#206452;color:white;border:1px solid #ffffff88;border-radius:18px;padding:9px 13px;box-shadow:0 3px 16px #173a3033';statusNode.setAttribute('aria-expanded','false');statusNode.title='伴读已开启。悬停展开注释与阅读设置。';
-    tools=document.createElement('div');tools.hidden=true;tools.className='dock-sheet';tools.setAttribute('role','dialog');tools.setAttribute('aria-label','伴读设置');tools.style.cssText='width:min(310px,calc(100vw - 30px));max-height:70vh;overflow:auto;background:#fffffc;color:#293a34;border:1px solid #ccd6cf;padding:15px;border-radius:12px;box-shadow:0 5px 24px #173a3033';
+    quizNode=node('button','整页测验') as HTMLButtonElement;quizNode.style.cssText='background:#1f5f8b;color:white;border:1px solid #ffffff88;border-radius:18px;padding:9px 13px;box-shadow:0 3px 16px #12324733';quizNode.title='扫描整页正文，出几道选择题检验理解';quizNode.setAttribute('aria-haspopup','dialog');
+    quizNode.onclick=()=>{if(dirty)refreshBlocks();const text=quizText(blocks);if(!text){progress.textContent='未找到可测验的正文。';return;}openQuizOverlay(shadow,()=>({title:document.title,text,count:quizCount}));};
+    tools=document.createElement('div');tools.hidden=true;tools.className='dock-sheet';tools.setAttribute('role','dialog');tools.setAttribute('aria-label','伴读设置');tools.style.cssText='position:absolute;right:0;bottom:calc(100% + 8px);width:min(310px,calc(100vw - 30px));max-height:70vh;overflow:auto;background:#fffffc;color:#293a34;border:1px solid #ccd6cf;padding:15px;border-radius:12px;box-shadow:0 5px 24px #173a3033';
     progress=document.createElement('span');progress.setAttribute('role','status');progress.setAttribute('aria-live','polite');progress.style.cssText='pointer-events:none;display:block;max-width:min(330px,calc(100vw - 28px));font-size:11px;line-height:1.45;color:#52685b;text-align:right;margin:0 2px;padding:5px 8px;border-radius:8px;background:#fffff2eF;box-shadow:0 2px 10px #173a3018';
     tools.append(node('strong','01 · 注释类型'));
     const labels:Record<AnnotationType,string>={abbreviation:'英文缩写',term:'专有名词与技术术语',command:'CLI 命令',vocabulary:'扩展词汇（试验）'};
@@ -244,7 +248,7 @@ else {
     dock.addEventListener('mouseenter',()=>{clearTimeout(dockCloseTimer);clearTimeout(dockOpenTimer);dockOpenTimer=window.setTimeout(showTools,450);});
     dock.addEventListener('mouseleave',hideTools);dock.addEventListener('focusin',showTools);dock.addEventListener('focusout',event=>{if(!dock.contains(event.relatedTarget as Node|null))hideTools();});
     statusNode.onclick=()=>{if(tools.hidden)showTools();else{tools.hidden=true;statusNode.setAttribute('aria-expanded','false');}};
-    dock.append(statusNode,progress,tools);
+    dock.append(statusNode,quizNode,progress,tools);
     shadow.append(css,tip,selectionButton,dock);document.documentElement.append(host,style);
   }
   function keyboard(event:KeyboardEvent){if(event.key==='Escape')hideTip();else selection();}
