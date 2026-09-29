@@ -33,7 +33,7 @@ export const analyzeSchema = z.object({ concepts: z.array(conceptSchema.extend({
 export const explainSchema = z.object({ meaning: z.string().max(2000), expansion: z.string().max(500), evidence: z.string().max(2000), ambiguity: z.string().max(2000), explanation: z.string().min(1).max(6000), example: z.string().max(2000), prerequisites: z.array(z.object({ term: z.string().max(200), explanation: z.string().max(2000) })).max(5), translation: z.string().max(10000) });
 export type Explanation = z.infer<typeof explainSchema>;
 export const quizSchema = z.object({ question: z.string().trim().min(1).max(2000), application: z.string().trim().min(1).max(2000) });
-export const choiceQuizSchema = z.object({ question: z.string().trim().min(1).max(1200), options: z.array(z.object({ id: z.enum(['A', 'B', 'C', 'D']), text: z.string().trim().min(1).max(500) })).length(4), correctOption: z.enum(['A', 'B', 'C', 'D']), explanation: z.string().trim().min(1).max(1500) }).superRefine((value, ctx) => {
+export const choiceQuizSchema = z.object({ question: z.string().trim().min(1).max(1200), options: z.array(z.object({ id: z.enum(['A', 'B', 'C', 'D']), text: z.string().trim().min(1).max(500) })).length(4), correctOption: z.enum(['A', 'B', 'C', 'D']), explanation: z.string().trim().min(1).max(1500), evidence: z.string().trim().max(500).optional() }).superRefine((value, ctx) => {
   if (new Set(value.options.map(option => option.id)).size !== 4) ctx.addIssue({ code: 'custom', message: '选项编号必须包含 A、B、C、D 且不重复。' });
 });
 export type ChoiceQuiz = z.infer<typeof choiceQuizSchema>;

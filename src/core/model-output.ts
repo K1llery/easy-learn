@@ -58,10 +58,10 @@ export function parseModelOutput(operation:AIRequest['operation'],raw:string,req
     const explanation=text(obj.explanation??obj.summary??obj.answer??obj.translation,6000)||(!root&&!/^[{\[]/.test(plain)?text(plain,6000):'');
     return explainSchema.parse({meaning:text(obj.meaning,2000),expansion:text(obj.expansion,500),evidence:text(obj.evidence,2000),ambiguity:text(obj.ambiguity,2000),explanation,example:text(obj.example,2000),prerequisites:Array.isArray(obj.prerequisites)?obj.prerequisites.filter((p:any)=>typeof p?.term==='string'&&typeof p?.explanation==='string').slice(0,5).map((p:any)=>({term:text(p.term,200),explanation:text(p.explanation,2000)})):[],translation:text(obj.translation,10000)||(request?.mode==='translate'?explanation:'')});
   }
-  if(operation==='choice')return choiceQuizSchema.parse({question:text(root?.question,1200),options:Array.isArray(root?.options)?root.options.map((option:any)=>({id:option?.id,text:text(option?.text,500)})):[],correctOption:root?.correctOption,explanation:text(root?.explanation,1500)});
+  if(operation==='choice')return choiceQuizSchema.parse({question:text(root?.question,1200),options:Array.isArray(root?.options)?root.options.map((option:any)=>({id:option?.id,text:text(option?.text,500)})):[],correctOption:root?.correctOption,explanation:text(root?.explanation,1500),evidence:text(root?.evidence,500)});
   if(operation==='pageQuiz') {
     const rows:any[]=Array.isArray(root?.questions)?root.questions:Array.isArray(root)?root:[];
-    return pageQuizSchema.parse({questions:rows.map((row:any)=>({question:text(row?.question,1200),options:Array.isArray(row?.options)?row.options.map((option:any)=>({id:option?.id,text:text(option?.text,500)})):[],correctOption:row?.correctOption,explanation:text(row?.explanation,1500)}))});
+    return pageQuizSchema.parse({questions:rows.map((row:any)=>({question:text(row?.question,1200),options:Array.isArray(row?.options)?row.options.map((option:any)=>({id:option?.id,text:text(option?.text,500)})):[],correctOption:row?.correctOption,explanation:text(row?.explanation,1500),evidence:text(row?.evidence,500)}))});
   }
   if(operation==='quiz')return quizSchema.parse({question:text(root?.question,2000),application:text(root?.application,2000)});
   return evaluationSchema.parse({correct:text(root?.correct,3000),gaps:text(root?.gaps,3000),reference:text(root?.reference??root?.feedback,4000)});

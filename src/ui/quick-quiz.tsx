@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ChoiceQuiz, TextContext } from '../core/types';
+import { findQuizEvidence } from '../core/quiz-evidence';
 import { rpc } from './rpc';
 import { ActionStatus } from './practice';
 import { useAction } from './use-action';
@@ -14,9 +15,10 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
   }
   useEffect(() => { if (active && !started) { setStarted(true); generate(); } }, [active, started]);
   const correct = quiz?.options.find(option => option.id === quiz.correctOption);
+  const evidence = quiz && findQuizEvidence(context.text, quiz.evidence);
   return <section className="quick-quiz" aria-label="选段单选题">
     <div className="quiz-intro"><span className="eyebrow">选段快测</span><h2>考考我！</h2><p>根据你选中的内容出一道题。答题前不会显示答案。</p></div>
-    <div className="quiz-source" aria-label="本次出题依据">{context.text}</div>
+    {!answer && <details><summary>查看选段原文</summary><div className="quiz-source" aria-label="本次出题原文">{context.text}</div></details>}
     {!quiz && !error && <p className="busy" role="status"><span className="dot"/>正在准备一道简单的题目…</p>}
     {quiz && <><h3 className="quiz-question">{quiz.question}</h3>
       <div className="quiz-options" role="radiogroup" aria-label="选择一个答案">{quiz.options.map(option => <label key={option.id} className={`quiz-option${answer === option.id ? ' chosen' : ''}${answer && option.id === quiz.correctOption ? ' is-correct' : ''}${answer === option.id && option.id !== quiz.correctOption ? ' is-incorrect' : ''}`}>
@@ -27,6 +29,8 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
         <strong>{answer === quiz.correctOption ? '答对了' : '再看一眼参考答案'}</strong>
         <p><b>正确答案 · {correct?.id}</b>{correct ? `　${correct.text}` : ''}</p>
         <p>{quiz.explanation}</p>
+        {evidence ? <blockquote className="quiz-source">原文：{evidence.text}</blockquote> : <p>未找到可核对的原文引用，请自行对照选段检查这道题。</p>}
+        <details><summary>查看选段原文</summary><div className="quiz-source">{context.text}</div></details>
       </div>}
     </>}
     <ActionStatus busy={busy} error={error}/>

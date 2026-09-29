@@ -15,7 +15,7 @@ function output(request: any) {
   if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。'};
   if(request.operation === 'choice') return {question:'根据正文，灾难恢复的关键保证是什么？',options:[{id:'A',text:'区域故障时由其他区域恢复服务'},{id:'B',text:'更快的磁盘'},{id:'C',text:'更低的存储成本'},{id:'D',text:'更多的日志'}],correctOption:'A',explanation:'原文说明区域故障时由其他区域恢复服务。'};
   if(request.operation === 'pageQuiz') return {questions:[
-    {question:'灾难恢复的主要目的是什么？',options:[{id:'A',text:'在区域故障后从其他区域恢复服务'},{id:'B',text:'提高写入速度'},{id:'C',text:'减少存储成本'},{id:'D',text:'简化部署'}],correctOption:'A',explanation:'原文说明 DR 让系统在整个区域不可用时，仍能从其他区域恢复服务。'},
+    {question:'灾难恢复的主要目的是什么？',options:[{id:'A',text:'在区域故障后从其他区域恢复服务'},{id:'B',text:'提高写入速度'},{id:'C',text:'减少存储成本'},{id:'D',text:'简化部署'}],correctOption:'A',explanation:'原文说明 DR 让系统在整个区域不可用时，仍能从其他区域恢复服务。',evidence:request.context.text.includes('Disaster recovery keeps')?'Disaster recovery keeps a second copy of data in another region.':'Use DR to recover from a regional failure.'},
     {question:'为什么副本不能只放在本机房？',options:[{id:'A',text:'本机房磁盘更贵'},{id:'B',text:'单一区域故障时本地副本可能一起不可用'},{id:'C',text:'副本协议限制'},{id:'D',text:'备份窗口不够'}],correctOption:'B',explanation:'正文提到区域故障时本地副本可能一起不可用。'}
   ]};
   return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。' : ''};
@@ -480,7 +480,7 @@ test('whole-page quiz scans the page, grades choices in place and reports the sc
   await page.getByRole('radio',{name:'单一区域故障时本地副本可能一起不可用'}).check();
   await dialog.getByRole('button',{name:'查看成绩'}).click();
   await expect(dialog.locator('.elq-score')).toContainText('2 / 2');
-  await expect(dialog.getByText('全部答对，说明这一页读进去了。')).toBeVisible();
+  await expect(dialog.getByText('可以试着不用选项，自己解释一个关键概念。')).toBeVisible();
   const request=calls.at(-1); expect(request.operation).toBe('pageQuiz'); expect(request.count).toBe(5);
   expect(request.context.text).toContain('Disaster recovery');
   await page.screenshot({path:'test-results/page-quiz.png'});
@@ -494,18 +494,47 @@ test('PDF companion extracts text, quizzes the whole document and quizzes a sing
   await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/sample.pdf')}&title=${encodeURIComponent('Disaster Recovery Paper')}`);
   await expect(page.getByText('Disaster recovery keeps a second copy of data in another region.')).toBeVisible();
   const start=calls.length;
-  await page.getByRole('button',{name:'开始整页测验'}).click();
-  const dialog=page.getByRole('region',{name:'整页测验 · PDF'});
+  await page.getByRole('button',{name:'开始抽样测验'}).click();
+  const dialog=page.getByRole('region',{name:'整份 PDF 抽样测验'});
   await expect(dialog.getByText('灾难恢复的主要目的是什么？')).toBeVisible();
   await page.getByRole('radio',{name:'在区域故障后从其他区域恢复服务'}).check();
   await expect(dialog.getByText('答对了')).toBeVisible();
   const request=calls.at(-1); expect(request.operation).toBe('pageQuiz');
   expect(request.context).toMatchObject({title:'Disaster Recovery Paper'});
-  await dialog.getByRole('button',{name:'收起'}).click();
+  await expect(dialog.getByRole('button',{name:'查看第 1 页原文'})).toBeVisible();
+  await dialog.getByRole('button',{name:'查看第 1 页原文'}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('region',{name:'第 1 页'})).toBeVisible();
   await page.getByRole('button',{name:'考考这一页'}).click();
   await expect(page.getByLabel('选段单选题')).toBeVisible();
+  await expect(page.getByRole('region',{name:'第 1 页'}).locator('.source')).toHaveCount(0);
   await expect(page.getByText('根据正文，灾难恢复的关键保证是什么？')).toBeVisible({timeout:15000});
   expect(calls.slice(start).map(call=>call.operation)).toContain('choice');
   await page.screenshot({path:'test-results/pdf-reader.png',fullPage:true});
+  await page.close();
+});
+
+test('PDF reader explains only the selected difficult sentence', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/sample.pdf')}&title=${encodeURIComponent('Disaster Recovery Paper')}`);
+  const pageCard=page.getByRole('region',{name:'第 1 页'});
+  const source=pageCard.locator('.source').first();
+  await expect(source).toContainText('When a regional failure happens');
+  await source.evaluate(element => {
+    const node=element.firstChild!;
+    const text=node.textContent!;
+    const start=text.indexOf('When a regional failure happens');
+    const range=document.createRange();range.setStart(node,start);range.setEnd(node,start+'When a regional failure happens, the replica takes over.'.length);
+    const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+  });
+  await expect(pageCard.getByRole('button',{name:'解释选中内容'})).toBeVisible();
+  const start=calls.length;
+  await pageCard.getByRole('button',{name:'解释选中内容'}).click();
+  await expect(pageCard.getByRole('region',{name:'选段解释'})).toBeVisible();
+  expect(calls.slice(start).at(-1)).toMatchObject({operation:'explain',mode:'explain',context:{heading:'第 1 页',text:'When a regional failure happens, the replica takes over.',before:'',after:''}});
+  await pageCard.getByRole('button',{name:'翻译选中内容'}).click();
+  await expect(pageCard.getByRole('region',{name:'选段翻译'})).toBeVisible();
+  expect(calls.at(-1)).toMatchObject({operation:'explain',mode:'translate',context:{text:'When a regional failure happens, the replica takes over.'}});
   await page.close();
 });
