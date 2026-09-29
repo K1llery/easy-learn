@@ -12,10 +12,10 @@ export type Provider = {
 const openai = (overrides: Partial<Provider> & Pick<Provider, 'id' | 'market' | 'name' | 'baseUrl' | 'model' | 'docs' | 'note'>): Provider => ({ api: 'openai', ...overrides });
 export const providers: Provider[] = [
   {
-    id: 'chatgpt-oauth', market: 'oauth', api: 'codex', oauth: 'chatgpt', name: 'ChatGPT 订阅账户登录（Plus / Pro / Team）',
+    id: 'chatgpt-oauth', market: 'oauth', api: 'codex', oauth: 'chatgpt', name: 'ChatGPT 账户 OAuth（实验性）',
     baseUrl: 'https://chatgpt.com/backend-api/codex', model: 'gpt-6-luna',
-    docs: 'https://learn.chatgpt.com/docs/codex-pricing',
-    note: '在扩展内用 ChatGPT 订阅账户 OAuth 登录（Codex 通道），直接使用订阅包含的 Codex 用量，无需 API Key 和本机代理。令牌只保存在本机浏览器；此通道按 OpenAI 面向 Codex 客户端的规则提供，可用性与额度以官方为准，仅建议个人使用。'
+    docs: 'https://learn.chatgpt.com/docs/pricing',
+    note: '实验性入口：扩展已实现 OAuth 登录流程，但尚未实测 OpenAI 是否接受浏览器扩展的回调地址，不能保证登录或直连成功。官方明确支持 Codex CLI、SDK 和 app-server 的 ChatGPT 登录；当前本机已验证的方案是 CPA。登录成功时令牌仅保存在本机浏览器。'
   },
   {
     id: 'claude-oauth', market: 'oauth', api: 'claude-oauth', oauth: 'claude', name: 'Claude 订阅账户登录（Pro / Max）',

@@ -18,7 +18,7 @@
 
 ## 订阅账户登录与 ChatGPT Plus
 
-0.13.0 起可在设置页直接登录订阅账户：选择「ChatGPT 订阅账户登录」或「Claude 订阅账户登录」，点击登录完成官方 OAuth 授权（令牌只保存在本机），再「保存并授权」即可使用订阅对应的用量，无需 API Key 与本机代理；持有 Codex CLI 的 `auth.json` 时也可以直接导入。详见 [Plus 接入记录](docs/chatgpt-plus-integration.md)。
+0.13.0 起设置页提供 ChatGPT / Claude 订阅账户 OAuth 入口。**ChatGPT 扩展内 OAuth 仍属实验性**：流程和模拟回调测试已实现，但尚未确认 OpenAI 接受该扩展的回调地址，也未完成真实登录验收，不能保证登录成功。当前本机已验证可用的是下方 CPA 方案；持有 Codex CLI 的 `auth.json` 时，设置页也支持导入到浏览器本机存储。详见 [Plus 接入记录](docs/chatgpt-plus-integration.md)。
 
 若登录回调不被官方支持，或希望沿用原有本机代理，可使用下面的本机 CPA 方案。
 
@@ -50,7 +50,7 @@
 
 - **整页测验**：网页右下角新增「整页测验」开关。点击后扩展抽取正文，按设置的题数（默认 5，可在设置中调为 3 / 5 / 8）出若干道四选一题。先作答再显示原文引用，提前查看原文会记为开卷。成绩只统计本轮选择，不代表掌握。长文会抽样，不能保证覆盖所有章节。
 - **文本型 PDF 伴读**：在 PDF 页点击工具栏图标，选择「用 Easy Learn 阅读此 PDF」，扩展会用内置 pdf.js 提取文字。可直接选中难懂的术语或长句，只解释或翻译选中内容；也能按页学习，或对整份文档做跨页抽样测验。作答后能从可核对引用返回对应页面；未抽到的页面不会被考到。扫描版 PDF 无文字层，仍不支持。
-- **订阅直连与更多服务商**：新增 ChatGPT / Claude 订阅 OAuth 登录；预设扩展到 22 个，覆盖 Anthropic 官方 Messages 协议、Ollama / LM Studio / vLLM 本机运行时、硅基流动、火山方舟、混元、Mistral、xAI、Together 等。
+- **订阅入口与更多服务商**：新增 ChatGPT / Claude 订阅 OAuth 入口，其中 ChatGPT 扩展回调仍待真实验证；预设扩展到 22 个，覆盖 Anthropic 官方 Messages 协议、Ollama / LM Studio / vLLM 本机运行时、硅基流动、火山方舟、混元、Mistral、xAI、Together 等。
 - **更多自定义**：设置页新增每段注释上限（2 / 4 / 6）、每批请求数（2 / 4 / 6）、解释风格（简洁 / 平衡 / 深入）与整页测验题数。
 
 ## AI 服务商与模型选择（0.12.0）

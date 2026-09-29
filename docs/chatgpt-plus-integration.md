@@ -1,10 +1,10 @@
 # ChatGPT Plus 用量接入调研
 
-核对日期：2026-09-23。正式产品目标是仅通过 Chrome / Edge 扩展商店安装；下述本机 CPA 接入只用于当前个人试用，不作为上架后的默认方案。
+核对日期：2026-09-29。正式产品目标是仅通过 Chrome / Edge 扩展商店安装；下述本机 CPA 接入只用于当前个人试用，不作为上架后的默认方案。
 
 ## 0.13.0：扩展内订阅账户直连（新）
 
-应“把 CPA 高度集成进插件、允许订阅账户 OAuth 登录”的需求，0.13.0 在扩展内部实现了两条订阅直连通道，无需本机代理程序：
+应“把 CPA 高度集成进插件、允许订阅账户 OAuth 登录”的需求，0.13.0 在扩展内部加入了两条订阅直连实现。ChatGPT 扩展内 OAuth 目前只有模拟回调测试，尚未完成真实登录验收；OpenAI 是否接受该扩展的回调地址仍未知。不能将它写成已可用的连接方案。官方明确介绍了 [Codex app-server 的 ChatGPT 登录](https://learn.chatgpt.com/docs/app-server)，并未在该文档中确认任意浏览器扩展回调。当前本机已验证的是 CPA：
 
 - **ChatGPT 订阅（Codex 通道）**：设置页用 PKCE + `chrome.identity.launchWebAuthFlow` 完成 `auth.openai.com` 登录，随后直接调用 `chatgpt.com/backend-api/codex/responses`（Responses 协议，SSE）。令牌（含刷新令牌）保存在 `chrome.storage.local`，由后台在到期前 5 分钟自动刷新；也支持导入 Codex CLI 的 `auth.json`（校验逻辑与本机 CPA 工具一致）。
 - **Claude 订阅**：同样的 PKCE 流程对接 `claude.ai`，令牌用于以 OAuth 方式调用 Anthropic Messages 接口（`anthropic-beta: oauth-2025-04-20`）。
