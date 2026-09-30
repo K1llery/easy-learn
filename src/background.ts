@@ -1,5 +1,6 @@
 import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, normalizeAnnotationTypes, profileSchema, endpoint, requestTarget, apiKindOf, readingPrefsSchema, explanationStyles, type Config, type Mastered } from './core/types';
 import { callModel, type AnalysisProgress } from './core/ai';
+import { PROVIDER_SETTINGS_KEY, providerDraftSchema, providerId, readProviderSettings } from './core/provider-settings';
 import { getAccessToken, oauthStatus, signOut, importChatgptCredentials, MODEL_ORIGINS, type OAuthKind } from './core/oauth';
 import { AnnotationCache } from './core/annotation-cache';
 import { cacheKey, Queue, SessionCache } from './core/session';
@@ -257,7 +258,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     return updated;
   }
   if (msg.type === 'GET_SETTINGS') {
-    const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
+    const data = await chrome.storage.local.get(['config', 'mastered', 'reading', PROVIDER_SETTINGS_KEY]);
     const parsed = configSchema.safeParse(data.config);
     if (parsed.success) {
       const upgraded = upgradeLocalCpaModel(parsed.data);
@@ -266,7 +267,18 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
         data.config = upgraded;
       }
     }
-    return data;
+    return {config: data.config, mastered: data.mastered, reading: data.reading,
+      providerSettings: readProviderSettings(data[PROVIDER_SETTINGS_KEY], parsed.success ? upgradeLocalCpaModel(parsed.data) : undefined)};
+  }
+  if (msg.type === 'SAVE_PROVIDER_DRAFT') {
+    const id = providerId(msg.providerId);
+    const draft = providerDraftSchema.parse(msg.config);
+    const data = await chrome.storage.local.get(['config', PROVIDER_SETTINGS_KEY]);
+    const cfg = configSchema.safeParse(data.config);
+    const settings = readProviderSettings(data[PROVIDER_SETTINGS_KEY], cfg.success ? cfg.data : undefined);
+    settings.drafts[id] = draft;
+    await chrome.storage.local.set({[PROVIDER_SETTINGS_KEY]: settings});
+    return null;
   }
   if (msg.type === 'SAVE_SETTINGS') {
     const cfg = configSchema.parse(msg.config);
@@ -277,7 +289,12 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
       endpoint(cfg.baseUrl);
       if (!(await chrome.permissions.contains({origins: [endpoint(cfg.baseUrl).origin + '/*']}))) throw new Error('未获得模型服务器权限，设置没有保存。');
     }
-    await chrome.storage.local.set({config: cfg}); refresh(); return null;
+    const id = providerId(msg.providerId, cfg);
+    const data = await chrome.storage.local.get(['config', PROVIDER_SETTINGS_KEY]);
+    const previous = configSchema.safeParse(data.config);
+    const settings = readProviderSettings(data[PROVIDER_SETTINGS_KEY], previous.success ? previous.data : undefined);
+    settings.activeProviderId = id; settings.drafts[id] = providerDraftSchema.parse(cfg);
+    await chrome.storage.local.set({config: cfg, [PROVIDER_SETTINGS_KEY]: settings}); refresh(); return null;
   }
   if (msg.type === 'SET_REMEMBER_ANNOTATIONS') {
     if(typeof msg.enabled!=='boolean')throw new Error('开关值无效。');
@@ -311,7 +328,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
 }
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Serialize read/modify/write settings operations across tabs.
-  const mutate = ['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE', 'SAVE_SETTINGS', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'SET_READING_PREFS', 'SET_STYLE', 'OAUTH_IMPORT', 'OAUTH_SIGNOUT', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
+  const mutate = ['LEARNING_SAVE', 'LEARNING_REVIEW', 'LEARNING_NOTE', 'LEARNING_DELETE', 'SAVE_SETTINGS', 'SAVE_PROVIDER_DRAFT', 'SET_CODE_ANNOTATIONS', 'SET_LOCAL_ONLY', 'SET_ANNOTATION_TYPES', 'SET_PROFILE', 'SET_READING_PREFS', 'SET_STYLE', 'OAUTH_IMPORT', 'OAUTH_SIGNOUT', 'MASTER', 'UNMASTER', 'CLEAR_SETTINGS', 'SET_REMEMBER_ANNOTATIONS', 'CLEAR_ANNOTATION_CACHE'].includes(msg?.type);
   const task = mutate ? mutationTail.then(() => handle(msg, sender)) : handle(msg, sender);
   if (mutate) mutationTail = task.catch(() => undefined);
   task.then(data => sendResponse({ ok: true, data }), error => sendResponse({ ok: false, error: error?.name === 'ZodError' ? '输入或模型配置格式不正确，请检查后重试。' : (error instanceof Error ? error.message : '发生未知错误。') }));

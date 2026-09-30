@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { annotationTypeValues, configSchema, defaultAnnotationTypes, defaultProfile, endpoint, explanationStyles, type AnnotationType, type Config, type Mastered } from '../core/types';
 import { providers, providerFor } from '../core/providers';
+import type { ProviderSettings } from '../core/provider-settings';
 import { LOGIN_ORIGINS, KIND_LABELS, startOAuth, type OAuthKind } from '../core/oauth';
 import { rpc } from './rpc';
 import './style.css';
@@ -19,37 +20,39 @@ function Options() {
   const [oauth,setOauth]=useState<Partial<Record<OAuthKind,OAuthState>>>({});
   const [oauthBusy,setOauthBusy]=useState<OAuthKind | ''>('');
   const importInput=useRef<HTMLInputElement>(null);
+  const providerDrafts = useRef<ProviderSettings['drafts']>({});
   const [mastered, setMastered] = useState<Mastered[]>([]), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
   const subscriptionKind: OAuthKind | null = selected?.oauth ?? null;
   async function load() {
     const data = await rpc('GET_SETTINGS');
     if (data.config) {
       setForm(data.config);
-      setPreset(providerFor(data.config.baseUrl, data.config.model)?.id ?? 'custom');
+      setPreset(data.providerSettings?.activeProviderId ?? providerFor(data.config.baseUrl, data.config.model)?.id ?? 'custom');
     }
+    providerDrafts.current = data.providerSettings?.drafts ?? {};
     setPrefs({quizCount: data.reading?.quizCount ?? 5, maxPerBlock: data.reading?.maxPerBlock ?? 6, batchSize: data.reading?.batchSize ?? 4});
     setRememberAnnotations(data.reading?.rememberAnnotations!==false);setLocalOnly(data.reading?.localOnly===true); setMastered(data.mastered ?? []);setCodeAnnotations(data.reading?.codeAnnotations===true);setAnnotationTypes(data.reading?.annotationTypes??defaultAnnotationTypes);
     for (const kind of ['chatgpt','claude'] as OAuthKind[]) try { const status = await rpc<OAuthState>('OAUTH_STATUS', {kind}); setOauth(prev => ({...prev, [kind]: status})); } catch { /* keep unknown state blank. */ }
   }
   useEffect(() => { void load().catch(e => setError(e.message)); }, []);
   const change = (key: 'baseUrl' | 'model' | 'apiKey', value: string) => {
-    const baseUrl = key === 'baseUrl' ? value : form.baseUrl;
-    const model = key === 'model' ? value : form.model;
     setForm(prev => ({ ...prev, [key]: value }));
     setMessage('');
-    if (key !== 'apiKey') setPreset(providerFor(baseUrl, model)?.id ?? 'custom');
   };
   function applyPreset(id: string) {
-    setPreset(id); setMessage('');
+    providerDrafts.current[preset] = form;
+    void rpc('SAVE_PROVIDER_DRAFT', {providerId: preset, config: form}).catch(e => setError(`未能暂存上一方案：${e.message}`));
+    setPreset(id); setMessage(''); setError('');
     const p = providers.find(p => p.id === id);
-    setForm(prev => p
-      ? {...prev, baseUrl: p.baseUrl, model: p.model, api: p.api, apiKey: p.oauth ? '' : (prev.baseUrl === p.baseUrl ? prev.apiKey : '')}
-      : {...prev, api: 'openai'});
+    setForm(providerDrafts.current[id] ?? (p
+      ? {...form, baseUrl: p.baseUrl, model: p.model, api: p.api, apiKey: ''}
+      : {...form, baseUrl: '', model: '', api: 'openai', apiKey: ''}));
   }
   async function persist(cfg: Config, origins: string[]) {
     const granted = await chrome.permissions.request({origins});
     if (!granted) throw new Error('未授权访问模型服务器，设置没有保存。可以再次点击保存并授权。');
-    await rpc('SAVE_SETTINGS', {config: cfg});
+    await rpc('SAVE_SETTINGS', {config: cfg, providerId: preset});
+    providerDrafts.current[preset] = cfg;
     setMessage('设置已保存，已开启的页面将按新设置重新分析。');
   }
   async function save(event: React.FormEvent) {
@@ -118,6 +121,7 @@ function Options() {
     <section className="card"><h2>先用免费的本地释义</h2><p>常见技术词和已支持的命令即时注释，不等待 AI、不消耗额度。歧义缩写和未知概念才需要模型。</p><label className="check-row"><input type="checkbox" checked={localOnly} onChange={async e=>{const enabled=e.target.checked;setLocalOnly(enabled);try{await rpc('SET_LOCAL_ONLY',{enabled});}catch(e){setLocalOnly(!enabled);setError((e as Error).message);}}}/><span>离线模式（不调用 AI）</span></label></section>
     <div className="settings-grid"><main><form className="card" onSubmit={save}><span className="tag">02 · 模型连接</span><h2 style={{marginTop:12}}>使用自己的 AI 服务</h2>
       <label htmlFor="provider">服务方案</label><select id="provider" value={preset} onChange={e=>applyPreset(e.target.value)}><option value="custom">自定义服务</option>{marketGroups.map(([market,label])=><optgroup key={market} label={label}>{providers.filter(p=>p.market===market).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>)}</select>
+      <p className="form-help">切换时会在本机暂存上一方案的地址、模型和密钥，切换回来即可恢复。点击“保存并授权”才会改变实际连接；“清除本机数据”会删除全部暂存方案。</p>
       {subscriptionKind ? <div className="notice"><p>{selected!.note}</p>
         <p style={{marginTop:10}}><b>账户状态：</b>{oauth[subscriptionKind]?.signedIn ? `已登录${oauth[subscriptionKind]?.email ? ` · ${oauth[subscriptionKind].email}` : ''}${oauth[subscriptionKind]?.expiresAt ? ` · 令牌有效期至 ${new Date(oauth[subscriptionKind].expiresAt).toLocaleString('zh-CN')}` : ''}` : '未登录'}</p>
         <div className="actions">
@@ -142,7 +146,7 @@ function Options() {
     <section className="card"><h2>重复阅读更快</h2><label><input type="checkbox" style={{display:'inline',width:'auto'}} checked={rememberAnnotations} onChange={async e=>{const enabled=e.target.checked;try{await rpc('SET_REMEMBER_ANNOTATIONS',{enabled});setRememberAnnotations(enabled);setMessage(enabled?'已开启术语缓存。':'已关闭并清除术语缓存。');}catch(e){setError((e as Error).message);}}}/> 在本机保留术语释义</label><p className="muted">最多 500 条、保留 30 天。保存术语与解释，不保存整段正文、代码或问答；解释本身可能包含原文短语。只在语境、模型与学习偏好一致时复用，不混用缩写含义。</p><button onClick={async()=>{try{await rpc('CLEAR_ANNOTATION_CACHE');setMessage('术语缓存已清除；当前页面已显示的注释仍可阅读。');}catch(e){setError((e as Error).message);}}}>清除术语缓存</button></section>
     <section className="card"><span className="tag">03 · 不再显示</span><h2 style={{marginTop:12}}>不再显示的注解</h2><p className="muted">按领域与概念含义区分。恢复后，伴读会重新标注。</p>{mastered.length === 0 && <p className="notice">列表为空。在注解里点击“我懂了，不再显示”即可添加。</p>}{mastered.map(item => <div className="learned row" key={item.key}><div><p>{item.anchor} · {item.meaning}</p><small>{item.domain}</small></div><button onClick={async () => {try { await rpc('UNMASTER', {key:item.key}); await load(); } catch(e) {setError((e as Error).message);}}}>恢复显示</button></div>)}</section>
     <section className="card"><h2>把读过的变成会用的</h2><p className="muted">主动回忆、对照反馈，再留下一次实践记录。保存的练习可离线复习。</p><button onClick={() => void chrome.tabs.create({url: chrome.runtime.getURL('panel.html?view=review')})}>打开我的复习</button></section>
-    <button className="quiet" onClick={async () => { if (confirm('清除本机模型配置、订阅登录令牌、术语缓存、不再显示记录和全部学习练习？')) { await rpc('CLEAR_SETTINGS'); setForm({baseUrl:'',model:'',apiKey:'',profile:defaultProfile}); setMastered([]); setCodeAnnotations(false);setAnnotationTypes(defaultAnnotationTypes); setLocalOnly(false);setRememberAnnotations(true);setPreset('custom');setPrefs(defaultPrefs);setOauth({}); setMessage('本机数据已清除。'); } }}>清除本机数据</button>
+    <button className="quiet" onClick={async () => { if (confirm('清除本机模型配置、全部暂存方案及密钥、订阅登录令牌、术语缓存、不再显示记录和全部学习练习？')) { await rpc('CLEAR_SETTINGS'); providerDrafts.current = {}; setForm({baseUrl:'',model:'',apiKey:'',profile:defaultProfile}); setMastered([]); setCodeAnnotations(false);setAnnotationTypes(defaultAnnotationTypes); setLocalOnly(false);setRememberAnnotations(true);setPreset('custom');setPrefs(defaultPrefs);setOauth({}); setMessage('本机数据已清除。'); } }}>清除本机数据</button>
     </main><aside><div className="side-note"><span className="note-number">01</span><h3>从正在读的地方开始</h3><p>点击一次工具栏图标立即开启；悬停网页右侧浮窗可展开设置，或点“整页测验”检验理解。</p></div><div className="side-note"><span className="note-number">02</span><h3>解释有依据，也有边界</h3><p>缩写会结合上下文判断。缺少信息时，保留候选解释，不把猜测当结论。</p></div><div className="side-note"><span className="note-number">03</span><h3>按自己的节奏阅读</h3><p>读懂的注解可以隐藏，随时在设置中恢复；PDF 也能在配套阅读页中学习。</p></div></aside></div><div className="footer">EASY LEARN · 读懂，再学会 · v0.13.0</div></div>;
 }
 createRoot(document.getElementById('root')!).render(<Options/>);

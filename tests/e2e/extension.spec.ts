@@ -261,7 +261,7 @@ test('two remote batches run concurrently and local marks appear before either r
  await page.close();
 });
 
-test('provider presets clear credentials on changes and offline mode is usable',async()=>{
+test('new provider presets start without another provider key and offline mode is usable',async()=>{
  const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
  const count=calls.length;
  await expect(settings.locator('#provider optgroup[label="订阅账户登录"] option')).toHaveCount(2);
@@ -286,6 +286,54 @@ test('provider presets clear credentials on changes and offline mode is usable',
  const page=await context.newPage();await page.goto(`${base}/offline`);await inject(page);await expect(page.getByRole('status')).toContainText('离线模式');expect(calls.length).toBe(count);
  await page.locator('#api').hover({position:{x:50,y:10}});await settings.screenshot({path:'test-results/free-provider-settings.png'});
  await page.close();await settings.close();
+});
+
+test('provider drafts restore keys, edited addresses and models across switches and reloads',async()=>{
+ await worker.evaluate(async()=>chrome.storage.local.remove('providerSettingsV1'));
+ const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('fixture-key');
+ await settings.getByLabel('服务方案').selectOption('groq');
+ await settings.getByLabel('API Base URL').fill(`${base}/groq-v1`);
+ await settings.getByLabel('模型名称').fill('my-groq-model');
+ await settings.getByLabel('API Key',{exact:true}).fill('groq-draft-key');
+ await settings.getByLabel('服务方案').selectOption('deepseek');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
+ await settings.getByLabel('API Key',{exact:true}).fill('deepseek-draft-key');
+ await settings.getByLabel('服务方案').selectOption('groq');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('groq-draft-key');
+ await expect(settings.getByLabel('API Base URL')).toHaveValue(`${base}/groq-v1`);
+ await expect(settings.getByLabel('模型名称')).toHaveValue('my-groq-model');
+ expect(await settings.evaluate(async()=> (await chrome.runtime.sendMessage({type:'GET_SETTINGS'})).data.config)).toMatchObject({model:'fixture-model',apiKey:'fixture-key'});
+ await settings.getByLabel('服务方案').selectOption('custom');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('fixture-key');
+ await settings.getByLabel('模型名称').fill('saved-custom-model');
+ await settings.getByRole('button',{name:'保存并授权'}).click();
+ await expect(settings.getByRole('status')).toContainText('设置已保存');
+ await settings.reload();
+ await expect(settings.getByLabel('模型名称')).toHaveValue('saved-custom-model');
+ await settings.getByLabel('服务方案').selectOption('groq');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('groq-draft-key');
+ await settings.getByRole('button',{name:'保存并授权'}).click();
+ await expect(settings.getByRole('status')).toContainText('设置已保存');
+ await settings.reload();
+ await expect(settings.getByLabel('服务方案')).toHaveValue('groq');
+ await expect(settings.getByLabel('模型名称')).toHaveValue('my-groq-model');
+ await expect(settings.getByLabel('API Base URL')).toHaveValue(`${base}/groq-v1`);
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('groq-draft-key');
+ await settings.getByLabel('服务方案').selectOption('deepseek');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('deepseek-draft-key');
+ await settings.getByLabel('服务方案').selectOption('chatgpt-oauth');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveCount(0);
+ await settings.getByLabel('服务方案').selectOption('groq');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('groq-draft-key');
+ settings.once('dialog',dialog=>dialog.accept());
+ await settings.getByRole('button',{name:'清除本机数据',exact:true}).click();
+ await expect(settings.getByRole('status')).toContainText('本机数据已清除');
+ expect(await worker.evaluate(async()=> (await chrome.storage.local.get('providerSettingsV1')).providerSettingsV1)).toBeUndefined();
+ await settings.getByLabel('服务方案').selectOption('groq');
+ await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
+ await expect(settings.getByLabel('模型名称')).toHaveValue('qwen/qwen3.8-27b');
+ await settings.close();
 });
 
 

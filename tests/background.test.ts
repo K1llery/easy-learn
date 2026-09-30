@@ -98,6 +98,37 @@ it('denied host permission never saves configuration or calls the model', async 
   expect((await send('TEST')).ok).toBe(false);
   expect(model).not.toHaveBeenCalled();
 });
+it('retains the existing provider when saving a different connection and migrates old settings',async()=>{
+ const initial=await send('GET_SETTINGS');
+ expect(initial.data.providerSettings).toMatchObject({activeProviderId:'custom',drafts:{custom:cfg}});
+ const next={...cfg,baseUrl:'https://api.deepseek.com',model:'deepseek-flash',apiKey:'deepseek-test-key'};
+ expect((await send('SAVE_SETTINGS',{config:next,providerId:'deepseek'})).ok).toBe(true);
+ const settings=(await send('GET_SETTINGS')).data;
+ expect(settings.config).toEqual(next);
+ expect(settings.providerSettings).toMatchObject({activeProviderId:'deepseek',drafts:{custom:cfg,deepseek:next}});
+});
+it('stores incomplete provider drafts without changing or authorizing the active connection',async()=>{
+ api.permissions.contains.mockResolvedValue(false);
+ const draft={...cfg,baseUrl:'',model:'',apiKey:'unfinished-key',profile:{...cfg.profile,domain:''}};
+ expect((await send('SAVE_PROVIDER_DRAFT',{providerId:'groq',config:draft})).ok).toBe(true);
+ expect(data.config).toEqual(cfg);
+ expect(data.providerSettingsV1.drafts.groq).toEqual(draft);
+ expect(api.permissions.contains).not.toHaveBeenCalled();expect(model).not.toHaveBeenCalled();
+ expect((await send('SAVE_PROVIDER_DRAFT',{providerId:'unknown',config:draft})).ok).toBe(false);
+ expect((await send('SAVE_PROVIDER_DRAFT',{providerId:'groq',config:{...draft,apiKey:'x'.repeat(2001)}})).ok).toBe(false);
+});
+it('serializes provider drafts, keeps them private, and removes them when clearing local data',async()=>{
+ const results=await Promise.all(['groq','deepseek'].map(providerId=>send('SAVE_PROVIDER_DRAFT',{providerId,config:{...cfg,apiKey:providerId+'-private-key'}})));
+ expect(results.every(result=>result.ok)).toBe(true);
+ expect(Object.keys(data.providerSettingsV1.drafts).sort()).toEqual(['custom','deepseek','groq']);
+ expect(JSON.stringify((await send('PUBLIC_SETTINGS',{},pageSender)).data)).not.toContain('private-key');
+ expect((await send('SAVE_PROVIDER_DRAFT',{providerId:'groq',config:cfg},pageSender)).ok).toBe(false);
+ await send('CLEAR_SETTINGS');expect(data.providerSettingsV1).toBeUndefined();
+});
+it('does not preserve an API key in subscription login drafts',async()=>{
+ await send('SAVE_PROVIDER_DRAFT',{providerId:'chatgpt-oauth',config:{...cfg,api:'codex'}});
+ expect(data.providerSettingsV1.drafts['chatgpt-oauth'].apiKey).toBe('');
+});
 it('serializes simultaneous mastery updates and retains distinct meanings', async () => {
   const results = await Promise.all([send('MASTER',{concept}),send('MASTER',{concept:{...concept,meaning:'每日运行',expansion:'Daily Run'}})]);
   expect(results.every(r=>r.ok)).toBe(true);expect(data.mastered).toHaveLength(2);
