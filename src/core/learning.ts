@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { evaluationSchema, quizSchema } from './types';
+import { findSourceEvidence } from './source-evidence';
 
 export const LEARNING_KEY = 'learningCardsV1';
 export const MAX_LEARNING_CARDS = 50;
@@ -62,12 +63,15 @@ export function reviewLearningCard(card: LearningCard, input: z.infer<typeof rev
   return { ...card, step, dueAt: now + REVIEW_DAYS[step] * 86400000, reviewCount: card.reviewCount + 1, revision: card.revision + 1, lastReviewedAt: now, lastAnswer: input.answer };
 }
 export function learningMarkdown(cards: LearningCard[]) {
-  return ['# Easy Learn · 我的学习记录', '复习次数与间隔来自自评，不代表已经掌握。AI 反馈需结合原文核对。', ...cards.map(card => [
-    `## ${card.title}`, `目标：${card.goal || '用自己的话解释，并尝试应用'}`,
-    `### 原文选段\n${card.sourceText}`, `### 回忆问题\n${card.question}`, `### 第一次回答\n${card.answer}`,
-    `### AI 反馈\n理解正确的部分：${card.feedback.correct}\n\n待补充：${card.feedback.gaps}\n\n参考解释：${card.feedback.reference}`,
-    `### 应用任务\n${card.application}`, `### 实践记录\n${card.actionNote || '尚未记录'}`,
-    `### 最近一次回忆\n${card.lastAnswer || '尚未复习'}`,
-    `已复习 ${card.reviewCount} 次 · 下次复习：${new Date(card.dueAt).toLocaleDateString('zh-CN')}`,
-  ].join('\n\n'))].join('\n\n');
+  return ['# Easy Learn · 我的学习记录', '复习次数与间隔来自自评，不代表已经掌握。AI 反馈需结合原文核对。', ...cards.map(card => {
+    const evidence = findSourceEvidence(card.sourceText, card.feedback.evidence);
+    return [
+      `## ${card.title}`, `目标：${card.goal || '用自己的话解释，并尝试应用'}`,
+      `### 原文选段\n${card.sourceText}`, `### 回忆问题\n${card.question}`, `### 第一次回答\n${card.answer}`,
+      `### AI 反馈\n理解正确的部分：${card.feedback.correct}\n\n待补充：${card.feedback.gaps}\n\n参考解释：${card.feedback.reference}\n\n原文依据：${evidence ? `${evidence.text}（已在选段中找到，仍需判断是否支持反馈）` : '无可核对引文，请自行对照原文'}`,
+      `### 应用任务\n${card.application}`, `### 实践记录\n${card.actionNote || '尚未记录'}`,
+      `### 最近一次回忆\n${card.lastAnswer || '尚未复习'}`,
+      `已复习 ${card.reviewCount} 次 · 下次复习：${new Date(card.dueAt).toLocaleDateString('zh-CN')}`,
+    ].join('\n\n');
+  })].join('\n\n');
 }

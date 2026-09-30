@@ -24,7 +24,7 @@ export function MeaningCheck({ context }: { context: TextContext }) {
       <textarea id="pdf-meaning-answer" rows={4} maxLength={5000} value={answer} disabled={!!busy || !!feedback} onChange={event => setAnswer(event.target.value)} placeholder="例如：作者提出了什么判断？这个判断在什么条件下成立？"/>
       {!feedback && <div className="actions"><button className="primary" type="submit" disabled={!!busy || !answer.trim()}>核对我的理解</button></div>}
     </form>
-    {feedback && <section aria-label="理解反馈"><Feedback value={feedback}/></section>}
+    {feedback && <section aria-label="理解反馈"><Feedback value={feedback} sourceText={context.text}/></section>}
     <ActionStatus busy={busy} error={error}/>
   </section>;
 }

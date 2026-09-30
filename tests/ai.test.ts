@@ -80,6 +80,10 @@ it('requires both a grounded question and an application task, without paid repa
  expect(()=>parseModelOutput('evaluate','{"correct":"truncated')).toThrow();
  expect(parseModelOutput('quiz','{"question":"为什么需要副本？","application":"画一张恢复流程图。"}')).toEqual({question:'为什么需要副本？',application:'画一张恢复流程图。'});
 });
+it('keeps an optional source quote in evaluation output for local verification', () => {
+ expect(parseModelOutput('evaluate','{"correct":"抓住了故障条件。","gaps":"遗漏接管主体。","reference":"副本会接管。","evidence":"When a regional failure happens, the replica takes over."}')).toMatchObject({evidence:'When a regional failure happens, the replica takes over.'});
+ expect(parseModelOutput('evaluate','{"correct":"对","gaps":"无","reference":"参考"}')).toMatchObject({evidence:''});
+});
 it('keeps the learner goal and attempted answer in data rather than system instructions', async () => {
  const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(response('{"correct":"提到了副本。","gaps":"遗漏故障范围。","reference":"区域故障会影响本地副本。"}'));
  await callModel(config,{operation:'evaluate',context:request.context,goal:'learner-goal-untrusted',question:'Why?',answer:'attempt-untrusted'});

@@ -64,5 +64,5 @@ export function parseModelOutput(operation:AIRequest['operation'],raw:string,req
     return pageQuizSchema.parse({questions:rows.map((row:any)=>({question:text(row?.question,1200),options:Array.isArray(row?.options)?row.options.map((option:any)=>({id:option?.id,text:text(option?.text,500)})):[],correctOption:row?.correctOption,explanation:text(row?.explanation,1500),evidence:text(row?.evidence,500)}))});
   }
   if(operation==='quiz')return quizSchema.parse({question:text(root?.question,2000),application:text(root?.application,2000)});
-  return evaluationSchema.parse({correct:text(root?.correct,3000),gaps:text(root?.gaps,3000),reference:text(root?.reference??root?.feedback,4000)});
+  return evaluationSchema.parse({correct:text(root?.correct,3000),gaps:text(root?.gaps,3000),reference:text(root?.reference??root?.feedback,4000),evidence:text(root?.evidence,500)});
 }

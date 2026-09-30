@@ -3,12 +3,16 @@ import type { Concept, Evaluation, Quiz, TextContext } from '../core/types';
 import type { LearningCard } from '../core/learning';
 import { rpc } from './rpc';
 import { useAction } from './use-action';
+import { findSourceEvidence } from '../core/source-evidence';
 
-export function Feedback({ value }: { value: Evaluation }) {
+export function Feedback({ value, sourceText }: { value: Evaluation; sourceText: string }) {
+  const evidence = findSourceEvidence(sourceText, value.evidence);
   return <div className="learning-feedback">
     <h3>你已经理解的</h3><p>{value.correct || '暂未识别出足够依据，请对照原文判断。'}</p>
     <h3>还差哪一步</h3><p>{value.gaps || '本次未指出具体缺口，请继续用实际例子检验。'}</p>
     <h3>参考解释</h3><p>{value.reference}</p>
+    <h3>原文依据</h3>
+    {evidence ? <><blockquote className="source">{evidence.text}</blockquote><p className="muted">已在所选原文中找到这段引文；请判断它是否真的支持上述反馈。</p></> : <p className="muted">{value.evidence ? '模型给出的引文未在所选原文中找到，请自行核对反馈。' : '模型没有给出可核对的原文引文，请自行核对反馈。'}</p>}
     <p className="muted">这是 AI 对本次回答的反馈，不是掌握证明；有疑问时回到原文核对。</p>
   </div>;
 }
@@ -47,7 +51,7 @@ export function Practice({ context, concept, onReview }: { context: TextContext;
         {!feedback && <button className="primary" disabled={!!busy || !answer.trim()} type="submit">请 AI 找出理解缺口</button>}
       </form>
       {feedback && <>
-        <section className="card" aria-label="练习反馈"><span className="tag">02 · 对照与补充</span><Feedback value={feedback}/></section>
+        <section className="card" aria-label="练习反馈"><span className="tag">02 · 对照与补充</span><Feedback value={feedback} sourceText={selected.text}/></section>
         <section className="card application-card" aria-label="应用小任务"><span className="tag">03 · 应用小任务</span><p className="learning-question">{quiz.application}</p><p className="muted">在真实项目或自己的例子里尝试。保存后，可以在“我的复习”记录做法、结果和仍未解决的问题。</p></section>
         <section className="save-practice">
           {saved ? <><p className="success" role="status">已保存，明天再回忆一次。也可以现在留下实践记录。</p><button onClick={onReview}>去我的复习</button></> : <>

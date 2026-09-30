@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { PageQuiz } from '../core/types';
-import { findQuizEvidence } from '../core/quiz-evidence';
+import { findSourceEvidence } from '../core/source-evidence';
 import { rpc } from './rpc';
 import { ActionStatus } from './practice';
 import { useAction } from './use-action';
@@ -69,7 +69,7 @@ export function QuizRunner({ source, onClose, onNavigatePage, label = '整页测
   }
   const question = quiz?.questions[index];
   const correct = question?.options.find(option => option.id === question.correctOption);
-  const evidence = question && findQuizEvidence(source.text, question.evidence);
+  const evidence = question && findSourceEvidence(source.text, question.evidence);
   return <section className="elq-shell" aria-label={label}><style>{QUIZ_CSS}</style>
     <div className="elq-head"><span className="elq-eyebrow">{label}</span><span className="elq-count">{quiz ? finished ? '已完成' : `第 ${index + 1} / ${quiz.questions.length} 题` : ''}</span></div>
     <h2 className="elq-title">{finished ? '测验完成' : '检验一下理解'}</h2>
@@ -100,7 +100,7 @@ export function QuizRunner({ source, onClose, onNavigatePage, label = '整页测
       <p>其中 {quiz.questions.length - misses.length - assistedCorrect} 题独立答对，{assistedCorrect} 题查看原文后答对。选择题成绩只能提示哪些地方值得再练。</p>
       {misses.length === 0 ? <p>可以试着不用选项，自己解释一个关键概念。</p> : <>
         <p>回头再看这几处，比重新读一遍更省时间：</p>
-        {misses.map((item, i) => { const cited = findQuizEvidence(source.text, item.evidence); return <div className="elq-miss" key={i}><p><b>{item.question}</b></p><p>正确答案 · {item.correctOption}：{item.options.find(option => option.id === item.correctOption)?.text}</p><p>{item.explanation}</p>{cited ? <blockquote className="elq-reference">原文{cited.page ? ` · 第 ${cited.page} 页` : ''}：{cited.text}</blockquote> : <p>这题没有可核对的原文引用。</p>}{cited?.page && onNavigatePage && <button className="elq-button" onClick={() => onNavigatePage(cited.page!)}>查看第 {cited.page} 页原文</button>}</div>; })}
+        {misses.map((item, i) => { const cited = findSourceEvidence(source.text, item.evidence); return <div className="elq-miss" key={i}><p><b>{item.question}</b></p><p>正确答案 · {item.correctOption}：{item.options.find(option => option.id === item.correctOption)?.text}</p><p>{item.explanation}</p>{cited ? <blockquote className="elq-reference">原文{cited.page ? ` · 第 ${cited.page} 页` : ''}：{cited.text}</blockquote> : <p>这题没有可核对的原文引用。</p>}{cited?.page && onNavigatePage && <button className="elq-button" onClick={() => onNavigatePage(cited.page!)}>查看第 {cited.page} 页原文</button>}</div>; })}
       </>}
       <div className="elq-actions"><button className="elq-button" onClick={generate}>再考一轮 ↻</button>{onClose && <button className="elq-button primary" onClick={onClose}>完成</button>}</div>
     </>}

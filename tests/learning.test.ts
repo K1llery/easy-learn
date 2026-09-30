@@ -42,6 +42,15 @@ it('exports usable learning evidence and rejects invalid stored records', () => 
   expect(readLearningCards(undefined)).toEqual([]);
   expect(() => readLearningCards([{ ...card, step: -1 }])).toThrow();
 });
+it('exports only source-matched evaluation quotes while keeping older cards readable', () => {
+  const card = saveLearningCard([], draft(), now).card;
+  const quoted = { ...card, feedback: { ...card.feedback, evidence: 'DR restores service after a regional failure.' } };
+  expect(learningMarkdown([quoted])).toContain('已在选段中找到，仍需判断是否支持反馈');
+  const invented = { ...card, feedback: { ...card.feedback, evidence: 'The source promises zero downtime everywhere.' } };
+  expect(learningMarkdown([invented])).not.toContain('The source promises zero downtime everywhere.');
+  expect(learningMarkdown([invented])).toContain('无可核对引文');
+  expect(readLearningCards([card])).toHaveLength(1);
+});
 it('requires a question and a nonblank attempt before asking for feedback', () => {
   const request = { operation: 'evaluate', context: { title: '', heading: '', text: 'A paragraph.', before: '', after: '' }, question: 'Why?', answer: '  ' };
   expect(aiRequestSchema.safeParse(request).success).toBe(false);

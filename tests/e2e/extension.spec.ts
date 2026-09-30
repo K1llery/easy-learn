@@ -12,7 +12,7 @@ function output(request: any) {
   const concept = (anchor: string, meaning: string, expansion: string) => ({anchor,category:'缩写',meaning,expansion,evidence:'来自当前段落的用途描述。',ambiguity:'',summary:'按当前语境解释：'+meaning,parts:[]});
   if(request.operation === 'analyze') return {concepts: text.includes('DR') ? [concept('DR',text.includes('daily run') ? '每日运行' : '灾难恢复',text.includes('daily run') ? 'Daily Run' : 'Disaster Recovery')] : text.includes('API') ? [concept('API','应用程序编程接口','Application Programming Interface')] : []};
   if(request.operation === 'quiz') return {question:'为什么灾难恢复还需要异地副本？',application:'为自己的服务画一张异地恢复流程图，标出故障点与接管步骤。'};
-  if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。'};
+  if(request.operation === 'evaluate') return {correct:'你理解了需要恢复服务。',gaps:'还需要说明单一区域故障时，本地副本可能一起不可用。',reference:'异地副本让另一个区域在主区域不可用时接管。',evidence:request.answer?.includes('无效引文测试')?'Invented unsupported source quote.':text.includes('When a regional failure happens, the replica takes over.')?'When a regional failure happens, the replica takes over.':text.slice(0,80)};
   if(request.operation === 'choice') return {question:'根据正文，灾难恢复的关键保证是什么？',options:[{id:'A',text:'区域故障时由其他区域恢复服务'},{id:'B',text:'更快的磁盘'},{id:'C',text:'更低的存储成本'},{id:'D',text:'更多的日志'}],correctOption:'A',explanation:'原文说明区域故障时由其他区域恢复服务。'};
   if(request.operation === 'pageQuiz') return {questions:[
     {question:'灾难恢复的主要目的是什么？',options:[{id:'A',text:'在区域故障后从其他区域恢复服务'},{id:'B',text:'提高写入速度'},{id:'C',text:'减少存储成本'},{id:'D',text:'简化部署'}],correctOption:'A',explanation:'原文说明 DR 让系统在整个区域不可用时，仍能从其他区域恢复服务。',evidence:request.context.text.includes('Disaster recovery keeps')?'Disaster recovery keeps a second copy of data in another region.':'Use DR to recover from a regional failure.'},
@@ -563,10 +563,23 @@ test('PDF reader asks for my interpretation before requesting feedback for a sel
   expect(calls.length).toBe(start);
   await check.getByRole('button',{name:'核对我的理解'}).click();
   await expect(check.getByRole('region',{name:'理解反馈'})).toBeVisible();
+  await expect(check.getByText('已在所选原文中找到这段引文')).toBeVisible();
   expect(calls.slice(start)).toHaveLength(1);
   expect(calls.at(-1)).toMatchObject({operation:'evaluate',context:{title:'Disaster Recovery Paper',heading:'第 1 页',text:excerpt,before:'',after:''},answer:'发生区域故障时，副本会接管。'});
   expect(calls.at(-1).question).toContain('对照原文');
   await pageCard.getByRole('button',{name:'清除选段'}).click();
   await expect(check).toHaveCount(0);
+  await source.evaluate((element, excerpt) => {
+    const node=element.firstChild!;
+    const start=node.textContent!.indexOf(excerpt);
+    const range=document.createRange();range.setStart(node,start);range.setEnd(node,start+excerpt.length);
+    const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+  }, excerpt);
+  await pageCard.getByRole('button',{name:'先试着理解'}).click();
+  const secondCheck=pageCard.getByRole('region',{name:'选段理解核对'});
+  await secondCheck.getByLabel('我的理解').fill('无效引文测试：这段讨论区域故障。');
+  await secondCheck.getByRole('button',{name:'核对我的理解'}).click();
+  await expect(secondCheck.getByText('模型给出的引文未在所选原文中找到')).toBeVisible();
   await page.close();
 });

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ChoiceQuiz, TextContext } from '../core/types';
-import { findQuizEvidence } from '../core/quiz-evidence';
+import { findSourceEvidence } from '../core/source-evidence';
 import { rpc } from './rpc';
 import { ActionStatus } from './practice';
 import { useAction } from './use-action';
@@ -15,7 +15,7 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
   }
   useEffect(() => { if (active && !started) { setStarted(true); generate(); } }, [active, started]);
   const correct = quiz?.options.find(option => option.id === quiz.correctOption);
-  const evidence = quiz && findQuizEvidence(context.text, quiz.evidence);
+  const evidence = quiz && findSourceEvidence(context.text, quiz.evidence);
   return <section className="quick-quiz" aria-label="选段单选题">
     <div className="quiz-intro"><span className="eyebrow">选段快测</span><h2>考考我！</h2><p>根据你选中的内容出一道题。答题前不会显示答案。</p></div>
     {!answer && <details><summary>查看选段原文</summary><div className="quiz-source" aria-label="本次出题原文">{context.text}</div></details>}

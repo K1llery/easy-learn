@@ -26,7 +26,7 @@ function ReviewCard({ initial, initialMode, onBack, onChange }: { initial: Learn
         {!revealed && <button className="primary" disabled={!answer.trim() || !!busy} onClick={() => setRevealed(true)}>写好了，对照参考</button>}
       </div>
       {revealed && <>
-        <section className="card" aria-label="复习参考"><span className="tag">第一次练习时的 AI 反馈</span><Feedback value={card.feedback}/><details><summary>核对原文选段</summary><p>{card.sourceText}</p></details><details><summary>回看第一次回答</summary><p>{card.answer}</p></details></section>
+        <section className="card" aria-label="复习参考"><span className="tag">第一次练习时的 AI 反馈</span><Feedback value={card.feedback} sourceText={card.sourceText}/><details><summary>核对原文选段</summary><p>{card.sourceText}</p></details><details><summary>回看第一次回答</summary><p>{card.answer}</p></details></section>
         {reviewed ? <div className="success" role="status">已记录这次回忆，下次复习：{date(card.dueAt)}。</div> : <div className="card"><h3>对照后，给自己一个诚实的判断</h3><p className="muted">这里不调用 AI。依据自己是否能独立解释来安排下次回忆。</p><div className="actions">
           <button disabled={!!busy} onClick={() => review('again')}>还需练习 · 1 天后</button>
           <button className="primary" disabled={!!busy} onClick={() => review('remembered')}>能独立解释 · {REVIEW_DAYS[Math.min(card.step + 1, REVIEW_DAYS.length - 1)]} 天后</button>

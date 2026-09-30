@@ -1,6 +1,6 @@
 // A model's citation is useful only when the cited words occur in the exact
-// material sent for this quiz. Whitespace varies in extracted PDF text.
-export function findQuizEvidence(source: string, quote?: string): { text: string; page?: number } | null {
+// material sent to it. Whitespace varies in extracted PDF text.
+export function findSourceEvidence(source: string, quote?: string): { text: string; page?: number } | null {
   if (!quote?.trim()) return null;
   const normalizedSource = source.replace(/\s+/g, ' ');
   const normalizedQuote = quote.trim().replace(/\s+/g, ' ');
