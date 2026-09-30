@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { ChoiceQuiz, TextContext } from '../core/types';
 import { findSourceEvidence } from '../core/source-evidence';
 import { rpc } from './rpc';
@@ -6,6 +6,7 @@ import { ActionStatus } from './practice';
 import { useAction } from './use-action';
 
 export function QuickQuiz({ context, active }: { context: TextContext; active: boolean }) {
+  const answerGroup = useId();
   const [quiz, setQuiz] = useState<ChoiceQuiz | null>(null), [answer, setAnswer] = useState(''), [started, setStarted] = useState(false);
   const { busy, error, run } = useAction();
   const questionContext: TextContext = { title: '', heading: '', text: context.text, before: '', after: '' };
@@ -22,7 +23,7 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
     {!quiz && !error && <p className="busy" role="status"><span className="dot"/>正在准备一道简单的题目…</p>}
     {quiz && <><h3 className="quiz-question">{quiz.question}</h3>
       <div className="quiz-options" role="radiogroup" aria-label="选择一个答案">{quiz.options.map(option => <label key={option.id} className={`quiz-option${answer === option.id ? ' chosen' : ''}${answer && option.id === quiz.correctOption ? ' is-correct' : ''}${answer === option.id && option.id !== quiz.correctOption ? ' is-incorrect' : ''}`}>
-        <input type="radio" name="quick-quiz-answer" value={option.id} checked={answer === option.id} disabled={!!answer || !!busy} onChange={() => setAnswer(option.id)}/>
+        <input type="radio" name={answerGroup} value={option.id} checked={answer === option.id} disabled={!!answer || !!busy} onChange={() => setAnswer(option.id)}/>
         <span className="quiz-letter" aria-hidden="true">{option.id}</span><span>{option.text}</span>
       </label>)}</div>
       {answer && <div className={`quiz-result${answer === quiz.correctOption ? ' result-correct' : ' result-incorrect'}`} role="status" aria-live="polite">

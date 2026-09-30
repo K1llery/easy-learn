@@ -6,6 +6,28 @@ let server: Server, context: BrowserContext, worker: Worker, id: string, base: s
 let calls: any[] = [];
 let responseStatus = 200, inFlight=0,peakInFlight=0,completed=0;
 let responseStyle='json',responseDelay=0;
+function outlinePdf() {
+  const first='BT /F1 14 Tf 72 720 Td (Introduction to this paper.) Tj ET';
+  const second='BT /F1 14 Tf 72 720 Td (Methods explain the regional failure.) Tj '+Array.from({length:24},()=> '0 -18 Td (The replica remains available in another region for recovery.) Tj ').join('')+'ET';
+  const objects=[
+    '<< /Type /Catalog /Pages 2 0 R /Outlines 7 0 R /PageMode /UseOutlines >>',
+    '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 8 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${first.length} >>\nstream\n${first}\nendstream`,
+    '<< /Type /Outlines /First 9 0 R /Last 10 0 R /Count 2 >>',
+    `<< /Length ${second.length} >>\nstream\n${second}\nendstream`,
+    '<< /Title (Introduction) /Parent 7 0 R /Next 10 0 R /Dest [3 0 R /Fit] >>',
+    '<< /Title (Methods) /Parent 7 0 R /Prev 9 0 R /Dest [4 0 R /Fit] >>',
+  ];
+  let pdf='%PDF-1.4\n';
+  const offsets=[0];
+  for (const [index, body] of objects.entries()) { offsets.push(pdf.length); pdf+=`${index+1} 0 obj\n${body}\nendobj\n`; }
+  const xref=pdf.length;
+  pdf+=`xref\n0 ${offsets.length}\n0000000000 65535 f \n${offsets.slice(1).map(offset=>`${String(offset).padStart(10,'0')} 00000 n \n`).join('')}trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf,'ascii');
+}
 function output(request: any) {
   const text = request.context?.text ?? '';
   if(request.candidates)return {items:request.candidates.map((c:any)=>({id:c.id,meaning:c.context.includes('daily run')?'每日运行':c.anchor==='API'?'应用程序编程接口':'灾难恢复',summary:'按当前语境解释：'+(c.context.includes('daily run')?'每日运行':c.anchor==='API'?'应用程序编程接口':'灾难恢复')}))};
@@ -46,6 +68,7 @@ test.beforeAll(async () => {
       res.end(responseStatus===200 ? JSON.stringify({choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]}) : '{}'); return;
     }
     if(req.url === '/sample.pdf') { res.writeHead(200,{'Content-Type':'application/pdf'}); res.end(await readFile('tests/fixtures/sample.pdf')); return; }
+    if(req.url === '/outline.pdf') { res.writeHead(200,{'Content-Type':'application/pdf'}); res.end(outlinePdf()); return; }
     res.writeHead(200,{'Content-Type':'text/html'}); res.end(await readFile('tests/fixtures/article.html'));
   });
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve));
@@ -511,6 +534,75 @@ test('PDF companion extracts text, quizzes the whole document and quizzes a sing
   await expect(page.getByText('根据正文，灾难恢复的关键保证是什么？')).toBeVisible({timeout:15000});
   expect(calls.slice(start).map(call=>call.operation)).toContain('choice');
   await page.screenshot({path:'test-results/pdf-reader.png',fullPage:true});
+  await page.close();
+});
+
+test('PDF companion navigates embedded bookmarks and opens the corresponding original page', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/outline.pdf')}&title=${encodeURIComponent('Outline Paper')}`);
+  const navigation=page.getByRole('region',{name:'PDF 导航'});
+  await expect(navigation.getByText('文档自带目录 · 2 项')).toBeVisible();
+  const before=calls.length;
+  await navigation.getByText('文档自带目录 · 2 项').click();
+  await navigation.getByRole('button',{name:'Methods · 第 2 页'}).click();
+  await expect(navigation.getByLabel('跳到页码（共 2 页）')).toHaveValue('2');
+  await expect(page.getByRole('region',{name:'第 2 页'})).toContainText('Methods explain the regional failure.');
+  await page.getByRole('region',{name:'第 2 页'}).getByRole('button',{name:'展开本页文字'}).click();
+  await expect(page.getByRole('region',{name:'第 2 页'}).getByRole('button',{name:'收起本页文字'})).toHaveAttribute('aria-expanded','true');
+  const originalPromise=context.waitForEvent('page');
+  await navigation.getByRole('button',{name:'在原 PDF 查看这一页'}).click();
+  const original=await originalPromise;
+  expect(original.url()).toBe(`${base}/outline.pdf#page=2`);
+  expect(calls.length).toBe(before);
+  await original.close();
+  await page.close();
+});
+
+test('PDF companion reads a user-selected local file without asking for site access or sending it to AI', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html`);
+  await page.getByLabel('URL').fill('file:///papers/example.pdf');
+  await page.getByRole('button',{name:'提取网址中的 PDF'}).click();
+  await expect(page.getByRole('alert')).toContainText('本机 PDF 请使用下方的文件选择入口');
+  const before=calls.length;
+  await page.getByLabel('或选择本机 PDF').setInputFiles('tests/fixtures/sample.pdf');
+  await expect(page.getByRole('region',{name:'第 1 页'})).toContainText('When a regional failure happens');
+  await expect(page.getByRole('region',{name:'PDF 导航'})).toBeVisible();
+  await expect(page.getByRole('region',{name:'PDF 导航'})).toContainText('当前文档 · sample.pdf');
+  await expect(page.getByRole('button',{name:'在原 PDF 查看这一页'})).toHaveCount(0);
+  expect(calls.length).toBe(before);
+  await page.getByLabel('URL').fill(`${base}/outline.pdf`);
+  await page.getByRole('button',{name:'提取网址中的 PDF'}).click();
+  await expect(page.getByRole('region',{name:'PDF 导航'})).toContainText('当前文档 · outline.pdf');
+  expect(calls.length).toBe(before);
+  await page.close();
+});
+
+test('PDF page drafts and quiz choices stay independent across multiple pages', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/outline.pdf')}`);
+  const first=page.getByRole('region',{name:'第 1 页'}), second=page.getByRole('region',{name:'第 2 页'});
+  await expect(second).toContainText('Methods explain the regional failure.');
+  for (const card of [first,second]) {
+    await card.locator('.source').first().evaluate(element => {
+      const node=element.firstChild!;
+      const range=document.createRange();range.setStart(node,0);range.setEnd(node,Math.min(30,node.textContent!.length));
+      const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+      element.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+    });
+    await card.getByRole('button',{name:'先试着理解'}).click();
+  }
+  await first.getByLabel('我的理解').fill('这是对第一部分的理解。');
+  await second.getByText('我的理解',{exact:true}).click();
+  await page.keyboard.type('这是对第二部分的理解。');
+  await expect(first.getByLabel('我的理解')).toHaveValue('这是对第一部分的理解。');
+  await expect(second.getByLabel('我的理解')).toHaveValue('这是对第二部分的理解。');
+  for (const card of [first,second]) {
+    await card.getByRole('button',{name:'考考这一页'}).click();
+    await card.getByRole('radio',{name:'区域故障时由其他区域恢复服务'}).check();
+  }
+  await expect(first.getByRole('radio',{name:'区域故障时由其他区域恢复服务'})).toBeChecked();
+  await expect(second.getByRole('radio',{name:'区域故障时由其他区域恢复服务'})).toBeChecked();
   await page.close();
 });
 
