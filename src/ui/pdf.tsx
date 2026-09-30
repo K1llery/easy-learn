@@ -8,6 +8,7 @@ import { rpc } from './rpc';
 import { useAction } from './use-action';
 import { QuizRunner } from './quiz-runner';
 import { QuickQuiz } from './quick-quiz';
+import { MeaningCheck } from './meaning-check';
 import './style.css';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -46,7 +47,7 @@ async function extractPdf(url: string, onPage: (page: number, total: number) => 
   } finally { void task.destroy(); }
 }
 function PageCard({ page, title }: { page: PageText; title: string }) {
-  const [mode, setMode] = useState<null | 'explain' | 'translate' | 'quiz'>(null);
+  const [mode, setMode] = useState<null | 'explain' | 'translate' | 'quiz' | 'check'>(null);
   const [explanation, setExplanation] = useState<Explanation | null>(null), [translation, setTranslation] = useState('');
   const [selectedText, setSelectedText] = useState(''), [selectionTruncated, setSelectionTruncated] = useState(false);
   const [usedText, setUsedText] = useState('');
@@ -58,6 +59,7 @@ function PageCard({ page, title }: { page: PageText; title: string }) {
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
     if (!range || !sourceRef.current?.contains(range.commonAncestorContainer)) return;
     const text = selection!.toString().trim();
+    if (!text) return;
     setSelectedText(text.slice(0, 4000));
     setSelectionTruncated(text.length > 4000);
   }
@@ -73,7 +75,7 @@ function PageCard({ page, title }: { page: PageText; title: string }) {
   const textPages = page.text.length > 16000;
   return <section className="card" id={`pdf-page-${page.page}`} aria-label={`第 ${page.page} 页`}><span className="tag">第 {page.page} 页{page.text ? '' : ' · 无文字'}</span>
     {page.text && mode !== 'quiz' ? <div className="source" ref={sourceRef} style={{maxHeight: 220}} onMouseUp={captureSelection} onKeyUp={captureSelection}>{page.text}</div> : !page.text ? <p className="muted">这一页没有可提取的文字（可能是图片）。</p> : null}
-    {selectedText && mode !== 'quiz' && <div className="notice" aria-label="PDF 选段操作"><p>已选中 {selectedText.length} 字符{selectionTruncated ? '（超过 4,000 字符，仅处理前 4,000 字符）' : ''}。正文只发送选中内容，另附文档标题和页码。</p><div className="actions"><button disabled={!!busy} onClick={() => act('explain', selectedText)}>解释选中内容</button><button disabled={!!busy} onClick={() => act('translate', selectedText)}>翻译选中内容</button></div></div>}
+    {selectedText && mode !== 'quiz' && <div className="notice" aria-label="PDF 选段操作"><p>已选中 {selectedText.length} 字符{selectionTruncated ? '（超过 4,000 字符，仅处理前 4,000 字符）' : ''}。正文只发送选中内容，另附文档标题和页码。</p><div className="actions"><button disabled={!!busy || selectionTruncated || selectedText.length > 1200} onClick={() => setMode('check')}>先试着理解</button><button disabled={!!busy} onClick={() => act('explain', selectedText)}>解释选中内容</button><button disabled={!!busy} onClick={() => act('translate', selectedText)}>翻译选中内容</button><button className="quiet" onClick={() => { setSelectedText(''); setMode(null); }}>清除选段</button></div>{selectedText.length > 1200 && <p>理解核对适合一两句话，请缩短选段至 1,200 字符以内。</p>}</div>}
     {page.text && <div className="actions">
       <button disabled={!!busy} onClick={() => act('explain')}>解释这一页</button>
       <button disabled={!!busy} onClick={() => act('translate')}>翻译这一页</button>
@@ -82,6 +84,7 @@ function PageCard({ page, title }: { page: PageText; title: string }) {
     {textPages && <p className="muted">整页解释、翻译和快测仅使用本页前 16,000 字符；仍可选中后面的难句单独处理。</p>}
     {busy && <div className="busy" role="status"><span className="dot"/>{busy}</div>}
     {error && <div className="error" role="alert">{error}</div>}
+    {mode === 'check' && selectedText && <MeaningCheck key={selectedText} context={{ ...context, text: selectedText }}/>}
     {mode === 'quiz' && page.text && <QuickQuiz context={context} active/>}
     {explanation && mode === 'explain' && <section className="card" aria-label={usedText ? '选段解释' : '本页解释'}><span className="tag">{usedText ? '选段解释' : '本页解释'}</span>{usedText && <p className="source">{usedText}</p>}<h2 style={{marginTop: 12}}>{explanation.meaning}</h2><p style={{marginTop: 12}}>{explanation.explanation}</p>{explanation.example && <p className="muted">例如：{explanation.example}</p>}</section>}
     {translation && mode === 'translate' && <section className="card" aria-label={usedText ? '选段翻译' : '本页翻译'}><span className="tag">中文翻译</span>{usedText && <p className="source">{usedText}</p>}<p style={{marginTop: 12, whiteSpace: 'pre-wrap'}}>{translation}</p></section>}

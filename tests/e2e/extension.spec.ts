@@ -538,3 +538,35 @@ test('PDF reader explains only the selected difficult sentence', async () => {
   expect(calls.at(-1)).toMatchObject({operation:'explain',mode:'translate',context:{text:'When a regional failure happens, the replica takes over.'}});
   await page.close();
 });
+
+test('PDF reader asks for my interpretation before requesting feedback for a selected sentence', async () => {
+  const page=await context.newPage();
+  await page.goto(`chrome-extension://${id}/pdf.html?url=${encodeURIComponent(base+'/sample.pdf')}&title=${encodeURIComponent('Disaster Recovery Paper')}`);
+  const pageCard=page.getByRole('region',{name:'第 1 页'});
+  const source=pageCard.locator('.source').first();
+  await expect(source).toContainText('When a regional failure happens');
+  const excerpt='When a regional failure happens, the replica takes over.';
+  await source.evaluate((element, excerpt) => {
+    const node=element.firstChild!;
+    const start=node.textContent!.indexOf(excerpt);
+    const range=document.createRange();range.setStart(node,start);range.setEnd(node,start+excerpt.length);
+    const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+  }, excerpt);
+  const start=calls.length;
+  await pageCard.getByRole('button',{name:'先试着理解'}).click();
+  const check=pageCard.getByRole('region',{name:'选段理解核对'});
+  await expect(check).toContainText(excerpt);
+  expect(calls.length).toBe(start);
+  await expect(check.getByRole('region',{name:'理解反馈'})).toHaveCount(0);
+  await check.getByLabel('我的理解').fill('发生区域故障时，副本会接管。');
+  expect(calls.length).toBe(start);
+  await check.getByRole('button',{name:'核对我的理解'}).click();
+  await expect(check.getByRole('region',{name:'理解反馈'})).toBeVisible();
+  expect(calls.slice(start)).toHaveLength(1);
+  expect(calls.at(-1)).toMatchObject({operation:'evaluate',context:{title:'Disaster Recovery Paper',heading:'第 1 页',text:excerpt,before:'',after:''},answer:'发生区域故障时，副本会接管。'});
+  expect(calls.at(-1).question).toContain('对照原文');
+  await pageCard.getByRole('button',{name:'清除选段'}).click();
+  await expect(check).toHaveCount(0);
+  await page.close();
+});
