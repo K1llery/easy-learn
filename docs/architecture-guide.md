@@ -32,7 +32,7 @@ flowchart LR
 | 扩展页面 | [options.tsx](../src/ui/options.tsx)、[panel.tsx](../src/ui/panel.tsx)、[review.tsx](../src/ui/review.tsx) | 配置模型、展示解释/翻译、练习和复习 | 不把密钥注入网页 |
 | 模型适配层 | [core/ai.ts](../src/core/ai.ts)、[providers.ts](../src/core/providers.ts) | 组装 Chat Completions 请求、处理流式响应、解析结果 | 不决定网页哪里应被标注 |
 
-这里的“后台”是 Chrome 的 Service Worker，具有事件驱动的生命周期；不要把它理解为一直运行的服务器进程。[connection.ts](../src/core/connection.ts) 在伴读页面或面板打开期间通过 Port 发送扩展内部心跳，这不调用模型。网页中的 panel 以扩展页面 iframe 呈现，PDF 则主要通过浏览器侧栏展示。
+这里的“后台”是 Chrome 的 Service Worker，具有事件驱动的生命周期；不要把它理解为一直运行的服务器进程。[connection.ts](../src/core/connection.ts) 在伴读页面或面板打开期间通过 Port 发送扩展内部心跳，这不调用模型。网页中的 panel 以扩展页面 iframe 呈现；PDF 右键选段使用浏览器侧栏，整份 PDF 阅读使用独立的伴读页。
 
 ## 2. 从点击图标到出现注释：一条完整链路
 
@@ -64,6 +64,7 @@ flowchart LR
 - **主动练习**：[practice.tsx](../src/ui/practice.tsx) 先请求一道开放题和应用任务，学生作答后再请求反馈。只有点击“保存练习”才通过后台写入本地记录。
 - **复习**：[review.tsx](../src/ui/review.tsx) 读取已保存记录，先自行回忆，再揭示第一次的 AI 反馈；自评与实践记录均为本地操作，不再调用模型。
 - **PDF 选中文字**：原生 PDF 阅读器不能走普通整页内容脚本。后台的右键菜单获取选区，将其暂存 `chrome.storage.session`；侧栏读取后立即删除这份临时选区。超出 16,000 字符时截断并提示。
+- **PDF 伴读页**：[pdf-source.ts](../src/ui/pdf-source.ts) 负责网址授权、下载、本机文件读取和 pdf.js 资源配置；[pdf-document.ts](../src/core/pdf-document.ts) 提取各页文字，读取结束或失败时释放页面和读取任务；[pdf-page.tsx](../src/ui/pdf-page.tsx) 管理单页阅读、选段与学习操作；[pdf.tsx](../src/ui/pdf.tsx) 组织文档、目录和测验。目录来自文件自带书签，读取和导航不请求模型。测验样本与字符统计只在文档页集合变化时重算；导航输入不会重复渲染单页卡片。
 
 这里有两种不同的“记住”：`MASTER` 表示“我已懂，不再显示这条注释”；`LEARNING_SAVE` 表示“保存这道练习供以后复习”。它们的数据结构和用途不同。
 
@@ -77,7 +78,7 @@ flowchart LR
 | `TextContext` | 标题、章节、当前文本及可选的邻段/整节 |
 | `Candidate` | 本地找出的待解释片段，含 ID、类别和短语境 |
 | `Concept` | 可标注到原文的解释结果 |
-| `AIRequest` | `analyze`、`explain`、`choice`、`quiz`、`evaluate` 五种模型任务 |
+| `AIRequest` | `analyze`、`explain`、`choice`、`quiz`、`evaluate`、`pageQuiz` 六种模型任务 |
 
 模型不保证每次严格返回 JSON，所以 [model-output.ts](../src/core/model-output.ts) 先归一化兼容形式，再用 Zod 校验。自动注释还会从不完整的流中保留**已完整且可对应候选的条目**；失败项可单独重试，不自动追加付费修复请求。
 
