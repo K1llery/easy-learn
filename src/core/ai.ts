@@ -184,7 +184,7 @@ export async function callModel(config: Config, request: AIRequest, signal?: Abo
       let response: Response;
       try {
         const body = {...options, model: config.model, messages: [{role: 'system', content: system}, {role: 'user', content: JSON.stringify(input)}], ...('reasoning_effort' in options && options.reasoning_effort !== 'none' ? {} : {temperature: 0.2}), [tokenLimitField]: tokenLimit, stream: streaming, ...(streaming ? {stream_options: {include_usage: true}} : {})};
-        response = await fetchModel(endpoint(config.baseUrl), {}, body, g.combined, signal);
+        response = await fetchModel(endpoint(config.baseUrl), {Authorization: `Bearer ${config.apiKey}`}, body, g.combined, signal);
       } catch (error) {
         if (signal?.aborted) throw new Error('请求已取消。');
         throw error;
@@ -220,6 +220,10 @@ export async function callModel(config: Config, request: AIRequest, signal?: Abo
         if (g.combined.aborted || (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))) throw new Error('读取模型响应超时。未自动重试。');
         throw new Error('服务未返回有效的接口响应。未自动重试，请检查模型接口配置。');
       }
+      // Some compatible gateways (including ClinePass) wrap non-streaming completions.
+      // Only unwrap an explicit successful completion; never treat an error as model text.
+      if (payload?.success === false) throw new Error('模型服务报告请求失败。未自动重试，请检查模型权限和服务状态。');
+      if (!Array.isArray(payload?.choices) && payload?.success === true && Array.isArray(payload?.data?.choices)) payload = payload.data;
       const content = payload?.choices?.[0]?.message?.content;
       const raw = typeof content === 'string' ? content : Array.isArray(content) ? content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
       if (!raw.trim() || raw.length > 60000) throw new Error('模型返回空内容或过大的响应。未自动重试；请检查所选模型是否支持文本 Chat Completions。');

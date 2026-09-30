@@ -11,6 +11,27 @@ it('sends only compact local candidates and consumes one provider response',asyn
  const result=await callModel(config,request);expect(result).toMatchObject({__usage:123,concepts:[{anchor:'DR'},{anchor:'API'}]});
  const input=JSON.parse(JSON.parse(fetcher.mock.calls[0][1]!.body as string).messages[1].content);
  expect(input.context).toBeUndefined();expect(input.candidates).toHaveLength(2);expect(fetcher).toHaveBeenCalledTimes(1);
+ expect(fetcher.mock.calls[0][1]!.headers).toMatchObject({Authorization:'Bearer never-log-me'});
+});
+it('authenticates a Cline non-streaming request and reads its successful data envelope',async()=>{
+ const cline:Config={...config,baseUrl:'https://api.cline.bot/api/v1',model:'cline-pass/deepseek-v4.1-flash'};
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({success:true,data:{choices:[{message:{content:'{"translation":"接口测试成功"}'},finish_reason:'stop'}],usage:{total_tokens:69}}})));
+ const result=await callModel(cline,{operation:'explain',mode:'translate',context:request.context});
+ expect(result).toMatchObject({translation:'接口测试成功',__usage:69});
+ expect(String(fetcher.mock.calls[0][0])).toBe('https://api.cline.bot/api/v1/chat/completions');
+ expect(fetcher.mock.calls[0][1]!.headers).toMatchObject({Authorization:'Bearer never-log-me','Content-Type':'application/json'});
+ expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toMatchObject({model:'cline-pass/deepseek-v4.1-flash',stream:false});
+ expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it('keeps explicit gateway failures out of model output without exposing diagnostics or retrying',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({success:false,error:'never-log-me',data:{choices:[{message:{content:'{"translation":"must not use"}'}}]}})));
+ await expect(callModel(config,{operation:'explain',context:request.context})).rejects.toThrow('模型服务报告请求失败');
+ expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it('retains the length-limit diagnosis for wrapped completions without a repair request',async()=>{
+ const fetcher=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({success:true,data:{choices:[{message:{content:'{"question":"truncated'},finish_reason:'length'}]}})));
+ await expect(callModel(config,{operation:'quiz',context:request.context})).rejects.toThrow('响应被长度限制截断');
+ expect(fetcher).toHaveBeenCalledTimes(1);
 });
 it('uses the Qwen workspace output-limit and no-thinking fields',async()=>{
  const qwenConfig:Config={...config,baseUrl:'https://llm-123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',model:'qwen3.8-flash'};

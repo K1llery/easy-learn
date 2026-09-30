@@ -25,6 +25,7 @@ it('displays a complete item before the response finishes and handles split UTF-
  expect(result).toMatchObject({concepts:[{id:'c0'}],skipped:['c1'],missing:[],__usage:42});
  const body=JSON.parse(transport.fetcher.mock.calls[0][1]!.body as string);
  expect(body).toMatchObject({stream:true,thinking:{type:'disabled'},stream_options:{include_usage:true}});
+ expect(transport.fetcher.mock.calls[0][1]!.headers).toMatchObject({Authorization:'Bearer fake'});
  expect(result.__timing.firstItemMs).not.toBeNull();
 });
 it('preserves completed entries after interruption, never invents the unfinished entry, never retries',async()=>{

@@ -1,6 +1,14 @@
 # Easy Learn 首版验收与试用记录
 
-## 当前实现：0.12.0（2026-09-23）
+## Cline 兼容修复：0.13.0（2026-09-30）
+
+- 定位到 OpenAI 兼容请求漏发 `Authorization`，现使用配置中的 API Key 添加 Bearer 头；非流式与流式路径都覆盖。Anthropic 与订阅协议维持各自认证方式。
+- Cline 实测非流式返回 `{success: true, data: {choices, usage, ...}}`，现显式识别成功包装并沿用内容、用量与截断处理。`success: false` 返回通用错误，不展示供应商诊断、不自动重试。相关反馈见 [Cline 官方仓库问题 #12647](https://github.com/cline/cline/issues/12647)，认证格式见 [官方接口文档](https://github.com/cline/cline/blob/main/docs/api/chat-completions.mdx)。
+- 同一接口与模型的最小调用：无认证返回 HTTP 401；带认证返回 HTTP 200 和非空文字。使用用户授权的临时 Key、合成技术选段，没有发送个人文档，密钥未写入项目文件。
+- 修复后的实际 `callModel` 代码连接 `https://api.cline.bot/api/v1`、`cline-pass/deepseek-v4.1-flash`：连接测试约 7.1 秒返回有效解释；流式注释约 3.7 秒完成两个候选、两次进度事件、没有缺失项。这是当前环境的小样本兼容性验证，不代表所有任务的质量或延迟。
+- `pnpm test`：140 项通过；`pnpm build`：类型检查与生产构建通过。Chromium 回归 30 项通过，模拟 API 现在强制校验测试 Bearer 头，新增成功包装下的连接测试与粘贴翻译。浏览器测试不使用真实凭据；尚未在用户日常浏览器中用 Cline 完成全流程实测。
+
+## 历史实现：0.12.0（2026-09-23）
 
 - 服务预设按中国大陆、海外 / 国际分组；新增 Qwen3.8 Flash、GPT-4.1 mini、Gemini 3.8 Flash 和 Kimi K2.6。原有 DeepSeek、智谱、Groq、OpenRouter、Gemini 2.5 Flash-Lite 仍保留。
 - 百炼工作空间 Host 可通过模型预设识别；保存时阻止未替换的 `YOUR_WORKSPACE_ID` 占位符。对百炼业务空间接口使用 `enable_thinking: false` 与 `max_completion_tokens`，其他服务沿用 `max_tokens`。

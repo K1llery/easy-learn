@@ -49,6 +49,9 @@ async function highlightedRanges(page:Page) { return (await currentWorker()).eva
 test.beforeAll(async () => {
   server = createServer(async (req,res) => {
     if(req.url === '/v1/chat/completions') {
+      if (req.headers.authorization !== 'Bearer fixture-key') {
+        res.writeHead(401,{'Content-Type':'application/json'}); res.end('{}'); return;
+      }
       let body=''; for await(const chunk of req) body+=chunk;
       const input = JSON.parse(body); const request=JSON.parse(input.messages[1].content); calls.push(request);
       inFlight++;peakInFlight=Math.max(peakInFlight,inFlight);
@@ -65,7 +68,8 @@ test.beforeAll(async () => {
       }
       inFlight--;completed++;
       res.writeHead(responseStatus,{'Content-Type':'application/json'});
-      res.end(responseStatus===200 ? JSON.stringify({choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]}) : '{}'); return;
+      const completion={choices:[{message:{content:responseStyle==='numbered'&&request.candidates?request.candidates.map((c:any)=>`${c.id}: 为这个技术概念预载的中文解释。`).join('\n'):JSON.stringify(output(request))}}]};
+      res.end(responseStatus===200 ? JSON.stringify(responseStyle==='envelope'?{success:true,data:completion}:completion) : '{}'); return;
     }
     if(req.url === '/sample.pdf') { res.writeHead(200,{'Content-Type':'application/pdf'}); res.end(await readFile('tests/fixtures/sample.pdf')); return; }
     if(req.url === '/outline.pdf') { res.writeHead(200,{'Content-Type':'application/pdf'}); res.end(outlinePdf()); return; }
@@ -127,6 +131,18 @@ test('complete reading, translation, followup and hiding flow in a real extensio
   await page.locator('a').click(); expect(page.url()).toContain('#next');
   await inject(page); await expect(page.locator('[data-easy-learn]')).toHaveCount(0); expect(await page.locator('article').innerHTML()).toBe(original);
   await page.close(); await settings.close();
+});
+
+test('authenticated gateway envelopes work for saved connection tests and pasted-text translation',async()=>{
+  responseStyle='envelope';
+  const settings=await context.newPage();await settings.goto(`chrome-extension://${id}/options.html`);
+  await settings.getByRole('button',{name:'测试已保存的连接'}).click();
+  await expect(settings.getByRole('status')).toContainText('连接成功');
+  const panel=await context.newPage();await panel.goto(`chrome-extension://${id}/panel.html`);
+  await panel.getByLabel('粘贴想理解的内容').fill('Use DR to recover from a regional failure. Do not disable replication. Keep at least 3 replicas.');
+  await panel.getByRole('button',{name:'翻译成中文',exact:true}).click();
+  await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
+  await panel.close();await settings.close();
 });
 
 test('dynamic context invalidation, selection, pasted text, and recoverable model failure', async () => {
