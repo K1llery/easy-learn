@@ -10,3 +10,7 @@ test-results/
 .cache/
 
 artifacts/
+
+dist-workbench/
+dist-workbench-server/
+*.zip

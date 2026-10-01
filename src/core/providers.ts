@@ -1,3 +1,4 @@
+import type { ModelTuning } from './types';
 // Provider presets checked against official API documentation on 2026-09-29.
 // Presets contain no credentials and never switch models or providers automatically.
 export type ProviderApi = 'openai' | 'anthropic' | 'codex' | 'claude-oauth';
@@ -28,7 +29,7 @@ export const providers: Provider[] = [
     baseUrl: 'http://127.0.0.1:8317/v1', model: 'gpt-6-luna',
     signup: 'https://github.com/router-for-me/CLIProxyAPI',
     docs: 'https://github.com/router-for-me/CLIProxyAPI',
-    note: '使用本机 CPA 和当前 ChatGPT Plus 账户的 Codex 用量。GPT-6 Luna 在翻译时关闭思考，其他任务使用低强度思考。填写本机 CPA 的访问密钥；无需在扩展中填写 ChatGPT 密码。此方案仅供当前个人使用。'
+    note: '使用本机 CPA 和当前 ChatGPT Plus 账户的 Codex 用量。可在请求偏好中调整思考强度与 Fast 优先通道，实际速度和额度由代理与账户决定。填写本机 CPA 的访问密钥；无需在扩展中填写 ChatGPT 密码。此方案仅供当前个人使用。'
   },
   {
     id: 'ollama', market: 'local', api: 'openai', name: 'Ollama · 本机模型（免费）',
@@ -184,12 +185,42 @@ export function providerFor(baseUrl: string, model: string) {
   }
   return undefined;
 }
-export function providerOptions(baseUrl: string, model: string, mode?: 'translate' | 'explain' | 'followup') {
+export function providerOptions(baseUrl: string, model: string, mode?: 'translate' | 'explain' | 'followup', tuning?: ModelTuning) {
   const host = new URL(baseUrl).hostname;
-  if (host === '127.0.0.1' && new URL(baseUrl).port === '8317' && model === 'gpt-6-luna') return { reasoning_effort: mode === 'translate' ? 'none' : 'low' };
+  const defaults = defaultProviderOptions(baseUrl, model, mode);
+  const options: Record<string, unknown> = {...defaults};
+  const deepseek = host === 'api.deepseek.com';
+  const thinking = tuning?.thinking ?? 'auto';
+  const effort = tuning?.reasoningEffort ?? 'auto';
+  if (deepseek || host === 'open.bigmodel.cn') {
+    if (thinking !== 'auto') options.thinking = {type: thinking};
+    if (deepseek && thinking !== 'disabled' && effort !== 'auto') {
+      options.thinking = {type: effort === 'none' ? 'disabled' : 'enabled'};
+      if (effort !== 'none') options.reasoning_effort = effort;
+    }
+  } else if (host === 'dashscope.aliyuncs.com' || host.endsWith('.maas.aliyuncs.com')) {
+    if (thinking !== 'auto') options.enable_thinking = thinking === 'enabled';
+  } else if (effort !== 'auto') options.reasoning_effort = effort;
+  if (modelCapabilities(baseUrl).fast && tuning?.fast) options.service_tier = 'priority';
+  if (modelCapabilities(baseUrl).fast && tuning?.fast === false) options.service_tier = 'default';
+  return options;
+}
+function defaultProviderOptions(baseUrl: string, model: string, mode?: 'translate' | 'explain' | 'followup') {
+  const host = new URL(baseUrl).hostname;
+  if (['localhost', '127.0.0.1'].includes(host) && new URL(baseUrl).port === '8317' && model === 'gpt-6-luna') return { reasoning_effort: mode === 'translate' ? 'none' : 'low' };
   if (host === 'api.deepseek.com' && ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-chat'].includes(model)) return { thinking: { type: 'disabled' } };
   if (host === 'open.bigmodel.cn' && model === 'glm-4.7-flash') return { thinking: { type: 'disabled' } };
   if ((host === 'dashscope.aliyuncs.com' || host.endsWith('.maas.aliyuncs.com')) && model === 'qwen3.8-flash') return { enable_thinking: false };
   if (host === 'generativelanguage.googleapis.com' && model === 'gemini-3.8-flash') return { reasoning_effort: 'low' };
   return host === 'api.groq.com' && model === 'qwen/qwen3.8-27b' ? { reasoning_effort: 'none' } : {};
+}
+
+export function modelCapabilities(baseUrl: string, api = 'openai') {
+  let host = ''; try { host = new URL(baseUrl).hostname; } catch { /* incomplete draft */ }
+  return {
+    thinking: api === 'openai' && (host === 'api.deepseek.com' || host === 'open.bigmodel.cn' || host === 'dashscope.aliyuncs.com' || host.endsWith('.maas.aliyuncs.com')),
+    deepseek: host === 'api.deepseek.com',
+    effort: api === 'codex' || (api === 'openai' && host !== 'open.bigmodel.cn' && !host.endsWith('.maas.aliyuncs.com') && host !== 'dashscope.aliyuncs.com'),
+    fast: api === 'codex' || (api === 'openai' && !!host && !['api.deepseek.com','open.bigmodel.cn','dashscope.aliyuncs.com','generativelanguage.googleapis.com','api.groq.com'].includes(host) && !host.endsWith('.maas.aliyuncs.com')),
+  };
 }

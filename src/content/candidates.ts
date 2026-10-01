@@ -9,7 +9,7 @@ const ECOSYSTEM = /\b(?:Pydantic|Starlette|Uvicorn|OpenAPI|Swagger(?: UI)?|JSON 
 const METHODS=/\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/gi;
 const TECH_CONTEXT=/\b(?:FastAPI|Pydantic|HTTP|API|Python|server|framework|protocol|authentication|database|compiler|neural|model|training|algorithm|library|package|function|endpoint|request)\b/i;
 const WEB_CONTEXT=/\b(?:FastAPI|HTTP|REST|OpenAPI|web server|web framework|request method|path operation)\b/i;
-export type CandidateEnvironment={technical:boolean;web:boolean;nearby?:string;unknownVocabulary?:boolean;commonWords?:ReadonlySet<string>;maxPerBlock?:number};
+export type CandidateEnvironment={technical:boolean;web:boolean;nearby?:string;unknownVocabulary?:boolean;commonWords?:ReadonlySet<string>;maxPerBlock?:number;vocabularyPerBlock?:number};
 export function candidateEnvironment(blocks:Block[],title=''):CandidateEnvironment{
  const sample=title+' '+blocks.slice(0,50).map(b=>b.heading+' '+b.text.slice(0,300)).join(' ');
  return {technical:TECH_CONTEXT.test(sample),web:WEB_CONTEXT.test(sample)};
@@ -95,7 +95,7 @@ export function findCandidates(block:Block,environment:CandidateEnvironment=cand
     // Only shaped identifiers, filenames, or explicit commands; not arbitrary inline words.
     if(/^[\w./:-]{3,80}$/.test(text)&&(/[_.:/]|[a-z][A-Z]/.test(text)||(technical&&inline.matches('code,a')&&/\b(?:library|package|framework|install|validator|serializer|import)\b/i.test(block.text))))add(text,block.text.indexOf(text),'term');
   }
-  let extraVocabulary=false;
+  let extraVocabulary=0;
   if(environment.unknownVocabulary&&environment.commonWords) {
     for(const match of block.text.matchAll(/\b[a-z][a-z'-]{4,23}\b/gi)) {
       const anchor=match[0],start=match.index!;
@@ -103,11 +103,11 @@ export function findCandidates(block:Block,environment:CandidateEnvironment=cand
       const before=block.text.slice(Math.max(0,start-1),start),after=block.text.slice(start+anchor.length,start+anchor.length+1);
       if(/[A-Za-z0-9_]/.test(before)||/[A-Za-z0-9_]/.test(after))continue;
       const previousCount=found.length;add(anchor,start,'vocabulary');
-      if(found.length>previousCount){extraVocabulary=true;break;}
+      if(found.length>previousCount){extraVocabulary++;if(extraVocabulary>=(environment.vocabularyPerBlock??1))break;}
     }
   }
   const perBlock=environment.maxPerBlock??6;
-  return found.filter(c=>c.start>=0).sort((a,b)=>a.start-b.start).slice(0,extraVocabulary?perBlock+1:perBlock);
+  return found.filter(c=>c.start>=0).sort((a,b)=>a.start-b.start).slice(0,perBlock+extraVocabulary);
 }
 export function candidateKey(c:LocalCandidate,profileKey:string) {
   // Context retained for ambiguous abbreviations. No blind global acronym reuse.

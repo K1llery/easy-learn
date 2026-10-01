@@ -75,7 +75,7 @@ it('caps selected PDF text to the existing context limit and records truncation'
   expect(sessionData['pdfSelection:4'].truncated).toBe(true);
 });
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false,quizCount:5,maxPerBlock:6});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false,quizCount:5,maxPerBlock:6,batchSize:4,concurrency:2,vocabularyBaseline:10000,vocabularyPerBlock:1});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);

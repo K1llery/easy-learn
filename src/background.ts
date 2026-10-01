@@ -31,7 +31,7 @@ function scopeFor(sender: chrome.runtime.MessageSender) {
   }
   return scope;
 }
-function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html', extensionRoot + 'pdf.html'].includes(sender.url.split(/[?#]/)[0]); }
+function trusted(sender: chrome.runtime.MessageSender) { return !!sender.url && [extensionRoot + 'options.html', extensionRoot + 'panel.html', extensionRoot + 'sidepanel.html', extensionRoot + 'pdf.html', extensionRoot + 'reader.html'].includes(sender.url.split(/[?#]/)[0]); }
 function upgradeLocalCpaModel(cfg: Config): Config {
   return cfg.baseUrl.replace(/\/+$/, '') === 'http://127.0.0.1:8317/v1' && cfg.model === 'gpt-5.6-luna'
     ? {...cfg, model: 'gpt-6-luna'} : cfg;
@@ -79,6 +79,7 @@ function refresh(invalidate = true) {
   if(invalidate)cacheEpoch++;
   if(invalidate) for (const scope of [...caches.keys()]) clearScope(scope);
   for (const p of contentPorts.values()) safePost(p, { type: 'REFRESH', invalidate });
+  for (const p of documentPorts.values()) if(p.name==='reader') safePost(p, {type:'REFRESH',invalidate});
 }
 chrome.runtime.onConnect.addListener(port => {
   const id = port.sender?.tab?.id;
@@ -155,7 +156,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
   }
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
-    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [], quizCount: Number.isInteger(data.reading?.quizCount) ? data.reading.quizCount : 5, maxPerBlock: Number.isInteger(data.reading?.maxPerBlock) ? data.reading.maxPerBlock : 6 };
+    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [], quizCount: Number.isInteger(data.reading?.quizCount) ? data.reading.quizCount : 5, vocabularyBaseline: data.reading?.vocabularyBaseline ?? 10000, vocabularyPerBlock: data.reading?.vocabularyPerBlock ?? 1, batchSize: data.reading?.batchSize ?? 4, concurrency: data.reading?.concurrency ?? 2, maxPerBlock: Number.isInteger(data.reading?.maxPerBlock) ? data.reading.maxPerBlock : 6 };
   }
   if ((msg.type === 'AI'||msg.type === 'TEST')&&(await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
   if (msg.type === 'AI') {
@@ -166,7 +167,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     const subscription = oauthKindOf(cfg);
     const auth = subscription ? {getAccessToken: () => getAccessToken(subscription)} : undefined;
     const scope = scopeFor(sender);
-    const key = cacheKey(request, cfg.profile, cfg.model, cfg.baseUrl);
+    const key = cacheKey(request, {profile:cfg.profile,style:cfg.style,tuning:cfg.tuning}, cfg.model, cfg.baseUrl);
     const cache = caches.get(scope) ?? new SessionCache(); caches.set(scope, cache);
     const cached = cache.get(key); if (cached) return {...cached as object,__cached:true};
     const controller = new AbortController();
@@ -179,6 +180,7 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     };
     try {
       const settings=await chrome.storage.local.get('reading');
+      queue.setLimit(settings.reading?.concurrency ?? 2);
       const remember=settings.reading?.rememberAnnotations!==false;
       const candidates=request.operation==='analyze'?request.candidates:undefined;
       const keys=remember&&candidates?await Promise.all(candidates.map(c=>annotationCache.key(cfg,request.context.title,c))):[];

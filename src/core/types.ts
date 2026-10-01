@@ -5,11 +5,23 @@ export type ApiKind = typeof apiKinds[number];
 export const oauthApiKinds: ApiKind[] = ['codex', 'claude-oauth'];
 export const explanationStyles = ['concise', 'balanced', 'deep'] as const;
 export type ExplanationStyle = typeof explanationStyles[number];
-export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.string().trim().min(1).max(150), apiKey: z.string().trim().max(2000).default(''), profile: profileSchema, api: z.enum(apiKinds).optional(), style: z.enum(explanationStyles).optional() }).superRefine((value, ctx) => {
+export const reasoningEfforts = ['auto', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const modelTuningSchema = z.object({
+  thinking: z.enum(['auto', 'disabled', 'enabled']).optional(),
+  reasoningEffort: z.enum(reasoningEfforts).optional(),
+  fast: z.boolean().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxOutputTokens: z.number().int().min(256).max(32768).optional(),
+});
+export type ModelTuning = z.infer<typeof modelTuningSchema>;
+export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.string().trim().min(1).max(150), apiKey: z.string().trim().max(2000).default(''), profile: profileSchema, api: z.enum(apiKinds).optional(), style: z.enum(explanationStyles).optional(), tuning: modelTuningSchema.optional() }).superRefine((value, ctx) => {
   const api = value.api ?? 'openai';
   if (!oauthApiKinds.includes(api) && !value.apiKey) ctx.addIssue({ code: 'custom', message: '请填写 API Key，或改用订阅账户登录。' });
 });
 export const readingPrefsSchema = z.object({
+  vocabularyBaseline: z.union([z.literal(2000),z.literal(5000),z.literal(10000)]).optional(),
+  vocabularyPerBlock: z.number().int().min(1).max(6).optional(),
+  concurrency: z.number().int().min(1).max(6).optional(),
   quizCount: z.number().int().min(2).max(8).optional(),
   maxPerBlock: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),
   batchSize: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),

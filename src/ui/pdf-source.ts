@@ -34,8 +34,8 @@ export async function readLocalPdf(file: File): Promise<Uint8Array> {
 export function extractPdf(data: Uint8Array, onPage: PdfProgress) {
   const task = pdfjs.getDocument({
     data,
-    cMapUrl: chrome.runtime.getURL('pdfjs/cmaps/'), cMapPacked: true,
-    standardFontDataUrl: chrome.runtime.getURL('pdfjs/standard-fonts/'),
+    cMapUrl: typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/cmaps/') : '/pdfjs/cmaps/', cMapPacked: true,
+    standardFontDataUrl: typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/standard-fonts/') : '/pdfjs/standard-fonts/',
   });
   return extractPdfDocument(task, onPage);
 }

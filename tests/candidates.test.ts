@@ -78,3 +78,9 @@ it('filters filenames, filesystem paths, domain names and linked site labels bef
  expect(candidates.map(candidate=>candidate.anchor)).not.toEqual(expect.arrayContaining(['src/content/index.ts','README.md','FastAPI']));
  expect(code.flatMap(block=>findCandidates(block))).toHaveLength(0);
 });
+
+it('lets general English readers prepare several vocabulary candidates per paragraph',()=>{
+ const block=article('An ephemeral lantern reveals a serendipitous discovery among luminous feathers.');
+ const words=findCandidates(block,{technical:false,web:false,unknownVocabulary:true,commonWords:new Set(['an','among','reveals','discovery']),vocabularyPerBlock:4});
+ expect(words.filter(w=>w.kind==='vocabulary')).toHaveLength(4);
+});

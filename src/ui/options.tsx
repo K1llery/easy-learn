@@ -6,9 +6,10 @@ import type { ProviderSettings } from '../core/provider-settings';
 import { LOGIN_ORIGINS, KIND_LABELS, startOAuth, type OAuthKind } from '../core/oauth';
 import { rpc } from './rpc';
 import './style.css';
+import { ModelControls } from './model-controls';
 type OAuthState = { signedIn: boolean; email?: string; expiresAt?: number };
-type Prefs = { quizCount: number; maxPerBlock: number; batchSize: number };
-const defaultPrefs: Prefs = { quizCount: 5, maxPerBlock: 6, batchSize: 4 };
+type Prefs = { quizCount: number; maxPerBlock: number; batchSize: number; concurrency: number; vocabularyBaseline: number; vocabularyPerBlock: number };
+const defaultPrefs: Prefs = { quizCount: 5, maxPerBlock: 6, batchSize: 4, concurrency: 2, vocabularyBaseline: 10000, vocabularyPerBlock: 1 };
 function Options() {
   const [form, setForm] = useState<Config>({ baseUrl: '', model: '', apiKey: '', profile: defaultProfile });
   const [preset,setPreset]=useState('custom'),[localOnly,setLocalOnly]=useState(false);
@@ -30,7 +31,7 @@ function Options() {
       setPreset(data.providerSettings?.activeProviderId ?? providerFor(data.config.baseUrl, data.config.model)?.id ?? 'custom');
     }
     providerDrafts.current = data.providerSettings?.drafts ?? {};
-    setPrefs({quizCount: data.reading?.quizCount ?? 5, maxPerBlock: data.reading?.maxPerBlock ?? 6, batchSize: data.reading?.batchSize ?? 4});
+    setPrefs({quizCount: data.reading?.quizCount ?? 5, maxPerBlock: data.reading?.maxPerBlock ?? 6, batchSize: data.reading?.batchSize ?? 4, concurrency: data.reading?.concurrency ?? 2, vocabularyBaseline: data.reading?.vocabularyBaseline ?? 10000, vocabularyPerBlock: data.reading?.vocabularyPerBlock ?? 1});
     setRememberAnnotations(data.reading?.rememberAnnotations!==false);setLocalOnly(data.reading?.localOnly===true); setMastered(data.mastered ?? []);setCodeAnnotations(data.reading?.codeAnnotations===true);setAnnotationTypes(data.reading?.annotationTypes??defaultAnnotationTypes);
     for (const kind of ['chatgpt','claude'] as OAuthKind[]) try { const status = await rpc<OAuthState>('OAUTH_STATUS', {kind}); setOauth(prev => ({...prev, [kind]: status})); } catch { /* keep unknown state blank. */ }
   }
@@ -45,8 +46,8 @@ function Options() {
     setPreset(id); setMessage(''); setError('');
     const p = providers.find(p => p.id === id);
     setForm(providerDrafts.current[id] ?? (p
-      ? {...form, baseUrl: p.baseUrl, model: p.model, api: p.api, apiKey: ''}
-      : {...form, baseUrl: '', model: '', api: 'openai', apiKey: ''}));
+      ? {...form, baseUrl: p.baseUrl, model: p.model, api: p.api, apiKey: '', tuning: undefined}
+      : {...form, baseUrl: '', model: '', api: 'openai', apiKey: '', tuning: undefined}));
   }
   async function persist(cfg: Config, origins: string[]) {
     const granted = await chrome.permissions.request({origins});
@@ -99,25 +100,25 @@ function Options() {
     try { await rpc('SET_READING_PREFS', {prefs: next}); setMessage('学习偏好已保存，已开启的页面会立即更新。'); }
     catch (e) { setPrefs(prefs); setError((e as Error).message); }
   }
-  async function changeStyle(style: Config['style']) {
-    const prev = form.style; setForm({...form, style});
-    try { await rpc('SET_STYLE', {style}); setMessage('解释风格已保存。'); }
-    catch (e) { setForm({...form, style: prev}); setError((e as Error).message); }
+  function changeStyle(style: Config['style']) {
+    setForm({...form, style}); setMessage('');
   }
   const annotationLabels:Record<AnnotationType,string>={abbreviation:'英文缩写',term:'专有名词与技术术语',command:'CLI 命令',vocabulary:'扩展词汇（常用词表外，试验）'};
   const marketGroups:[string,string][]=[['oauth','订阅账户登录'],['local','本机与局域网'],['cn','中国大陆服务'],['global','海外 / 国际服务']];
   return <div className="settings-page"><div className="brand"><span className="brandmark">E</span>Easy Learn <span className="muted">/ 阅读偏好</span></div>
-    <header className="settings-heading"><div className="eyebrow">阅读偏好</div><h1>让理解，多走一步。</h1><p>连接你选择的模型或订阅账户，按你的基础解释每一个难点。</p></header>
+    <nav className="workspace-nav"><a href="reader.html">阅读工作台</a><span>设置</span></nav><header className="settings-heading"><div className="eyebrow">阅读偏好</div><h1>阅读设置</h1><p>选择阅读辅助的方式，以及适合自己的模型与速度。</p></header>
     <section className="card"><span className="tag">01 · 注释类型</span><h2 style={{marginTop:12}}>选择需要的注释</h2><p className="muted">点击工具栏图标立即开启；网页浮窗里也能调整这些类型。</p><div className="annotation-options">{annotationTypeValues.map(type=><label className="check-row" key={type}><input type="checkbox" checked={annotationTypes.includes(type)} onChange={e=>void changeAnnotationType(type,e.target.checked)}/><span>{annotationLabels[type]}</span></label>)}<label className="check-row"><input type="checkbox" checked={codeAnnotations} onChange={async e=>{const enabled=e.target.checked;setCodeAnnotations(enabled);try{await rpc('SET_CODE_ANNOTATIONS',{enabled});}catch(e){setCodeAnnotations(!enabled);setError((e as Error).message);}}}/><span>代码注释（不含命令行）</span></label></div>
       <h2 style={{marginTop:18}}>注释密度与节奏</h2>
-      <div className="prefs-grid">
+      <div className="prefs-grid"><label htmlFor="concurrency">同时请求数</label><select id="concurrency" value={prefs.concurrency} onChange={e=>void changePrefs({concurrency:Number(e.target.value)})}>{[1,2,3,4,6].map(n=><option key={n} value={n}>{n} 路{n===2?'（默认）':''}</option>)}</select>
         <label htmlFor="max-per-block">每段最多候选</label><select id="max-per-block" value={prefs.maxPerBlock} onChange={e=>void changePrefs({maxPerBlock:Number(e.target.value)})}><option value={2}>2 个（最克制）</option><option value={4}>4 个</option><option value={6}>6 个（默认）</option></select>
-        <label htmlFor="batch-size">每批请求候选数</label><select id="batch-size" value={prefs.batchSize} onChange={e=>void changePrefs({batchSize:Number(e.target.value)})}><option value={2}>2 个（更平滑）</option><option value={4}>4 个（默认）</option><option value={6}>6 个（更快）</option></select>
+        <label htmlFor="batch-size">每批请求候选数</label><select id="batch-size" value={prefs.batchSize} onChange={e=>void changePrefs({batchSize:Number(e.target.value)})}><option value={2}>2 个（更平滑）</option><option value={4}>4 个（默认）</option><option value={6}>6 个（更少批次）</option></select>
+        <label htmlFor="vocabulary-baseline">英语常用词基础</label><select id="vocabulary-baseline" value={prefs.vocabularyBaseline} onChange={e=>void changePrefs({vocabularyBaseline:Number(e.target.value)})}><option value={2000}>前 2000 词</option><option value={5000}>前 5000 词</option><option value={10000}>前 10000 词（默认）</option></select>
+        <label htmlFor="vocabulary-per-block">每段生词候选上限</label><select id="vocabulary-per-block" value={prefs.vocabularyPerBlock} onChange={e=>void changePrefs({vocabularyPerBlock:Number(e.target.value)})}>{[1,2,4,6].map(n=><option key={n} value={n}>{n} 个</option>)}</select>
         <label htmlFor="quiz-count">整页测验题数</label><select id="quiz-count" value={prefs.quizCount} onChange={e=>void changePrefs({quizCount:Number(e.target.value)})}><option value={3}>3 道</option><option value={5}>5 道</option><option value={8}>8 道</option></select>
       </div>
-      <p className="form-help">候选越少，注释越安静、API 用量越低；批越大，整页注释完成得越快。题数在网页右下角“整页测验”和 PDF 阅读页生效。</p>
+      <p className="form-help">候选越少，注释越安静、API 用量越低；批越大，请求轮次越少；并发越高，用量增长越快，也可能触发限流。题数在网页右下角“整页测验”和 PDF 阅读页生效。</p>
       <p className="form-help">代码注释默认关闭，命令行有独立开关。开启代码注释会增加候选和 API 用量。</p>
-      <p className="form-help">“扩展词汇”是可选试验功能：依据公开的英语词频表近似筛选，不等同于官方四级词表；开启后每段最多多出一个候选，可能增加 API 用量。默认关闭。</p></section>
+      <p className="form-help">“扩展词汇”是可选试验功能：依据公开的英语词频表近似筛选，不等同于官方四级词表；可按词频基础和每段上限调整候选，适用于一般英语文章；词频不代表你一定认识，仍可能增加 API 用量。默认关闭。</p></section>
     <section className="card"><h2>先用免费的本地释义</h2><p>常见技术词和已支持的命令即时注释，不等待 AI、不消耗额度。歧义缩写和未知概念才需要模型。</p><label className="check-row"><input type="checkbox" checked={localOnly} onChange={async e=>{const enabled=e.target.checked;setLocalOnly(enabled);try{await rpc('SET_LOCAL_ONLY',{enabled});}catch(e){setLocalOnly(!enabled);setError((e as Error).message);}}}/><span>离线模式（不调用 AI）</span></label></section>
     <div className="settings-grid"><main><form className="card" onSubmit={save}><span className="tag">02 · 模型连接</span><h2 style={{marginTop:12}}>使用自己的 AI 服务</h2>
       <label htmlFor="provider">服务方案</label><select id="provider" value={preset} onChange={e=>applyPreset(e.target.value)}><option value="custom">自定义服务</option>{marketGroups.map(([market,label])=><optgroup key={market} label={label}>{providers.filter(p=>p.market===market).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>)}</select>
@@ -136,6 +137,7 @@ function Options() {
       <label htmlFor="key">API Key</label><input id="key" required type="password" value={form.apiKey} onChange={e => change('apiKey', e.target.value)} autoComplete="off" placeholder="仅保存在当前浏览器"/></>}
       {subscriptionKind && <><label htmlFor="base-ro">API Base URL</label><input id="base-ro" type="url" required value={form.baseUrl} onChange={e => change('baseUrl', e.target.value)} autoComplete="off"/>
       <label htmlFor="model-ro">模型名称</label><input id="model-ro" required value={form.model} onChange={e => change('model', e.target.value)} autoComplete="off"/><p className="form-help">订阅账户登录后无需 API Key；模型名可换成订阅可用的其他模型（如 GPT-6 系列或 Claude 系列）。</p></>}
+      <ModelControls config={form} onChange={tuning=>{setForm({...form,tuning});setMessage('');}}/>
       <details className="section-line"><summary>解释偏好（高级）</summary><label htmlFor="domain">学习领域</label><input id="domain" required maxLength={80} value={form.profile.domain} onChange={e => setForm({...form, profile:{...form.profile, domain:e.target.value}})}/>
       <label htmlFor="level">熟悉程度</label><select id="level" value={form.profile.level} onChange={e => setForm({...form, profile:{...form.profile, level:e.target.value as Config['profile']['level']}})}><option>入门</option><option>熟悉</option><option>进阶</option></select>
       <label htmlFor="style">解释风格</label><select id="style" value={form.style ?? 'balanced'} onChange={e => void changeStyle(e.target.value as Config['style'])}><option value="concise">简洁 · 一句话结论</option><option value="balanced">平衡（默认）</option><option value="deep">深入 · 补充背景与对比</option></select></details>
@@ -146,7 +148,7 @@ function Options() {
     <section className="card"><h2>重复阅读更快</h2><label><input type="checkbox" style={{display:'inline',width:'auto'}} checked={rememberAnnotations} onChange={async e=>{const enabled=e.target.checked;try{await rpc('SET_REMEMBER_ANNOTATIONS',{enabled});setRememberAnnotations(enabled);setMessage(enabled?'已开启术语缓存。':'已关闭并清除术语缓存。');}catch(e){setError((e as Error).message);}}}/> 在本机保留术语释义</label><p className="muted">最多 500 条、保留 30 天。保存术语与解释，不保存整段正文、代码或问答；解释本身可能包含原文短语。只在语境、模型与学习偏好一致时复用，不混用缩写含义。</p><button onClick={async()=>{try{await rpc('CLEAR_ANNOTATION_CACHE');setMessage('术语缓存已清除；当前页面已显示的注释仍可阅读。');}catch(e){setError((e as Error).message);}}}>清除术语缓存</button></section>
     <section className="card"><span className="tag">03 · 不再显示</span><h2 style={{marginTop:12}}>不再显示的注解</h2><p className="muted">按领域与概念含义区分。恢复后，伴读会重新标注。</p>{mastered.length === 0 && <p className="notice">列表为空。在注解里点击“我懂了，不再显示”即可添加。</p>}{mastered.map(item => <div className="learned row" key={item.key}><div><p>{item.anchor} · {item.meaning}</p><small>{item.domain}</small></div><button onClick={async () => {try { await rpc('UNMASTER', {key:item.key}); await load(); } catch(e) {setError((e as Error).message);}}}>恢复显示</button></div>)}</section>
     <section className="card"><h2>把读过的变成会用的</h2><p className="muted">主动回忆、对照反馈，再留下一次实践记录。保存的练习可离线复习。</p><button onClick={() => void chrome.tabs.create({url: chrome.runtime.getURL('panel.html?view=review')})}>打开我的复习</button></section>
-    <button className="quiet" onClick={async () => { if (confirm('清除本机模型配置、全部暂存方案及密钥、订阅登录令牌、术语缓存、不再显示记录和全部学习练习？')) { await rpc('CLEAR_SETTINGS'); providerDrafts.current = {}; setForm({baseUrl:'',model:'',apiKey:'',profile:defaultProfile}); setMastered([]); setCodeAnnotations(false);setAnnotationTypes(defaultAnnotationTypes); setLocalOnly(false);setRememberAnnotations(true);setPreset('custom');setPrefs(defaultPrefs);setOauth({}); setMessage('本机数据已清除。'); } }}>清除本机数据</button>
-    </main><aside><div className="side-note"><span className="note-number">01</span><h3>从正在读的地方开始</h3><p>点击一次工具栏图标立即开启；悬停网页右侧浮窗可展开设置，或点“整页测验”检验理解。</p></div><div className="side-note"><span className="note-number">02</span><h3>解释有依据，也有边界</h3><p>缩写会结合上下文判断。缺少信息时，保留候选解释，不把猜测当结论。</p></div><div className="side-note"><span className="note-number">03</span><h3>按自己的节奏阅读</h3><p>读懂的注解可以隐藏，随时在设置中恢复；PDF 也能在配套阅读页中学习。</p></div></aside></div><div className="footer">EASY LEARN · 读懂，再学会 · v0.13.0</div></div>;
+    <button className="quiet" onClick={async () => { if (confirm('清除本机模型配置、全部暂存方案及密钥、订阅登录令牌、术语缓存、不再显示记录和全部学习练习？')) { await rpc('CLEAR_SETTINGS'); localStorage.removeItem('easy-learn-reader-words-v1');for(const key of Object.keys(localStorage))if(key.startsWith('reader-position:'))localStorage.removeItem(key);providerDrafts.current = {}; setForm({baseUrl:'',model:'',apiKey:'',profile:defaultProfile}); setMastered([]); setCodeAnnotations(false);setAnnotationTypes(defaultAnnotationTypes); setLocalOnly(false);setRememberAnnotations(true);setPreset('custom');setPrefs(defaultPrefs);setOauth({}); setMessage('本机数据已清除。'); } }}>清除本机数据</button>
+    </main><aside><div className="side-note"><span className="note-number">01</span><h3>从正在读的地方开始</h3><p>点击一次工具栏图标立即开启；悬停网页右侧浮窗可展开设置，或点“整页测验”检验理解。</p></div><div className="side-note"><span className="note-number">02</span><h3>解释有依据，也有边界</h3><p>缩写会结合上下文判断。缺少信息时，保留候选解释，不把猜测当结论。</p></div><div className="side-note"><span className="note-number">03</span><h3>按自己的节奏阅读</h3><p>读懂的注解可以隐藏，随时在设置中恢复；PDF 也能在配套阅读页中学习。</p></div></aside></div><div className="footer">EASY LEARN · 读懂，再学会 · v0.14.0</div></div>;
 }
 createRoot(document.getElementById('root')!).render(<Options/>);

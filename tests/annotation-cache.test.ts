@@ -11,6 +11,8 @@ it('reuses across IDs but separates meanings, profiles and providers without sto
  expect(await cache.key(config,'Doc',{...candidate,id:'c9'})).toBe(key);
  expect(await cache.key(config,'Doc',{...candidate,context:'daily run'})).not.toBe(key);
  expect(await cache.key({...config,model:'other'},'Doc',candidate)).not.toBe(key);
+ expect(await cache.key({...config,tuning:{reasoningEffort:'max'}},'Doc',candidate)).not.toBe(key);
+ expect(await cache.key({...config,style:'deep'},'Doc',candidate)).not.toBe(key);
  expect(await cache.key({...config,profile:{...config.profile,level:'进阶'}},'Doc',candidate)).not.toBe(key);
  await cache.put([{key,concept}]);expect((await cache.get([key]))[0]).toMatchObject({summary:concept.summary});
  expect(JSON.stringify(values)).not.toContain(candidate.context);expect(JSON.stringify(values)).not.toContain(config.apiKey);

@@ -740,3 +740,15 @@ test('PDF reader asks for my interpretation before requesting feedback for a sel
   await expect(secondCheck.getByText('模型给出的引文未在所选原文中找到')).toBeVisible();
   await page.close();
 });
+
+test('reads local documents in the trusted extension workbench and preloads meanings without hover calls',async()=>{
+ const page=await context.newPage();await page.goto(`chrome-extension://${id}/reader.html`);
+ const text='The ephemeral lantern reveals a serendipitous discovery.';
+ await page.locator('#reader-file').setInputFiles({name:'public-reader.txt',mimeType:'text/plain',buffer:Buffer.from(text)});
+ await expect(page.getByTestId('reader-prose')).toHaveText(text);const before=calls.length;
+ await page.locator('.reader-word').first().hover();expect(calls.length).toBe(before);
+ await page.getByRole('button',{name:'开启伴读',exact:true}).click();await expect(page.locator('.reader-word.is-ready').first()).toBeVisible();
+ await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');const count=calls.length;
+ await page.locator('.reader-word.is-ready').first().hover();await expect(page.getByRole('complementary',{name:'词语释义'})).toContainText('按当前语境解释');expect(calls.length).toBe(count);await expect(page.getByTestId('reader-prose')).toHaveText(text);
+ const refreshed=await page.evaluate(()=>chrome.runtime.sendMessage({type:'SET_READING_PREFS',prefs:{concurrency:1,batchSize:2}}));expect(refreshed.ok).toBe(true);await expect(page.getByText('阅读设置已更新，点击开启伴读继续。')).toBeVisible();await expect(page.locator('.reader-word.is-ready')).toHaveCount(0);expect(calls.length).toBe(count);await page.close();
+});
