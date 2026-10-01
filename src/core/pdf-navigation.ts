@@ -1,6 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
-export type PdfOutlineEntry = { title: string; page: number; depth: number };
+export type PdfOutlineEntry = { title: string; page: number; depth: number; top?:number };
 
 // PDF bookmarks are an optional, document-authored index. Ignore external links
 // and unresolved destinations rather than guessing a page from a title.
@@ -24,7 +24,12 @@ export async function readPdfOutline(doc: PDFDocumentProxy): Promise<PdfOutlineE
       try { index = await doc.getPageIndex(target); } catch { continue; }
     } else continue;
     const page = index + 1;
-    if (Number.isInteger(page) && page >= 1 && page <= doc.numPages) entries.push({ title, page, depth });
+    if (Number.isInteger(page) && page >= 1 && page <= doc.numPages) {
+      const y=destination?.[1]?.name==='XYZ'?destination?.[3]:['FitH','FitBH'].includes(destination?.[1]?.name)?destination?.[2]:undefined;
+      let top:number|undefined;
+      if(typeof y==='number'&&Number.isFinite(y)){try{const proxy=await doc.getPage(page);top=proxy.getViewport({scale:1}).convertToViewportPoint(0,y)[1];}catch{/* page-only bookmark */}}
+      entries.push({ title, page, depth,...(top===undefined?{}:{top}) });
+    }
   }
   return entries;
 }

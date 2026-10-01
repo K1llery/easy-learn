@@ -4,6 +4,7 @@ import {readFile,mkdtemp,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {zipSync,strToU8} from 'fflate';
 import {createWorkbench} from '../../src/workbench/server';
+import {paperPdf} from './pdf-fixture';
 let server:Server,model:Server,browser:Browser,base:string,modelBase:string,temp:string;
 let calls:any[]=[],mode='stream';
 const original='The ephemeral lantern reveals a serendipitous discovery. The ephemeral glow fades.';
@@ -46,7 +47,18 @@ test('opens EPUB and Markdown without requesting models or mounting scripts',asy
  await page.reload();await page.locator('#reader-file').setInputFiles({name:'public.md',mimeType:'text/markdown',buffer:Buffer.from('# First\n\n'+original+'\n\n## Second\n\nA luminous feather.')});await expect(page.getByTestId('reader-prose')).toContainText('A luminous feather.');await context.close();
 });
 test('extracts a local PDF without an extension or model request',async()=>{
- const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'public.pdf',mimeType:'application/pdf',buffer:await readFile('tests/fixtures/sample.pdf')});await expect(page.getByTestId('reader-prose')).not.toBeEmpty();await expect(page.getByRole('heading',{name:'第 1 页',exact:true})).toBeVisible();expect(calls.length).toBe(before);await context.close();
+ const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'public.pdf',mimeType:'application/pdf',buffer:await readFile('tests/fixtures/sample.pdf')});await expect(page.getByTestId('pdf-canvas')).toBeVisible();await page.getByRole('button',{name:'文字伴读',exact:true}).click();await expect(page.getByTestId('reader-prose')).not.toBeEmpty();await expect(page.getByRole('navigation',{name:'章节目录'})).not.toContainText('第 1 页');expect(calls.length).toBe(before);await context.close();
+});
+test('keeps PDF figures, nested bookmarks and cross-page sections, with hover-free original annotations',async()=>{
+ const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'paper.pdf',mimeType:'application/pdf',buffer:paperPdf()});
+ const nav=page.getByRole('navigation',{name:'章节目录'});await expect(nav.getByRole('button',{name:'1.1 Threat Model',exact:true})).toHaveAttribute('data-depth','1');await expect(nav).not.toContainText('第 1 页');
+ const canvas=page.getByTestId('pdf-canvas');await expect.poll(()=>canvas.evaluate(el=>{const c=el as HTMLCanvasElement;if(!c.width)return false;const rgba=c.getContext('2d')!.getImageData(0,0,c.width,c.height).data;for(let i=0;i<rgba.length;i+=4)if(rgba[i]>240&&rgba[i+1]<20&&rgba[i+2]<20)return true;return false;})).toBe(true);expect(calls.length).toBe(before);
+ await nav.getByRole('button',{name:'1 Introduction',exact:true}).click();await page.getByRole('button',{name:'开启伴读',exact:true}).click();const word=page.locator('.pdf-word.is-ready').filter({hasText:'Cryptographic'}).first();await expect(word).toBeVisible();await expect(page.locator('.pdf-word.is-ready').filter({hasText:'veri-'})).toHaveAttribute('aria-label',/^verifiable：/);await expect(page.locator('.pdf-word.is-ready').filter({hasText:'fiable'})).toHaveAttribute('aria-label',/^verifiable：/);await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');const count=calls.length;await word.hover();await expect(page.getByRole('complementary',{name:'词语释义'})).toContainText('Cryptographic');expect(calls.length).toBe(count);
+ await nav.getByRole('button',{name:'1.1 Threat Model',exact:true}).click();await page.getByRole('button',{name:'文字伴读',exact:true}).click();await expect(page.getByTestId('reader-prose')).toContainText('This paragraph continues');await page.getByRole('button',{name:'原版（含图表）',exact:true}).click();await nav.getByRole('button',{name:'2 Evaluation',exact:true}).click();await expect(canvas).toHaveAttribute('data-rendered-page','2');await page.screenshot({path:'.cache/pdf-structured-reader.png',fullPage:true});await context.close();
+});
+test('infers PDF headings without bookmarks and displays image-only files without pretending they have text',async()=>{
+ const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'unbookmarked.pdf',mimeType:'application/pdf',buffer:paperPdf(false)});await expect(page.getByRole('navigation',{name:'章节目录'}).getByRole('button',{name:'1.1 Threat Model',exact:true})).toHaveAttribute('data-depth','1');
+ await page.locator('#reader-file').setInputFiles({name:'scan.pdf',mimeType:'application/pdf',buffer:paperPdf(false,true)});await expect(page.getByTestId('pdf-canvas')).toBeVisible();await expect(page.getByText(/此文件没有文字层/)).toBeVisible();expect(calls.length).toBe(before);await context.close();
 });
 test('pauses on a rate limit and retries only when the user continues',async()=>{
  const {context,page}=await open();await importText(page);mode='error';const before=calls.length;await page.getByRole('button',{name:'开启伴读',exact:true}).click();await expect(page.getByRole('alert')).toContainText('限流');await page.waitForTimeout(300);expect(calls.length).toBe(before+1);mode='json';await page.getByRole('button',{name:'开启伴读',exact:true}).click();await expect(page.locator('.reader-word.is-ready').first()).toBeVisible();await context.close();

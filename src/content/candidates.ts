@@ -40,8 +40,8 @@ function nonLearningIdentifier(value:string,block:Block):boolean {
   }
   return /^H[1-6]$/.test(block.element.tagName)&&siteLabels.has(compact);
 }
-export function isOutsideCommonVocabulary(word:string,commonWords:ReadonlySet<string>):boolean {
-  const value=word.toLowerCase();if(commonWords.has(value))return false;
+export function vocabularyForms(word:string):Set<string> {
+  const value=word.toLowerCase();
   const forms=new Set<string>();
   if(value.endsWith('ies')&&value.length>5)forms.add(value.slice(0,-3)+'y');
   if(value.endsWith('es')&&value.length>5)forms.add(value.slice(0,-2));
@@ -49,7 +49,11 @@ export function isOutsideCommonVocabulary(word:string,commonWords:ReadonlySet<st
   if(value.endsWith('ied')&&value.length>5)forms.add(value.slice(0,-3)+'y');
   if(value.endsWith('ed')&&value.length>5){const stem=value.slice(0,-2);forms.add(stem);forms.add(stem+'e');if(/([b-df-hj-np-tv-z])\1$/.test(stem))forms.add(stem.slice(0,-1));}
   if(value.endsWith('ing')&&value.length>6){const stem=value.slice(0,-3);forms.add(stem);forms.add(stem+'e');if(/([b-df-hj-np-tv-z])\1$/.test(stem))forms.add(stem.slice(0,-1));}
-  return ![...forms].some(form=>commonWords.has(form));
+  forms.add(value);
+  return forms;
+}
+export function isOutsideCommonVocabulary(word:string,commonWords:ReadonlySet<string>):boolean {
+  return ![...vocabularyForms(word)].some(form=>commonWords.has(form));
 }
 function snippet(text:string,start:number,length:number) {
   const left=Math.max(0,start-120),right=Math.min(text.length,start+length+200);

@@ -1,0 +1,79 @@
+[
+  {
+    "file": "wiki-1-1000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/1-1000.csv",
+    "sha256": "af2b34776a787c781423e0fa831e24c17a46a89f45c15a6d0a9814866b52ae2a",
+    "rankOffset": 0,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-1001-2000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/1001-2000.csv",
+    "sha256": "c925db8bbb647bd7356adca708e9ce0d2ec85c14dbe6dafb423db1342a2ef005",
+    "rankOffset": 1000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-2001-3000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/2001-3000.csv",
+    "sha256": "264b08ddbb66fe1d0a264a92735486680ebacce059b6bb9880d4c930d0df70b1",
+    "rankOffset": 2000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-3001-4000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/3001-4000.csv",
+    "sha256": "0fd82c9119984f154e45f5df089d2de9d3d40f78cb4b96a9da69ef7f06282f6c",
+    "rankOffset": 3000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-4001-5000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/4001-5000.csv",
+    "sha256": "c6b447fda3f3fb2920b5dabeb50be2a37a496e17fe8f7841b98e59984182b64f",
+    "rankOffset": 4000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-5001-6000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/5001-6000.csv",
+    "sha256": "941df1fa062e51cf99882a9f10426e784de43344288ead0218805178feb3d88f",
+    "rankOffset": 5000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-6001-7000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/6001-7000.csv",
+    "sha256": "c73d17ddbdfad78cc3ea2d59e769df19bce7d07df282113b9aa94bd93098e4d2",
+    "rankOffset": 6000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-7001-8000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/7001-8000.csv",
+    "sha256": "4a81241f1d78096ef6a1688b2a057d4bfa8e0162c70736e154d823e168443a72",
+    "rankOffset": 7000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-8001-9000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/8001-9000.csv",
+    "sha256": "51292d4e45dec5c8dd1be2dd852939a69cdbe99ea8db5ec6e0f62bb8c34b4131",
+    "rankOffset": 8000,
+    "format": "lines"
+  },
+  {
+    "file": "wiki-9001-10000.csv",
+    "url": "https://raw.githubusercontent.com/imjxyang/English-words/e48500006181d8d5040e5dbdd1b14e9fa1f7e39a/wiki/9001-10000.csv",
+    "sha256": "68fc1c74dd1c86ac2cfcc4b6f5539ff850f5800683cd6e481d589f3aba637049",
+    "rankOffset": 9000,
+    "format": "lines"
+  },
+  {
+    "file": "hermitdave-FrequencyWords-en_50k.txt",
+    "url": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/en/en_50k.txt",
+    "sha256": "5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458",
+    "rankOffset": 0,
+    "format": "counts"
+  }
+]

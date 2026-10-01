@@ -250,13 +250,13 @@ test('two remote batches run concurrently and local marks appear before either r
  const page=await context.newPage();await page.goto(`${base}/parallel-speed`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Concurrent benchmark</h1><p>The API exchanges JSON data with independent services.</p>'+Array.from({length:48},(_,i)=>`<p>DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
  await page.evaluate(()=>{(window as any).__completedAt=0;(window as any).__statusTrace=[];const observer=new MutationObserver(()=>{const text=document.querySelector('[role=status]')?.textContent;(window as any).__statusTrace.push({at:Date.now(),text});if(text?.includes('当前内容已处理')&&text.includes('已解释 50')){(window as any).__completedAt=Date.now();observer.disconnect();}});observer.observe(document.body,{childList:true,characterData:true,subtree:true});});
- const count=calls.length,start=Date.now();await inject(page);
+ const count=calls.length,start=performance.now();await inject(page);
  await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);
  expect(completed).toBe(initialCompleted);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
  expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(12);
  await writeFile('test-results/status-timeline.json',JSON.stringify(await page.evaluate(()=>(window as any).__statusTrace)));
- const elapsedMs=Date.now()-start;expect(elapsedMs).toBeGreaterThanOrEqual(900);
+ const elapsedMs=performance.now()-start;expect(elapsedMs).toBeGreaterThanOrEqual(900);
  await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:12,delayPerBatchMs:300,elapsedMs,peakInFlight,serialDelayAloneMs:3600}));
  await page.close();
 });

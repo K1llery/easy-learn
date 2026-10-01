@@ -10,3 +10,5 @@ await build({ define, publicDir: false, build: { outDir: 'dist', emptyOutDir: fa
 await mkdir('dist/pdfjs', { recursive: true });
 await cp('node_modules/pdfjs-dist/cmaps', 'dist/pdfjs/cmaps', { recursive: true });
 await cp('node_modules/pdfjs-dist/standard_fonts', 'dist/pdfjs/standard-fonts', { recursive: true });
+await cp('node_modules/pdfjs-dist/wasm', 'dist/pdfjs/wasm', { recursive: true });
+await cp('node_modules/pdfjs-dist/iccs', 'dist/pdfjs/iccs', { recursive: true });

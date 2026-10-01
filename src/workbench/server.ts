@@ -69,8 +69,8 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
       const publicRoot=path.resolve(root,'dist-workbench');
       const filename=path.resolve(publicRoot,'.'+decodeURIComponent(url.pathname==='/'?'/reader.html':url.pathname));
       if(!filename.startsWith(publicRoot+path.sep)){res.writeHead(403);res.end();return;}
-      const body=await readFile(filename);const mime:Record<string,string>={'.html':'text/html;charset=utf-8','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.txt':'text/plain;charset=utf-8','.json':'application/json','.bcmap':'application/octet-stream','.ttf':'font/ttf'};
-      res.writeHead(200,{'Content-Type':mime[path.extname(filename)]??'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'",'Referrer-Policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:body);
+      const body=await readFile(filename);const mime:Record<string,string>={'.html':'text/html;charset=utf-8','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.txt':'text/plain;charset=utf-8','.json':'application/json','.bcmap':'application/octet-stream','.ttf':'font/ttf','.wasm':'application/wasm'};
+      res.writeHead(200,{'Content-Type':mime[path.extname(filename)]??'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'",'Referrer-Policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:body);
     } catch(e){if(!res.headersSent){res.writeHead((e as NodeJS.ErrnoException).code==='ENOENT'?404:400,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:false,error:publicError(e)}));}else res.end();}
   });
   return server;

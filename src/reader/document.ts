@@ -4,8 +4,8 @@ import DOMPurify from 'dompurify';
 import Packaging from 'epubjs/src/packaging.js';
 import Container from 'epubjs/src/container.js';
 
-export type ReadingSection = {id: string; title: string; text: string};
-export type ReadingDocument = {title: string; language: string; format: string; sections: ReadingSection[]};
+export type ReadingSection = {id: string; title: string; text: string; depth?:number; pageStart?:number; pageEnd?:number; top?:number; pageSpans?:{page:number;start:number;end:number}[]};
+export type ReadingDocument = {title: string; language: string; format: string; sections: ReadingSection[]; structure?:'outline'|'headings'|'fragments'; pageCount?:number};
 const MAX_TEXT = 3_000_000;
 export function sectionsFromText(text: string, title: string): ReadingSection[] {
   const parts: string[] = [];

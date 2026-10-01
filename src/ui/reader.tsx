@@ -1,4 +1,4 @@
-import React,{useEffect,useMemo,useRef,useState} from 'react';
+import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import type {Concept} from '../core/types';
 import {connectSurface} from '../core/connection';
@@ -7,6 +7,8 @@ import {exportVocabulary,recordWord,scanVocabulary,wordOccurrences,type ReadingW
 import {importReadingFile} from './reader-source';
 import {analyzeReading,inExtension} from './reader-rpc';
 import {ReaderSettings} from './reader-settings';
+import {ReaderPdf} from './reader-pdf';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {rpc} from './rpc';
 import './style.css';
 import './reader.css';
@@ -18,6 +20,7 @@ function storedWords():Record<string,WordRecord> {
 }
 function Reader() {
   const [doc,setDoc]=useState<ReadingDocument|null>(null),[sectionIndex,setSectionIndex]=useState(0),[fingerprint,setFingerprint]=useState('');
+  const [pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[pdfPage,setPdfPage]=useState(1),[pdfView,setPdfView]=useState(true);
   const [language,setLanguage]=useState('en'),[baseline,setBaseline]=useState(5000),[fontSize,setFontSize]=useState(19);
   const [records,setRecords]=useState(storedWords),[wordsFile,setWordsFile]=useState<string[]>([]);
   const [settings,setSettings]=useState(false),[vocabOpen,setVocabOpen]=useState(false),[pasteOpen,setPasteOpen]=useState(false),[paste,setPaste]=useState('');
@@ -38,24 +41,28 @@ function Reader() {
   useEffect(()=>{
     if(inExtension){port.current=connectSurface('reader');port.current.port.onMessage.addListener(msg=>{if(msg.type==='REFRESH'){setRecords(storedWords());setReading(false);active.current=false;resetAnalysis();void refreshSettings();setNotice('阅读设置已更新，点击开启伴读继续。');}});}
     void refreshSettings();
-    void fetch(inExtension?chrome.runtime.getURL('vocabulary/common-words-10k.txt'):'/vocabulary/common-words-10k.txt').then(r=>{if(!r.ok)throw new Error('词频表加载失败');return r.text();}).then(s=>setWordsFile(s.split(/\s+/).filter(Boolean))).catch(e=>setError(e.message));
+    void fetch(inExtension?chrome.runtime.getURL('vocabulary/english-frequency.txt'):'/vocabulary/english-frequency.txt').then(r=>{if(!r.ok)throw new Error('词频表加载失败');return r.text();}).then(s=>setWordsFile(s.split(/\s+/).filter(Boolean))).catch(e=>setError(e.message));
     return()=>{epoch.current++;active.current=false;port.current?.disconnect();};
   },[]);
+  useEffect(()=>()=>{void pdf?.loadingTask.destroy().catch(()=>undefined);},[pdf]);
   const common=useMemo(()=>new Set(wordsFile.slice(0,baseline)),[wordsFile,baseline]);
+  const frequency=useMemo(()=>new Map(wordsFile.map((w,i)=>[w,i+1])),[wordsFile]);
   const known=useMemo(()=>new Set(Object.entries(records).filter(([,r])=>r.status==='known').map(([key])=>key)),[records]);
-  const candidates=useMemo(()=>doc?.sections.flatMap(s=>scanVocabulary(s,language,common,known,Math.min(100,density*Math.max(1,Math.ceil(s.text.length/600))))).map((w,i)=>({...w,id:`c${i}`}))??[],[doc,language,common,known,density]);
+  const candidates=useMemo(()=>doc?.sections.flatMap(s=>scanVocabulary(s,language,common,known,Math.min(100,density*Math.max(1,Math.ceil(s.text.length/600))),frequency)).map((w,i)=>({...w,id:`c${i}`}))??[],[doc,language,common,known,density,frequency]);
   const keyFor=(w:ReadingWord)=>JSON.stringify([w.sectionId,w.key,w.context]);
   work.current=candidates;
   function resetAnalysis(){epoch.current++;claimed.current.clear();done.current.clear();conceptRef.current={};setConcepts({});setCompleted(new Set());setSelected(null);setError('');}
-  async function loadDocument(next:ReadingDocument) {
+  async function loadDocument(next:ReadingDocument,source:PDFDocumentProxy|null=null) {
     setReading(false);active.current=false;resetAnalysis();
     const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(next)));
     const key=Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');
     let index=0;try{index=Number(localStorage.getItem('reader-position:'+key)??0);}catch{/* reading still works */}
-    setFingerprint(key);setSectionIndex(Number.isInteger(index)&&index>=0&&index<next.sections.length?index:0);setDoc(next);setLanguage(['en','fr','de','es','ja','ko'].includes(next.language.split('-')[0])?next.language.split('-')[0]:'en');setNotice('文件已在本机读取。点击“开启伴读”后，候选词和短语境才会发送给模型。');setLoading('');setPasteOpen(false);
+    const restored=Number.isInteger(index)&&index>=0&&index<next.sections.length?index:0;
+    setFingerprint(key);setSectionIndex(restored);setDoc(next);setPdf(source);setPdfPage(next.sections[restored].pageStart??1);setPdfView(true);setLanguage(['en','fr','de','es','ja','ko'].includes(next.language.split('-')[0])?next.language.split('-')[0]:'en');setNotice('文件已在本机读取。点击“开启伴读”后，候选词和短语境才会发送给模型。');setLoading('');setPasteOpen(false);
   }
-  async function openFile(file:File){if(importing.current)return;importing.current=true;setLoading('正在读取文件');setError('');try{await loadDocument(await importReadingFile(file,setLoading));}catch(e){setError((e as Error).message);setLoading('');}finally{importing.current=false;}}
-  function navigate(index:number){setSectionIndex(index);setSelected(null);try{if(fingerprint)localStorage.setItem('reader-position:'+fingerprint,String(index));}catch{/* nonessential position */}window.scrollTo({top:0,behavior:'instant'});}
+  async function openFile(file:File){if(importing.current)return;importing.current=true;setLoading('正在读取文件');setError('');try{const imported=await importReadingFile(file,setLoading);await loadDocument(imported.document,imported.pdf??null);}catch(e){setError((e as Error).message);setLoading('');}finally{importing.current=false;}}
+  function navigate(index:number){setSectionIndex(index);setPdfPage(doc?.sections[index].pageStart??1);setSelected(null);try{if(fingerprint)localStorage.setItem('reader-position:'+fingerprint,String(index));}catch{/* nonessential position */}window.scrollTo({top:0,behavior:'instant'});}
+  function navigatePdf(page:number){setPdfPage(page);setSelected(null);const index=doc?.sections.findIndex(s=>(s.pageStart??1)<=page&&(s.pageEnd??1)>=page)??-1;if(index>=0)setSectionIndex(index);window.scrollTo({top:0,behavior:'instant'});}
   function startAnalysis(){setError('');setNotice('');setReading(true);active.current=true;pump();}
   function pump(){
     const generation=epoch.current;
@@ -85,6 +92,8 @@ function Reader() {
   }
   useEffect(()=>{if(reading&&wordsFile.length)pump();},[reading,sectionIndex,wholeBook,candidates,batchSize,concurrency,wordsFile]);
   const section=doc?.sections[sectionIndex];
+  const pdfWords=useMemo(()=>candidates.filter(w=>{const s=doc?.sections[indices.current.get(w.sectionId)??-1];return !!s&&(s.pageStart??1)<=pdfPage&&(s.pageEnd??1)>=pdfPage&&(concepts[keyFor(w)]||!completed.has(keyFor(w)));}),[candidates,pdfPage,concepts,completed,doc]);
+  const conceptFor=useCallback((w:ReadingWord)=>conceptRef.current[JSON.stringify([w.sectionId,w.key,w.context])],[]);
   const sectionWords=useMemo(()=>candidates.filter(w=>w.sectionId===section?.id),[candidates,section?.id]);
   const visibleWords=useMemo(()=>sectionWords.filter(w=>concepts[keyFor(w)]||!completed.has(keyFor(w))),[sectionWords,concepts,completed]);
   const occurrences=useMemo(()=>section?wordOccurrences(section.text,visibleWords,language):[],[section,visibleWords,language]);
@@ -108,7 +117,7 @@ function Reader() {
     {pasteOpen&&<form className="reader-message card" onSubmit={e=>{e.preventDefault();try{void loadDocument(textDocument(paste,'粘贴的文章'));}catch(e){setError((e as Error).message);}}}><label htmlFor="reader-paste">粘贴要读的外语原文</label><textarea id="reader-paste" value={paste} onChange={e=>setPaste(e.target.value)} maxLength={3000000}/><div className="actions"><button className="primary" disabled={!paste.trim()}>开始阅读</button><button type="button" onClick={()=>setPasteOpen(false)}>取消</button></div></form>}
     {vocabOpen&&<section className="reader-message card" aria-label="生词本"><div className="row"><h2>生词本</h2><button onClick={exportWords} disabled={!learning.length}>导出到 Anki（TSV）</button></div><p className="muted">只保存你主动收集的单词和释义，已认识的词会在同语言阅读中隐藏。共 {Object.keys(records).length} 条；导出不含密钥和整篇原文。</p>{Object.entries(records).map(([key,r])=><div className="learned row" key={key}><div><b>{r.word}</b><small> · {r.language} · {r.status==='known'?'已认识':'学习中'}</small><p>{r.meaning}</p></div><button className="quiet" onClick={()=>removeWord(key)}>移除</button></div>)}{!Object.keys(records).length&&<p className="notice">在原文中点击一个标注的单词，就能收进生词本。</p>}</section>}
     {!doc&&!loading&&<main className="reader-welcome"><div className="reader-book-icon" aria-hidden="true">Aa</div><h1>阅读工作台</h1><p>打开外语原文，提前准备生词释义。</p><div className="reader-import" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)void openFile(f);}}><button className="primary" onClick={()=>fileInput.current?.click()}>选择文件</button><span>或将文件拖到这里</span><small>PDF · EPUB · TXT · Markdown</small></div><p className="reader-local">文件在本机提取。原文保持原样，释义按需提前准备。<br/>阅读位置和生词记录保存在本机，重新导入同一文件可继续阅读。</p></main>}
-    {doc&&section&&<div className="reader-layout"><aside className="reader-sidebar"><div className="reader-document-meta"><span className="tag">{doc.format}</span><h2>{doc.title}</h2><p className="muted">{doc.sections.length} 个阅读章节</p></div><nav aria-label="章节目录">{doc.sections.map((s,i)=><button key={s.id} aria-current={i===sectionIndex?'page':undefined} onClick={()=>navigate(i)}>{s.title}</button>)}</nav></aside>
+    {doc&&section&&<div className="reader-layout"><aside className="reader-sidebar"><div className="reader-document-meta"><span className="tag">{doc.format}</span><h2>{doc.title}</h2><p className="muted">{doc.sections.length} 个{doc.structure==='fragments'?'阅读片段':'阅读章节'}{doc.pageCount?` · ${doc.pageCount} 页`:null}</p></div><nav aria-label="章节目录">{doc.sections.map((s,i)=><button key={s.id} data-depth={s.depth??0} aria-current={i===sectionIndex?'page':undefined} onClick={()=>navigate(i)}>{s.title}</button>)}</nav></aside>
       <main className="reader-main"><div className="reader-toolbar"><label>原文语言<select aria-label="原文语言" value={language} disabled={busy>0} onChange={e=>{setReading(false);active.current=false;resetAnalysis();setLanguage(e.target.value);}}>{[['en','英语'],['fr','法语'],['de','德语'],['es','西班牙语'],['ja','日语'],['ko','韩语']].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
         {language==='en'&&<label>常用词基础<select aria-label="常用词基础" value={baseline} disabled={busy>0} onChange={e=>{setReading(false);active.current=false;resetAnalysis();setBaseline(Number(e.target.value));}}><option value={2000}>前 2000 词</option><option value={5000}>前 5000 词</option><option value={10000}>前 10000 词</option></select></label>}
         <label>字号<select aria-label="阅读字号" value={fontSize} onChange={e=>setFontSize(Number(e.target.value))}><option value={17}>小</option><option value={19}>中</option><option value={22}>大</option></select></label>
@@ -116,8 +125,9 @@ function Reader() {
         <div className="reader-progress" role="status"><span>{busy?`正在准备 · ${busy} 路请求`:reading?'伴读已开启':'伴读已暂停'} · 本节 {sectionWords.filter(w=>completed.has(keyFor(w))).length} / {sectionWords.length} 个候选已处理</span><label className="check-row"><input type="checkbox" checked={wholeBook} onChange={e=>setWholeBook(e.target.checked)}/><span>提前准备整份文档</span></label></div>
         {notice&&<p className="reader-hint">{notice}</p>}
         {language!=='en'&&<p className="reader-hint">当前语言使用浏览器分词筛选候选，尚无对应词频等级表；候选不代表你一定不认识，可标记“已认识”。</p>}
-        <article className="reader-article" lang={language} style={{fontSize}}><h1>{section.title}</h1><div className="reader-prose" data-testid="reader-prose">{rendered}</div></article>
-        <div className="reader-pagination"><button disabled={sectionIndex===0} onClick={()=>navigate(sectionIndex-1)}>上一节</button><span>{sectionIndex+1} / {doc.sections.length}</span><button disabled={sectionIndex===doc.sections.length-1} onClick={()=>navigate(sectionIndex+1)}>下一节</button></div>
+        {pdf&&<><div className="reader-view-switch" role="group" aria-label="PDF 阅读视图"><button aria-pressed={pdfView} onClick={()=>setPdfView(true)}>原版（含图表）</button><button aria-pressed={!pdfView} onClick={()=>setPdfView(false)}>文字伴读</button></div><p className="reader-hint">{doc.structure==='outline'?'目录来自 PDF 书签。':doc.structure==='headings'?'目录依据结构标签与标题样式识别。':'未检测到可靠标题；以下为阅读片段，不是论文的章节。'} 原版保留图片、图表和公式，图片不发送给模型。{!doc.sections.some(s=>s.text.trim())?'此文件没有文字层，仍可查看原版；生词伴读需要先 OCR。':''}</p></>}
+        {pdf&&pdfView?<><h1 className="pdf-section-heading">{section.title}</h1><ReaderPdf pdf={pdf} page={pdfPage} top={section.pageStart===pdfPage?section.top:undefined} words={pdfWords} language={language} conceptFor={conceptFor} onWord={setSelected}/></>:<article className="reader-article" lang={language} style={{fontSize}}><h1>{section.title}</h1><div className="reader-prose" data-testid="reader-prose">{rendered}</div></article>}
+        {pdf&&pdfView?<div className="reader-pagination"><button disabled={pdfPage===1} onClick={()=>navigatePdf(pdfPage-1)}>上一页</button><span>第 {pdfPage} / {pdf.numPages} 页</span><button disabled={pdfPage===pdf.numPages} onClick={()=>navigatePdf(pdfPage+1)}>下一页</button></div>:<div className="reader-pagination"><button disabled={sectionIndex===0} onClick={()=>navigate(sectionIndex-1)}>上一节</button><span>{sectionIndex+1} / {doc.sections.length}</span><button disabled={sectionIndex===doc.sections.length-1} onClick={()=>navigate(sectionIndex+1)}>下一节</button></div>}
         <p className="reader-hint">默认预读本节与接下来两节。下划线表示候选，释义准备好后显示浅色标记。悬停和点击都不请求模型。暂停后在途请求可能继续完成。</p>
       </main><aside className="reader-inspector" aria-label="词语释义">{selected?<><div className="row"><small>{displayedConcept?'语境释义':'候选生词'}</small><button className="quiet" onClick={()=>setSelected(null)} aria-label="关闭释义">×</button></div><h2 lang={language}>{selected.anchor}</h2>{displayedConcept?<><h3>{displayedConcept.meaning}</h3><p>{displayedConcept.summary}</p>{displayedConcept.ambiguity&&<p className="muted">{displayedConcept.ambiguity}</p>}</>:<p className="muted">释义尚未准备好。开启伴读后会提前分析，悬停不会发起请求。</p>}<div className="actions"><button disabled={!displayedConcept} onClick={()=>saveWord(selected,'learning')}>加入生词本</button><button className="quiet" onClick={()=>saveWord(selected,'known')}>已认识</button></div></>:<><small>词语释义</small><h2>边读边理解</h2><p className="muted">将鼠标移到标注的单词，或用键盘聚焦，即可查看预先准备的解释。</p></>}</aside>
     </div>}

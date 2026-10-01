@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {zipSync,strToU8} from 'fflate';
 import {epubDocument,epubPath,htmlText,pdfReadingDocument,textDocument} from '../src/reader/document';
 import {scanVocabulary,wordKey,wordOccurrences,exportVocabulary} from '../src/reader/vocabulary';
+import {readFileSync} from 'node:fs';
 function epub(chapters:Record<string,string>={}) {
  return zipSync(Object.fromEntries(Object.entries({
   'META-INF/container.xml':'<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/book.opf"/></rootfiles></container>',
@@ -35,6 +36,12 @@ describe('document imports',()=>{
  });
 });
 describe('vocabulary reading',()=>{
+ it('uses actual frequency order and prioritizes late rare words over ordinary terms',()=>{
+  const words=readFileSync('public/vocabulary/english-frequency.txt','utf8').trim().split('\n'),common=new Set(words.slice(0,5000)),frequency=new Map(words.map((w,i)=>[w,i+1]));
+  expect(words.slice(0,100)).toContain('you');expect(words.slice(0,100)).toContain('the');expect(new Set(words).size).toBe(words.length);
+  const found=scanVocabulary({id:'s0',title:'Results',text:'The system provides addresses and explains the threat. Its results are useful. Cryptographic attestation ensures verifiable provenance.'},'en',common,new Set(),2,frequency);
+  expect(found.map(w=>w.anchor)).toEqual(['Cryptographic','attestation']);expect(found.every(w=>w.start>50)).toBe(true);
+ });
  const section={id:'s0',title:'Story',text:'The ephemeral bird sings. An ephemeral feather drifts by the lantern. Birds are singing.'};
  it('filters common inflections, keeps offsets, and finds repeated words without replacing source',()=>{
   const words=scanVocabulary(section,'en',new Set(['the','bird','sing','feather','drift','lantern']),new Set());expect(words.map(w=>w.anchor)).toEqual(['ephemeral']);expect(section.text.slice(words[0].start,words[0].end)).toBe('ephemeral');expect(wordOccurrences(section.text,words,'en')).toHaveLength(2);

@@ -4,4 +4,6 @@ await build({define:{'process.env.NODE_ENV':JSON.stringify('production')},build:
 await mkdir('dist-workbench/pdfjs',{recursive:true});
 await cp('node_modules/pdfjs-dist/cmaps','dist-workbench/pdfjs/cmaps',{recursive:true});
 await cp('node_modules/pdfjs-dist/standard_fonts','dist-workbench/pdfjs/standard-fonts',{recursive:true});
+await cp('node_modules/pdfjs-dist/wasm','dist-workbench/pdfjs/wasm',{recursive:true});
+await cp('node_modules/pdfjs-dist/iccs','dist-workbench/pdfjs/iccs',{recursive:true});
 await build({publicDir:false,build:{ssr:'src/workbench/server.ts',outDir:'dist-workbench-server',rollupOptions:{output:{entryFileNames:'server.mjs'}}}});

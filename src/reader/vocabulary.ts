@@ -1,11 +1,11 @@
 import type { Candidate, Concept } from '../core/types';
 import type { ReadingSection } from './document';
-import { isOutsideCommonVocabulary } from '../content/candidates';
+import { isOutsideCommonVocabulary, vocabularyForms } from '../content/candidates';
 export type WordStatus = 'learning' | 'known';
 export type WordRecord = {word:string;language:string;status:WordStatus;meaning?:string;summary?:string};
-export type ReadingWord = Candidate & {start:number;end:number;sectionId:string;key:string};
+export type ReadingWord = Candidate & {start:number;end:number;sectionId:string;key:string;page?:number};
 export function wordKey(word:string, language:string) { return `${language.toLowerCase()}:${word.normalize('NFKC').toLocaleLowerCase(language)}`; }
-export function scanVocabulary(section:ReadingSection, language:string, common:Set<string>, known:Set<string>, max=6):ReadingWord[] {
+export function scanVocabulary(section:ReadingSection, language:string, common:Set<string>, known:Set<string>, max=6, frequency?:ReadonlyMap<string,number>):ReadingWord[] {
   const words: ReadingWord[] = [], seen = new Set<string>();
   const knownWords = new Set([...known].filter(k=>k.startsWith(language.toLowerCase()+':')).map(k=>k.slice(k.indexOf(':')+1)));
   const segmenter = new Intl.Segmenter(language, {granularity:'word'});
@@ -13,13 +13,16 @@ export function scanVocabulary(section:ReadingSection, language:string, common:S
     if (!token.isWordLike || !/\p{L}/u.test(token.segment) || token.segment.length > 60) continue;
     const word = token.segment, key = wordKey(word,language);
     if (known.has(key) || seen.has(key)) continue;
-    if (language.startsWith('en') && (word.length < 4 || (!isOutsideCommonVocabulary(word,common) || !isOutsideCommonVocabulary(word,knownWords)))) continue;
-    if (language.startsWith('en') && /^[A-Z]/.test(word) && token.index > 0 && !/[.!?\n]\s*$/.test(section.text.slice(0,token.index))) continue;
+    if (language.startsWith('en') && (word.length < 4 || !/^[a-z]+$/i.test(word) || /^[A-Z]+$/.test(word) || (!isOutsideCommonVocabulary(word,common) || !isOutsideCommonVocabulary(word,knownWords)))) continue;
+    // Keep title-case vocabulary; capitalisation alone does not establish a proper name.
     seen.add(key);
-    words.push({id:`c${words.length}`,anchor:word,kind:'vocabulary',heading:section.title.slice(0,120),context:section.text.slice(Math.max(0,token.index-120), token.index+word.length+200).slice(0,420),start:token.index,end:token.index+word.length,sectionId:section.id,key});
-    if (words.length >= max) break;
+    words.push({id:`c${words.length}`,anchor:word,kind:'vocabulary',heading:section.title.slice(0,120),context:section.text.slice(Math.max(0,token.index-120), token.index+word.length+200).slice(0,420),start:token.index,end:token.index+word.length,sectionId:section.id,key,page:section.pageSpans?.find(p=>token.index>=p.start&&token.index<p.end)?.page});
   }
-  return words;
+  if(language.startsWith('en')&&frequency){
+    const rank=(w:ReadingWord)=>Math.min(...[...vocabularyForms(w.anchor)].map(f=>frequency.get(f)??frequency.size+1));
+    words.sort((a,b)=>rank(b)-rank(a)||b.anchor.length-a.anchor.length||a.start-b.start);
+  }
+  return words.slice(0,Math.max(0,max));
 }
 export function wordOccurrences(text:string, words:ReadingWord[], language:string) {
   const byKey = new Map(words.map(w => [w.key,w]));

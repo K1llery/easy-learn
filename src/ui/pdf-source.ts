@@ -1,5 +1,7 @@
-import * as pdfjs from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// Use the upstream compatibility build: embedded browsers may not yet provide
+// Map/WeakMap.getOrInsertComputed required by PDF.js 6's display and text layers.
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { extractPdfDocument, type PdfProgress } from '../core/pdf-document';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -31,11 +33,16 @@ export async function readLocalPdf(file: File): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer());
 }
 
-export function extractPdf(data: Uint8Array, onPage: PdfProgress) {
-  const task = pdfjs.getDocument({
+export function openPdf(data: Uint8Array) {
+  return pdfjs.getDocument({
     data,
     cMapUrl: typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/cmaps/') : '/pdfjs/cmaps/', cMapPacked: true,
     standardFontDataUrl: typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/standard-fonts/') : '/pdfjs/standard-fonts/',
+    wasmUrl:typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/wasm/') : '/pdfjs/wasm/',
+    iccUrl:typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.getURL('pdfjs/iccs/') : '/pdfjs/iccs/',
   });
-  return extractPdfDocument(task, onPage);
 }
+export function extractPdf(data: Uint8Array, onPage: PdfProgress) {
+  return extractPdfDocument(openPdf(data), onPage);
+}
+export {pdfjs};
