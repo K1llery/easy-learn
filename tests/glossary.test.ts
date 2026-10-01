@@ -14,9 +14,11 @@ it('never resolves ambiguous initials or overrides an explicit alternative defin
  expect(localExplanation({...candidate,context:'The API connects services. Nearby, DR means disaster recovery.'},profile)).toBeDefined();
 });
 it('presets keep the local CPA endpoint distinct from official API hosts',()=>{
- expect(providers).toHaveLength(23);expect(providers.filter(p=>p.market!=='local').every(p=>p.baseUrl.startsWith('https:'))).toBe(true);
- expect(providers.filter(p=>p.market==='local')).toHaveLength(4);expect(providers.filter(p=>p.market==='cn')).toHaveLength(6);expect(providers.filter(p=>p.market==='global')).toHaveLength(11);expect(providers.filter(p=>p.market==='oauth')).toHaveLength(2);
+ expect(providers).toHaveLength(24);expect(providers.filter(p=>p.market!=='local').every(p=>p.baseUrl.startsWith('https:'))).toBe(true);
+ expect(providers.filter(p=>p.market==='local')).toHaveLength(4);expect(providers.filter(p=>p.market==='cn')).toHaveLength(6);expect(providers.filter(p=>p.market==='global')).toHaveLength(12);expect(providers.filter(p=>p.market==='oauth')).toHaveLength(2);
  expect(providers.find(p=>p.id==='chatgpt-oauth')).toMatchObject({api:'codex',oauth:'chatgpt',model:'gpt-6-luna'});expect(providers.find(p=>p.id==='claude-oauth')).toMatchObject({api:'claude-oauth',oauth:'claude'});
+ expect(providers.find(p=>p.id==='cline')).toMatchObject({api:'openai',baseUrl:'https://api.cline.bot/api/v1',model:'cline-pass/deepseek-v4.1-flash'});
+ expect(providerFor('https://api.cline.bot/api/v1','cline-pass/deepseek-v4.1-flash')?.id).toBe('cline');
  expect(providerFor('http://127.0.0.1:8317/v1','gpt-6-luna')?.id).toBe('local-cpa');
  expect(providerOptions('http://127.0.0.1:8317/v1','gpt-6-luna')).toEqual({reasoning_effort:'low'});
  expect(providerOptions('http://127.0.0.1:8317/v1','gpt-6-luna','translate')).toEqual({reasoning_effort:'none'});

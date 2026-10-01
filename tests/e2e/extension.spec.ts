@@ -270,7 +270,7 @@ test('new provider presets start without another provider key and offline mode i
  await expect(settings.getByLabel('模型名称')).toHaveValue('gpt-6-luna');
  await expect(settings.getByLabel('API Base URL')).toHaveValue('http://127.0.0.1:8317/v1');
  await expect(settings.locator('#provider optgroup[label="中国大陆服务"] option')).toHaveCount(6);
- await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(11);
+ await expect(settings.locator('#provider optgroup[label="海外 / 国际服务"] option')).toHaveCount(12);
  await settings.getByLabel('服务方案').selectOption('qwen');
  await expect(settings.getByLabel('模型名称')).toHaveValue('qwen3.8-flash');
  await expect(settings.getByLabel('API Base URL')).toHaveValue('https://YOUR_WORKSPACE_ID.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
@@ -281,6 +281,7 @@ test('new provider presets start without another provider key and offline mode i
  await settings.getByLabel('服务方案').selectOption('zhipu');await expect(settings.getByLabel('模型名称')).toHaveValue('glm-4.7-flash');
  await settings.getByLabel('服务方案').selectOption('groq');await expect(settings.getByLabel('API Base URL')).toHaveValue('https://api.groq.com/openai/v1');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
  await settings.getByLabel('API Key',{exact:true}).fill('fixture-not-real');await settings.getByLabel('服务方案').selectOption('openrouter');await expect(settings.getByLabel('模型名称')).toHaveValue('openrouter/free');await expect(settings.getByLabel('API Key',{exact:true})).toHaveValue('');
+ await settings.getByLabel('服务方案').selectOption('cline');await expect(settings.getByLabel('模型名称')).toHaveValue('cline-pass/deepseek-v4.1-flash');await expect(settings.getByLabel('API Base URL')).toHaveValue('https://api.cline.bot/api/v1');
  await settings.getByLabel('服务方案').selectOption('gemini');await expect(settings.getByLabel('模型名称')).toHaveValue('gemini-2.5-flash-lite');expect(calls.length).toBe(count);
  await settings.getByLabel('离线模式（不调用 AI）').check();
  const page=await context.newPage();await page.goto(`${base}/offline`);await inject(page);await expect(page.getByRole('status')).toContainText('离线模式');expect(calls.length).toBe(count);

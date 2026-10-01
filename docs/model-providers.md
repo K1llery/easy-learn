@@ -41,6 +41,7 @@ Qwen 预设使用北京地域业务空间专属 Host。到百炼控制台的工�
 | 海外 / 国际 | Moonshot `kimi-k2.6` | Kimi 官方国际 API；服务区域与账户条件以平台为准。 |
 | 海外 / 国际 | Groq `qwen/qwen3.8-27b` | 托管 Qwen 模型；免费计划有请求与 Token 限额。 |
 | 海外 / 国际 | OpenRouter `openrouter/free` | 免费路由到可用模型，实际模型可能改变并可能限流。 |
+| 海外 / 国际 | Cline `cline-pass/deepseek-v4.1-flash`（ClinePass 订阅） | Cline 官方网关；非流式返回 `{success, data}` 包装，扩展已自动拆包并读取用量，流式为标准事件。大陆可直连，偶发不稳时重试。 |
 | 海外 / 国际 | Mistral `mistral-small-latest` | 官方 API，兼容 Chat Completions。 |
 | 海外 / 国际 | xAI `grok-4-mini` | 官方 API，兼容 Chat Completions。 |
 | 海外 / 国际 | Together AI `Qwen/Qwen3-30B-A3B` | 开源模型聚合，兼容 Chat Completions。 |
@@ -56,3 +57,4 @@ Qwen 预设使用北京地域业务空间专属 Host。到百炼控制台的工�
 - [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[Gemini OpenAI 兼容接口](https://ai.google.dev/gemini-api/docs/openai)
 - [Kimi API 文档](https://platform.kimi.ai/docs/overview)
 - [Groq Qwen 3.8 27B 模型与限制](https://console.groq.com/docs/model/qwen/qwen3.8-27b)、[OpenRouter 免费模型路由](https://openrouter.ai/openrouter/free)
+- [Cline Chat Completions 网关说明](https://github.com/cline/cline/blob/main/docs/api/chat-completions.mdx)、[网关信封兼容问题 #12647](https://github.com/cline/cline/issues/12647)

@@ -60,6 +60,19 @@ async function fetchModel(url: URL, headers: Record<string, string>, body: unkno
   }
 }
 class ModelEventError extends Error {}
+// ClinePass-style gateways (api.cline.bot and compatible aggregators) wrap
+// non-streaming completions in {success, data}. Only an explicit success
+// envelope is unwrapped; a failure envelope is never treated as model text.
+// Standard OpenAI bodies pass through untouched.
+export function readGatewayCompletion(payload: any): any {
+  if (!payload || typeof payload !== 'object' || typeof payload.success !== 'boolean') return payload;
+  if (payload.success === false) throw new Error('模型服务报告请求失败。未自动重试，请检查模型权限和服务状态。');
+  return !Array.isArray(payload.choices) && Array.isArray(payload.data?.choices) ? payload.data : payload;
+}
+function gatewayHeaders(baseUrl: string): Record<string, string> {
+  // Cline's gateway documents optional app attribution headers.
+  try { return new URL(baseUrl).hostname === 'api.cline.bot' ? {'X-Title': 'Easy Learn'} : {}; } catch { return {}; }
+}
 async function requireOk(response: Response, kind: string) {
   if (response.ok) return;
   if ([401, 403].includes(response.status)) {
@@ -184,7 +197,7 @@ export async function callModel(config: Config, request: AIRequest, signal?: Abo
       let response: Response;
       try {
         const body = {...options, model: config.model, messages: [{role: 'system', content: system}, {role: 'user', content: JSON.stringify(input)}], ...('reasoning_effort' in options && options.reasoning_effort !== 'none' ? {} : {temperature: 0.2}), [tokenLimitField]: tokenLimit, stream: streaming, ...(streaming ? {stream_options: {include_usage: true}} : {})};
-        response = await fetchModel(endpoint(config.baseUrl), {Authorization: `Bearer ${config.apiKey}`}, body, g.combined, signal);
+        response = await fetchModel(endpoint(config.baseUrl), {Authorization: `Bearer ${config.apiKey}`, ...gatewayHeaders(config.baseUrl)}, body, g.combined, signal);
       } catch (error) {
         if (signal?.aborted) throw new Error('请求已取消。');
         throw error;
@@ -220,10 +233,9 @@ export async function callModel(config: Config, request: AIRequest, signal?: Abo
         if (g.combined.aborted || (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))) throw new Error('读取模型响应超时。未自动重试。');
         throw new Error('服务未返回有效的接口响应。未自动重试，请检查模型接口配置。');
       }
-      // Some compatible gateways (including ClinePass) wrap non-streaming completions.
-      // Only unwrap an explicit successful completion; never treat an error as model text.
-      if (payload?.success === false) throw new Error('模型服务报告请求失败。未自动重试，请检查模型权限和服务状态。');
-      if (!Array.isArray(payload?.choices) && payload?.success === true && Array.isArray(payload?.data?.choices)) payload = payload.data;
+      // Gateway envelopes (ClinePass and compatible aggregators) are unwrapped
+      // explicitly; standard OpenAI completions are never wrapped.
+      payload = readGatewayCompletion(payload);
       const content = payload?.choices?.[0]?.message?.content;
       const raw = typeof content === 'string' ? content : Array.isArray(content) ? content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n') : '';
       if (!raw.trim() || raw.length > 60000) throw new Error('模型返回空内容或过大的响应。未自动重试；请检查所选模型是否支持文本 Chat Completions。');

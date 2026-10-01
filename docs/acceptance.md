@@ -15,6 +15,14 @@
 - 修复后的实际 `callModel` 代码连接 `https://api.cline.bot/api/v1`、`cline-pass/deepseek-v4.1-flash`：连接测试约 7.1 秒返回有效解释；流式注释约 3.7 秒完成两个候选、两次进度事件、没有缺失项。这是当前环境的小样本兼容性验证，不代表所有任务的质量或延迟。
 - `pnpm test`：140 项通过；`pnpm build`：类型检查与生产构建通过。Chromium 回归 30 项通过，模拟 API 现在强制校验测试 Bearer 头，新增成功包装下的连接测试与粘贴翻译。浏览器测试不使用真实凭据；尚未在用户日常浏览器中用 Cline 完成全流程实测。
 
+## Cline 独立服务方案：0.13.0（2026-10-01）
+
+- 应“Cline 方案独立于自定义服务”的要求，新增独立预设 `cline`（Cline · DeepSeek V4.1 Flash，ClinePass 订阅），预填 `https://api.cline.bot/api/v1` 与 `cline-pass/deepseek-v4.1-flash`；设置页「海外 / 国际」分组可见并可一键回填，providerFor 精确匹配该地址与模型。
+- 此前内联的信封拆包重构为命名导出的 `readGatewayCompletion`：仅在响应体是显式 `{success, data}` 包装时生效，`success: false` 抛固定错误且不回显网关诊断；标准 OpenAI 响应原样通过。Cline 网关另按其文档发送 `X-Title: Easy Learn` 应用标识头。
+- 用用户提供的临时 Key 对真实网关复核：非流式翻译经成功信封返回且 usage 有效（约 2.6 秒）；流式整页注释返回两个候选、无缺失（约 3.8 秒）；流含 `delta.reasoning` 思考块与 `provider_metadata` 结束块，读取器按 `delta.content` 正常取正文。错误形态实测为 HTTP 404 / 401 加 `{error, success: false}`，沿用既有状态码中文提示。临时 Key 未写入项目文件，验证脚本已删除。
+- 连通性实测：`api.cline.bot`（35.186.247.105，Google Cloud）在大陆网络可直连（TLS 握手约 0.1 秒），偶发 TLS 中断重试即可；本机 7890 代理路径同样可用。
+- `pnpm test`：144 项通过；`pnpm build`：通过；Chromium 回归 31 项通过（服务商用例加入 Cline 预设回填断言）。临时验证文件不入库。
+
 ## 历史实现：0.12.0（2026-09-23）
 
 - 服务预设按中国大陆、海外 / 国际分组；新增 Qwen3.8 Flash、GPT-4.1 mini、Gemini 3.8 Flash 和 Kimi K2.6。原有 DeepSeek、智谱、Groq、OpenRouter、Gemini 2.5 Flash-Lite 仍保留。

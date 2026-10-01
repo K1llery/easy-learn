@@ -138,6 +138,12 @@ export const providers: Provider[] = [
     note: '一个接口可路由到多个服务商的免费模型；可能排队或限流，实际模型和质量会变化，不会自动切换到付费模型。'
   },
   {
+    id: 'cline', market: 'global', api: 'openai', name: 'Cline · DeepSeek V4.1 Flash（ClinePass 订阅）',
+    baseUrl: 'https://api.cline.bot/api/v1', model: 'cline-pass/deepseek-v4.1-flash',
+    signup: 'https://cline.bot/', docs: 'https://github.com/cline/cline/blob/main/docs/api/chat-completions.mdx',
+    note: 'Cline 官方网关，使用 ClinePass 订阅用量；模型 ID 需带 provider/ 前缀（如 cline-pass/、openai/、anthropic/）。该网关非流式响应使用 {success, data} 包装、流式为标准 OpenAI 事件，扩展已自动适配。大陆网络可直连，偶发不稳时重试即可。额度与计费以 Cline 官方为准。'
+  },
+  {
     id: 'mistral', market: 'global', api: 'openai', name: 'Mistral · Small（海外付费）',
     baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-small-latest',
     signup: 'https://console.mistral.ai/api-keys',
