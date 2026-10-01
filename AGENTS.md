@@ -2,9 +2,10 @@
 
 - Use Git for version control, as requested by the user. Record completed, verified changes in local commits. Do not publish or push without a request.
 - Keep API keys, `.env*`, caches, dependencies, build output, test output and zip artifacts out of Git; see `.gitignore`.
-- Validate relevant changes with `pnpm test` and `pnpm build`. Browser regression uses public fixtures and a local mock API, never personal credentials.
-- Browser command: `EASY_LEARN_CHROMIUM="$PWD/.cache/chromium-manual/chrome-mac/Chromium.app/Contents/MacOS/Chromium" pnpm test:e2e`.
+- Validate application changes with `pnpm test` and `pnpm build`; independent reader changes also require `pnpm build:workbench`. Documentation/skill-only changes use direct inspection and the skill validator instead of repeating application checks.
+- Browser regression uses public fixtures and a local mock API, never personal credentials. On WSL use `PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e` after confirming the existing Linux Chromium cache. On other hosts use a verified compatible browser/cache; do not reuse a macOS executable path on WSL.
 - Keep command explanations independent from the default-off code annotation switch. Tooltip content must be preloaded; do not start model requests on hover.
-
 - Before adding capabilities, inspect mature open-source libraries, comparable projects and user issues. Reuse compatible components and record source links, license boundaries and applicable requirements in docs; stars alone do not establish active user count.
-- Independent reader changes also require `pnpm build:workbench`. On WSL use `PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e` with the existing Linux Chromium cache.
+- For document import, vocabulary selection, PDF structure, figures or annotations, use [reading-workbench-maintenance](.agents/skills/reading-workbench-maintenance/SKILL.md). Preserve frequency ordering and scan the complete reading unit before applying candidate caps; distinguish physical pages from logical sections, and verify figures through rendering rather than text extraction alone.
+- For provider controls, reasoning, Fast, streaming or concurrency, use [model-request-tuning](.agents/skills/model-request-tuning/SKILL.md). Verify serialized requests, keep preset preferences isolated, and distinguish mocked responsiveness from measured upstream throughput.
+- After substantial completed work, consolidate confirmed reusable procedures into the applicable skills and keep only routing and durable constraints here. Keep dated investigation and test evidence in docs. Repository skill copies under `.agents/skills/` are canonical; synchronize their corresponding installed copies when updating them.
