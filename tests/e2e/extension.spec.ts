@@ -761,3 +761,12 @@ test('extension workbench uses the PDF viewer for zoom and continuous page navig
  await page.getByRole('combobox',{name:'缩放模式'}).selectOption('page-actual');await expect(page.locator('.pdf-zoom-slider output')).toHaveText('100%');await page.getByRole('slider',{name:'缩放比例'}).fill('125');
  await page.getByRole('textbox',{name:'跳转页码'}).fill('2');await page.getByRole('button',{name:'跳转',exact:true}).click();await expect(page.locator('.page[data-page-number="2"] canvas').first()).toHaveAttribute('data-rendered-page','2');await expect(page.getByTestId('pdf-scroll-container')).toHaveAttribute('data-current-page','2');expect(calls.length).toBe(before);expect(failures).toEqual([]);await page.close();
 });
+
+
+test('extension workbench preserves selected PDF text for learning and exports native annotations',async()=>{
+ const page=await context.newPage(),failures:string[]=[];page.on('pageerror',e=>failures.push(e.message));await page.goto(`chrome-extension://${id}/reader.html`);
+ await page.locator('#reader-file').setInputFiles({name:'extension-notes.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('button',{name:'选择文字',exact:true}).click();
+ const line=page.locator('.page[data-page-number="1"] .textLayer span[role="presentation"]').filter({hasText:'The ephemeral assumption'}).first();await line.scrollIntoViewIfNeeded();const box=await line.boundingBox();await page.mouse.move(box!.x+1,box!.y+box!.height/2);await page.mouse.down();await page.mouse.move(box!.x+box!.width-1,box!.y+box!.height/2,{steps:12});await page.mouse.up();
+ await page.getByRole('button',{name:'解释',exact:true}).click();await expect(page.getByRole('region',{name:'选段学习'})).toContainText('灾难恢复');const input=calls.at(-1);expect(input.context.text).toContain('ephemeral assumption');await page.getByRole('button',{name:'关闭选段学习'}).click();const before=calls.length;
+ await page.getByRole('button',{name:'文字批注',exact:true}).click();await page.locator('.page[data-page-number="1"] .annotationEditorLayer').click({position:{x:120,y:320}});await page.locator('.freeTextEditor [contenteditable="true"]').fill('Extension note');const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const bytes=await readFile((await (await waiting).path())!);expect(bytes.toString()).toContain('/Contents (Extension note)');expect(calls.length).toBe(before);expect(failures).toEqual([]);await page.close();
+});

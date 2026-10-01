@@ -1,6 +1,6 @@
 ---
 name: reading-workbench-maintenance
-description: Develop or repair foreign-language reading workbenches, especially vocabulary and abbreviation selection, document import, PDF heading hierarchy, continuous reading, zoom, page navigation, original-page figures, and preloaded word annotations. Use for reading-software implementation, not merely summarizing or converting a PDF.
+description: Develop or repair foreign-language reading workbenches, especially vocabulary and abbreviation selection, document import, PDF heading hierarchy, continuous reading, zoom, page navigation, original-page figures, native PDF annotations, selection learning, and preloaded word annotations. Use for reading-software implementation, not merely summarizing or converting a PDF.
 ---
 
 # Reading workbench maintenance
@@ -18,7 +18,7 @@ Reuse existing parsers, viewer text layers, morphology filters, caches, and expo
 ## Route the work
 
 - For false-positive or missed vocabulary, read [Vocabulary ranking](references/vocabulary.md).
-- For PDF structure, continuous reading, zoom, navigation, images, selection, or overlays, read [PDF reading](references/pdf.md).
+- For PDF structure, continuous reading, zoom, navigation, images, selection learning, native editing/export, or overlays, read [PDF reading](references/pdf.md).
 - When the workspace is Easy Learn, read [Project integration](references/easy-learn.md) for the implementation map and relevant checks. Paths there are relative to the repository; confirm them rather than assuming a machine-specific checkout.
 
 ## Integrate without changing reading semantics

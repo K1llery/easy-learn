@@ -36,6 +36,28 @@ Keep page-number editing separate from confirmation. Accept integer physical pag
 
 Cancel rendering and viewer observers/listeners on replacement or unmount using the installed lifecycle API. Keep document ownership with its loader so switching views does not destroy a still-used PDF. Do not render every page just to implement continuous scrolling.
 
+## Add interactions and editable annotations without duplicating the PDF engine
+
+Reuse the installed native annotation editor for FreeText, Highlight and Ink, with its compatible CSS/assets and `AnnotationStorage` / `saveDocument`. Keep scripting disabled unless explicitly needed. Inspect the installed event names and mandatory options: verified PDF.js 6 uses `editingstateschanged` for undo/redo, `annotationeditormodechanged` for completed transitions, and needs an explicit highlight color map even though its viewer option is nominally optional. Missing colors can break initial highlights, undo/redo, and reopening existing highlights.
+
+Hand panning and text selection must be separate tools. When the packaged viewer does not export its hand tool, keep application gesture glue small: scroll the bounded viewport with Pointer Events, start capture after a drag threshold, preserve ordinary clicks, ignore editor/input/link and scrollbar targets, suppress a completed drag's click, and clean up on pointer cancellation, blur, mode changes and document replacement. Use grab/grabbing cursors and preserve ordinary touch scrolling.
+
+Directory feedback belongs on the original heading, after its text layer is ready and the final destination has been applied. Match across split text runs, prefer the occurrence near the bookmark coordinate, and center it within the PDF viewport. Scope and cancel pending feedback by navigation/document generation. Do not treat a bookmark whose text cannot be found as a confirmed heading match.
+
+Do not rebuild selectable text nodes for a meaning-only update. Preserve wrapper nodes and selection ranges; update annotation classes, labels and prepared titles in place when source matches are unchanged. The PDF.js legacy selection shim recognises its `highlight` wrappers; an unrecognised nested vocabulary element can cause `endOfContent` to be inserted inside a text run, truncating drag selection in older Chromium. Verify real mouse selection through several decorated words, not only programmatic ranges or tooltip coordinates.
+
+Candidate removal, including streamed model skips, can change wrappers while the source text stays unchanged. If rebuilding is required, snapshot selection anchor/focus as offsets in their original source runs and restore them to the new text nodes, preserving direction and unaffected endpoints. Cover a delayed skip of a selected candidate, not only streamed meanings.
+
+Keep the viewer/editor mounted while an alternative text view is shown. Hidden containers have zero dimensions; avoid applying fit calculations until visible. Wait for native mode completion and commit the active editor before export, protect edits during serialization, cancel export waits on replacement, and retain unsaved state after export failure. `saveDocument` resets upstream modified state even on failure, so the application's unsaved indicator must not assume that reset means a successful download. Confirm replacement and warn on close only when real unsaved work would be lost; make the export-based persistence contract visible.
+
+Do not rely exclusively on `AnnotationStorage.onSetModified`: existing editor objects mutate in place, and undo/removal may bypass it. In this installed version, compare its serialized hash with the last successful export at completed edit/undo/redo boundaries; isolate this internal-version dependency and recheck it on upgrades. Input may precede native serialization, so keep that dirty indication until a successful export rather than clearing it on an unchanged hash. Lock the old document during asynchronous replacement and clear its state only when the replacement is ready; test editing attempts during delayed imports and post-export undo.
+
+An inert layout alone does not suspend PDF.js global editor shortcuts and clipboard handlers. During import/export locks, stop delivery of keyboard/cut/paste events to those native handlers using temporary capture listeners or suspend their native lifecycle. Clean up that protection when the operation finishes. Verify Ctrl+Z during a delayed clean-document replacement, not just clicks and typing.
+
+Do not infer cross-reader font compatibility from successful save or editor reopen. The verified worker's FreeText appearance generation uses Helvetica/WinAnsi and can omit `/AP` for CJK text while retaining Unicode `/Contents`. Chinese notes reopen in this workbench, but other PDF readers may not display them. Report that concrete limit instead of claiming universal PDF editing compatibility or adding a new font/PDF engine without assessing integration cost.
+
+Selection learning should reuse existing model request and exercise components. Scope selection to the original/reflow document, exclude editable notes, snapshot selected text with request size limits, and clear snapshots on replacement or explicit navigation. Hover, highlighting, notes, drawing and file export must not trigger model calls. Keep quiz answers hidden until the reader responds; ignore late study results after closing/replacing the study panel.
+
 ## Verify what readers see
 
 A nonempty extraction result or nonzero canvas size is insufficient. For image problems, include a genuine image XObject and verify rendered pixels or inspect the visible figure. For structure problems, include nested same-page headings and a section continuing across pages. Test untagged documents and image-only PDFs with explicit behavior for absent text.
@@ -52,3 +74,7 @@ Relevant primary sources, to recheck when APIs change:
 - [Official viewer component integration](https://github.com/mozilla/pdf.js/blob/master/examples/components/simpleviewer.mjs)
 - [Viewer scale and page options](https://github.com/mozilla/pdf.js/wiki/Viewer-options)
 - [Fit-width sizing feedback, issue #12118](https://github.com/mozilla/pdf.js/issues/12118)
+- [Upstream grab-to-pan behavior](https://github.com/mozilla/pdf.js/blob/master/web/grab_to_pan.js)
+- [Native highlight integration tests](https://github.com/mozilla/pdf.js/blob/master/test/integration/highlight_editor_spec.mjs)
+- [Editor mode/page snapping feedback, issue #18911](https://github.com/mozilla/pdf.js/issues/18911)
+- [CJK FreeText appearance compatibility, issue #20117](https://github.com/mozilla/pdf.js/issues/20117)

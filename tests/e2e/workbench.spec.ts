@@ -18,8 +18,13 @@ test.beforeAll(async()=>{
  model=createServer(async(req,res)=>{
   let body='';for await(const chunk of req)body+=chunk;const payload=JSON.parse(body);calls.push(payload);
   if(mode==='error'){res.writeHead(429);res.end('{}');return;}
-  const input=JSON.parse(payload.messages[1].content),items=input.candidates.map((c:any)=>({id:c.id,meaning:c.anchor==='ephemeral'?'短暂的':'语境含义',summary:'在这里描述稍纵即逝的事物。',expansion:mode==='ambiguous'?'':c.anchor==='LLM'?'Large Language Model':c.anchor==='TEE'?'Trusted Execution Environment':''}));
-  if(mode==='stream'){
+  const input=JSON.parse(payload.messages[1].content);
+  if(input.operation!=='analyze'){
+   const output=input.operation==='choice'?{question:'原文描述了什么？',options:[{id:'A',text:'保护示例'},{id:'B',text:'删除示例'},{id:'C',text:'拒绝示例'},{id:'D',text:'忽略示例'}],correctOption:'A',explanation:'原文描述了保护作用。',evidence:input.context.text}:input.mode==='translate'?{translation:'这段原文描述了保护公开示例的假设。'}:{meaning:'保护假设',expansion:'',evidence:input.context.text,ambiguity:'',explanation:'这是结合所选原文的解释。',example:'',prerequisites:[],translation:''};
+   res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(output)}}]}));return;
+  }
+  const items=input.candidates.map((c:any)=>mode==='skip'&&c.anchor.toLowerCase()==='attestation'?{id:c.id,skip:true}:({id:c.id,meaning:c.anchor==='ephemeral'?'短暂的':'语境含义',summary:'在这里描述稍纵即逝的事物。',expansion:mode==='ambiguous'?'':c.anchor==='LLM'?'Large Language Model':c.anchor==='TEE'?'Trusted Execution Environment':''}));
+  if(mode==='stream'||mode==='skip'){
    res.writeHead(200,{'Content-Type':'text/event-stream'});const event=(content:string)=>res.write('data: '+JSON.stringify({choices:[{delta:{content}}]})+'\n\n');
    event('{"items":['+JSON.stringify(items[0]));await new Promise(r=>setTimeout(r,600));event(items.slice(1).map((c:any)=>','+JSON.stringify(c)).join('')+']}');res.end('data: [DONE]\n\n');
   }else{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({items})}}]}));}
@@ -71,7 +76,7 @@ test('keeps the reading UI usable at phone width and in dark mode',async()=>{
 });
 
 test('PDF supports continuous scrolling, actual size, fit modes, slider zoom and confirmed page jumps',async()=>{
- const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>failures.push(e.message));const before=calls.length;
+ const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>{failures.push(e.message);});const before=calls.length;
  await page.locator('#reader-file').setInputFiles({name:'controls.pdf',mimeType:'application/pdf',buffer:paperPdf()});
  const viewport=page.getByTestId('pdf-scroll-container'),mode=page.getByRole('combobox',{name:'缩放模式'}),input=page.getByRole('textbox',{name:'跳转页码'});
  const first=page.locator('.pdfViewer .page[data-page-number="1"]');
@@ -97,7 +102,9 @@ test('PDF supports continuous scrolling, actual size, fit modes, slider zoom and
 test('PDF abbreviation annotations show English expansions and retain them in the vocabulary book',async()=>{
  const {context,page}=await open();await page.locator('#reader-file').setInputFiles({name:'acronyms.pdf',mimeType:'application/pdf',buffer:paperPdf()});
  await page.getByRole('navigation',{name:'章节目录'}).getByRole('button',{name:'2 Evaluation',exact:true}).click();await page.getByRole('button',{name:'开启伴读',exact:true}).click();
- const llm=page.locator('.pdf-word.is-ready').filter({hasText:/^LLM$/}),tee=page.locator('.pdf-word.is-ready').filter({hasText:/^TEE$/});await expect(llm).toBeVisible();await expect(tee).toBeVisible();await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');const before=calls.length;
+ const llm=page.locator('.pdf-word.is-ready').filter({hasText:/^LLM$/}),tee=page.locator('.pdf-word.is-ready').filter({hasText:/^TEE$/});await expect(llm).toBeVisible();await expect(tee).toBeVisible();await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');
+ // Freeze preloading while measuring hover/zoom: layout changes can legitimately change the observed page and preload scope.
+ await page.getByRole('button',{name:'暂停伴读',exact:true}).click();await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');const before=calls.length;
  await llm.hover();const inspector=page.getByRole('complementary',{name:'词语释义'});await expect(inspector.getByLabel('英文全称')).toHaveText('Large Language Model');await expect(llm).toHaveAttribute('title',/Large Language Model/);await page.getByRole('button',{name:'加入生词本',exact:true}).click();
  await tee.hover();await expect(inspector.getByLabel('英文全称')).toHaveText('Trusted Execution Environment');
  const relativePosition=()=>llm.evaluate(el=>{const word=el.getBoundingClientRect(),paper=el.closest('.page')!.getBoundingClientRect();return {left:(word.left-paper.left)/paper.width,width:word.width/paper.width};});
@@ -115,7 +122,7 @@ test('PDF fit width and enlarged pages stay inside the reader at phone width',as
 
 
 test('long PDFs render lazily, jump directly to the last page and discard the previous document',async()=>{
- const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>failures.push(e.message));const before=calls.length;
+ const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>{failures.push(e.message);});const before=calls.length;
  await page.locator('#reader-file').setInputFiles({name:'long.pdf',mimeType:'application/pdf',buffer:pagedPdf()});
  await expect(page.locator('.pdfViewer .page')).toHaveCount(24);await expect(page.getByTestId('pdf-canvas').first()).toBeVisible();expect(await page.getByTestId('pdf-canvas').count()).toBeLessThan(24);
  await page.getByRole('textbox',{name:'跳转页码'}).fill('24');await page.getByRole('button',{name:'跳转',exact:true}).click();await expect(page.getByTestId('pdf-scroll-container')).toHaveAttribute('data-current-page','24');await expect(page.locator('.page[data-page-number="24"] canvas').first()).toHaveAttribute('data-rendered-page','24');expect(await page.getByTestId('pdf-canvas').count()).toBeLessThan(24);
@@ -129,4 +136,72 @@ test('unresolved abbreviation full names remain uncertain after saving, reload a
  await page.locator('#reader-file').setInputFiles({name:'unknown.txt',mimeType:'text/plain',buffer:Buffer.from('An LLM processes text in this model. The original has no definition.')});await page.getByRole('button',{name:'开启伴读',exact:true}).click();const word=page.locator('.reader-word.is-ready').filter({hasText:/^LLM$/});await expect(word).toBeVisible();await word.hover();const notice='未提供英文全称，需结合更多上下文确认。';await expect(page.getByRole('complementary',{name:'词语释义'})).toContainText(notice);
  await page.getByRole('button',{name:'加入生词本',exact:true}).click();await page.getByRole('button',{name:'生词本 · 1',exact:true}).click();await expect(page.getByRole('region',{name:'生词本'})).toContainText(notice);
  await page.reload();await page.getByRole('button',{name:'生词本 · 1',exact:true}).click();await expect(page.getByRole('region',{name:'生词本'})).toContainText(notice);const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出到 Anki（TSV）'}).click();const download=await waiting,file=await download.path();const tsv=(await readFile(file!,'utf8')).replace(/^\uFEFF/,'');expect(tsv.split('\t')).toHaveLength(4);expect(tsv).toContain(notice);await context.close();
+});
+
+
+async function selectPdfLine(page:Page,text:string){
+ const line=page.locator('.page[data-page-number="1"] .textLayer span[role="presentation"]').filter({hasText:text}).first();
+ await line.scrollIntoViewIfNeeded();const box=await line.boundingBox();expect(box).not.toBeNull();
+ await page.mouse.move(box!.x+1,box!.y+box!.height/2);await page.mouse.down();await page.mouse.move(box!.x+box!.width-1,box!.y+box!.height/2,{steps:12});await page.mouse.up();
+}
+test('PDF hand tool pans enlarged pages and directory navigation blinks the original heading twice',async()=>{
+ const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>{failures.push(e.message);});const before=calls.length;
+ await page.locator('#reader-file').setInputFiles({name:'interaction.pdf',mimeType:'application/pdf',buffer:paperPdf()});const viewport=page.getByTestId('pdf-scroll-container');
+ await expect(page.getByRole('button',{name:'拖动',exact:true})).toHaveAttribute('aria-pressed','true');await page.getByRole('slider',{name:'缩放比例'}).fill('200');await viewport.scrollIntoViewIfNeeded();
+ await viewport.evaluate(el=>{el.scrollLeft=200;el.scrollTop=200;});const bounds=await viewport.boundingBox();const start=await viewport.evaluate(el=>({x:el.scrollLeft,y:el.scrollTop}));
+ await page.mouse.move(bounds!.x+220,bounds!.y+230);expect(await viewport.evaluate(el=>getComputedStyle(el).cursor)).toBe('grab');await page.mouse.down();await page.mouse.move(bounds!.x+120,bounds!.y+130,{steps:8});await expect(viewport).toHaveClass(/is-grabbing/);await page.mouse.up();await expect(viewport).not.toHaveClass(/is-grabbing/);const end=await viewport.evaluate(el=>({x:el.scrollLeft,y:el.scrollTop}));expect(end.x-start.x).toBeCloseTo(100,0);expect(end.y-start.y).toBeCloseTo(100,0);
+ await page.getByRole('combobox',{name:'缩放模式'}).selectOption('page-width');const nav=page.getByRole('navigation',{name:'章节目录'});await nav.getByRole('button',{name:'1.1 Threat Model',exact:true}).click();
+ const target=page.locator('.textLayer [data-navigation-target="1.1 Threat Model"]');await expect(target).toContainText('Threat Model');await expect.poll(()=>target.evaluate(el=>el.getAnimations().some(a=>a.effect?.getTiming().iterations===2))).toBe(true);const position=await target.boundingBox(),frame=await viewport.boundingBox();expect(position!.y).toBeGreaterThanOrEqual(frame!.y);expect(position!.y+position!.height).toBeLessThan(frame!.y+frame!.height);
+ await nav.getByRole('button',{name:'2 Evaluation',exact:true}).click();await expect(page.locator('.page[data-page-number="2"] .textLayer [data-navigation-target="2 Evaluation"]')).toContainText('Evaluation');expect(calls.length).toBe(before);expect(failures).toEqual([]);await context.close();
+});
+test('PDF selected text reuses explanation, translation and quiz without sending the full paper',async()=>{
+ const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'study.pdf',mimeType:'application/pdf',buffer:paperPdf()});
+ await expect(page.getByRole('button',{name:'解释',exact:true})).toBeDisabled();await page.getByRole('button',{name:'选择文字',exact:true}).click();await selectPdfLine(page,'The ephemeral assumption');await expect(page.getByRole('button',{name:'解释',exact:true})).toBeEnabled();expect(calls.length).toBe(before);
+ await page.getByRole('button',{name:'解释',exact:true}).click();const study=page.getByRole('region',{name:'选段学习'});await expect(study).toContainText('这是结合所选原文的解释。');let input=JSON.parse(calls.at(-1).messages[1].content);expect(input.context.text).toContain('ephemeral assumption');expect(input.context.text).not.toContain('Cryptographic');expect(input.mode).toBe('explain');
+ await page.getByRole('button',{name:'关闭选段学习'}).click();await page.getByRole('button',{name:'翻译',exact:true}).click();await expect(study).toContainText('这段原文描述了保护公开示例的假设。');
+ await page.getByRole('button',{name:'关闭选段学习'}).click();await page.getByRole('button',{name:'考考我',exact:true}).click();await expect(study.getByRole('radiogroup')).toBeVisible();await expect(study.getByText('正确答案 · A')).toHaveCount(0);await study.getByRole('radio').first().check();await expect(study).toContainText('答对了');expect(JSON.parse(calls.at(-1).messages[1].content).operation).toBe('choice');await context.close();
+});
+test('native PDF highlights, arbitrary notes and ink export into a reopenable PDF and survive view changes',async()=>{
+ const {context,page}=await open();const failures:string[]=[];page.on('pageerror',e=>{failures.push(e.message);});const before=calls.length;
+ await page.locator('#reader-file').setInputFiles({name:'edit.pdf',mimeType:'application/pdf',buffer:paperPdf()});
+ await page.getByRole('button',{name:'高亮文字',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();await selectPdfLine(page,'The ephemeral assumption');await expect(page.locator('.highlightEditor')).toHaveCount(1);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(page.locator('.highlightEditor')).toHaveCount(0);await page.getByRole('button',{name:'重做',exact:true}).click();await expect(page.locator('.highlightEditor')).toHaveCount(1);
+ await page.getByRole('button',{name:'文字批注',exact:true}).click();const layer=page.locator('.page[data-page-number="1"] .annotationEditorLayer');await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();await layer.click({position:{x:100,y:350}});const note=page.locator('.freeTextEditor [contenteditable="true"]');await expect(note).toBeVisible();await note.fill('复核笔记 Review note');
+ await page.getByRole('button',{name:'画笔标记',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();const box=await layer.boundingBox();await page.mouse.move(box!.x+200,box!.y+380);await page.mouse.down();await page.mouse.move(box!.x+240,box!.y+390,{steps:8});await page.mouse.up();await page.getByRole('button',{name:'选择文字',exact:true}).click();await expect(page.locator('.inkEditor')).toHaveCount(1);
+ await page.getByRole('button',{name:'文字伴读',exact:true}).click();await page.getByRole('button',{name:'原版（含图表）',exact:true}).click();await expect(page.locator('.freeTextEditor')).toContainText('Review note');await expect(page.locator('.highlightEditor')).toHaveCount(1);
+ const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const download=await waiting;expect(download.suggestedFilename()).toBe('edit-批注.pdf');const bytes=await readFile((await download.path())!);expect(bytes.subarray(0,5).toString()).toBe('%PDF-');
+ await page.locator('#reader-file').setInputFiles({name:'saved.pdf',mimeType:'application/pdf',buffer:bytes});await expect(page.getByRole('heading',{name:'saved.pdf',exact:true})).toBeVisible();await expect(page.getByTestId('pdf-canvas').first()).toBeVisible();
+ await page.getByRole('button',{name:'文字批注',exact:true}).click();await expect(page.locator('.freeTextEditor')).toContainText('Review note');await expect(page.locator('.highlightEditor')).toHaveCount(1);await expect(page.locator('.inkEditor')).toHaveCount(1);expect(calls.length).toBe(before);expect(failures).toEqual([]);await page.screenshot({path:'.cache/pdf-editing.png',fullPage:true});await context.close();
+});
+
+
+test('PDF selection survives streamed word meanings and text view provides the same study actions',async()=>{
+ const {context,page}=await open();await page.locator('#reader-file').setInputFiles({name:'stream-study.pdf',mimeType:'application/pdf',buffer:paperPdf()});
+ await page.getByRole('navigation',{name:'章节目录'}).getByRole('button',{name:'1 Introduction',exact:true}).click();await page.getByRole('button',{name:'选择文字',exact:true}).click();
+ const started=page.waitForResponse(r=>r.url().endsWith('/api/analyze'));await page.getByRole('button',{name:'开启伴读',exact:true}).click();await started;await selectPdfLine(page,'Cryptographic attestation');const selected=await page.evaluate(()=>window.getSelection()?.toString());expect(selected).toContain('attestation');
+ await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');expect(await page.evaluate(()=>window.getSelection()?.toString())).toBe(selected);
+ await page.getByRole('button',{name:'文字伴读',exact:true}).click();await page.getByTestId('reader-prose').evaluate(el=>{const range=document.createRange();range.selectNodeContents(el);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);el.dispatchEvent(new KeyboardEvent('keyup',{key:'Shift',bubbles:true}));});
+ await page.getByRole('button',{name:'解释',exact:true}).click();await expect(page.getByRole('region',{name:'选段学习'})).toContainText('这是结合所选原文的解释。');await context.close();
+});
+test('PDF rejects replacement of unsaved notes when the reader cancels and exports active text before closing it',async()=>{
+ const {context,page}=await open();await page.locator('#reader-file').setInputFiles({name:'unsaved.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('button',{name:'文字批注',exact:true}).click();const layer=page.locator('.page[data-page-number="1"] .annotationEditorLayer');await layer.click({position:{x:110,y:330}});const note=page.locator('.freeTextEditor [contenteditable="true"]');await note.fill('Keep this note');
+ const dialog=page.waitForEvent('dialog');const replacement=page.locator('#reader-file').setInputFiles({name:'replacement.pdf',mimeType:'application/pdf',buffer:paperPdf()});await (await dialog).dismiss();await replacement;await expect(page.getByRole('heading',{name:'unsaved.pdf',exact:true})).toBeVisible();await expect(note).toContainText('Keep this note');
+ const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const bytes=await readFile((await (await waiting).path())!);expect(bytes.toString()).toContain('/Contents (Keep this note)');await expect(page.getByRole('button',{name:'导出含批注 PDF',exact:true})).toBeEnabled();await context.close();
+});
+
+
+test('PDF protects post-export undo mutations from unsaved replacement',async()=>{
+ const {context,page}=await open();await page.locator('#reader-file').setInputFiles({name:'saved-session.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('button',{name:'文字批注',exact:true}).click();await page.locator('.page[data-page-number="1"] .annotationEditorLayer').click({position:{x:110,y:330}});await page.locator('.freeTextEditor [contenteditable="true"]').fill('Saved note');
+ const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();await waiting;await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(page.locator('.freeTextEditor')).toHaveCount(0);
+ const messages:string[]=[];page.on('dialog',dialog=>{messages.push(dialog.message());void dialog.dismiss();});await page.locator('#reader-file').setInputFiles({name:'replacement.pdf',mimeType:'application/pdf',buffer:paperPdf()});await expect.poll(()=>messages.length).toBe(1);await expect(page.getByRole('heading',{name:'saved-session.pdf',exact:true})).toBeVisible();await context.close();
+});
+test('PDF prevents old-document edits during delayed replacement import',async()=>{
+ const {context,page}=await open();await page.locator('#reader-file').setInputFiles({name:'old.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('button',{name:'文字批注',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();const layer=page.locator('.page[data-page-number="1"] .annotationEditorLayer');await layer.click({position:{x:110,y:330}});await page.locator('.freeTextEditor [contenteditable="true"]').fill('Saved before import');const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();await waiting;await page.getByRole('button',{name:'文字批注',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();const box=await layer.boundingBox();
+ await page.evaluate(()=>{const read=File.prototype.arrayBuffer;File.prototype.arrayBuffer=async function(){if(this.name==='delayed.pdf')await new Promise<void>(resolve=>{(window as any).finishImport=resolve;});return read.call(this);};});
+ await page.locator('#reader-file').setInputFiles({name:'delayed.pdf',mimeType:'application/pdf',buffer:paperPdf()});await expect(page.getByText('正在读取文件',{exact:true})).toBeVisible();await page.mouse.click(box!.x+210,box!.y+330);await page.keyboard.type('Late note');await expect(page.locator('.freeTextEditor')).toHaveCount(1);await page.keyboard.press('Control+z');await expect(page.locator('.freeTextEditor')).toHaveCount(1);await expect(page.locator('.freeTextEditor')).toContainText('Saved before import');
+ await page.evaluate(()=>(window as any).finishImport());await expect(page.getByRole('heading',{name:'delayed.pdf',exact:true})).toBeVisible();await context.close();
+});
+test('PDF selection survives a streamed skip that removes a selected candidate',async()=>{
+ const {context,page}=await open();mode='skip';await page.locator('#reader-file').setInputFiles({name:'skip-study.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('navigation',{name:'章节目录'}).getByRole('button',{name:'1 Introduction',exact:true}).click();await page.getByRole('button',{name:'选择文字',exact:true}).click();
+ const started=page.waitForResponse(r=>r.url().endsWith('/api/analyze'));await page.getByRole('button',{name:'开启伴读',exact:true}).click();await started;await selectPdfLine(page,'Cryptographic attestation');const selected=await page.evaluate(()=>window.getSelection()?.toString());expect(selected).toContain('attestation');await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');await expect(page.locator('.pdf-word').filter({hasText:/^attestation$/})).toHaveCount(0);expect(await page.evaluate(()=>window.getSelection()?.toString())).toBe(selected);await context.close();
 });
