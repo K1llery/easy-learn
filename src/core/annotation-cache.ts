@@ -11,7 +11,8 @@ export class AnnotationCache {
   async key(config:Config,title:string,candidate:Candidate){
     if(!['term','abbreviation','vocabulary'].includes(candidate.kind)||candidate.anchor.length>80)return null;
     const {id,...context}=candidate;
-    const data=JSON.stringify(['short-explanation-v1',endpoint(config.baseUrl).href,config.model,config.profile,config.style,config.tuning,title,context]);
+    // Refresh the full-name contract for acronyms without expiring ordinary terms.
+    const data=JSON.stringify([candidate.kind==='abbreviation'?'abbreviation-expansion-v2':'short-explanation-v1',endpoint(config.baseUrl).href,config.model,config.profile,config.style,config.tuning,title,context]);
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(data));
     return Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
   }

@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {zipSync,strToU8} from 'fflate';
 import {epubDocument,epubPath,htmlText,pdfReadingDocument,textDocument} from '../src/reader/document';
-import {scanVocabulary,wordKey,wordOccurrences,exportVocabulary} from '../src/reader/vocabulary';
+import {scanVocabulary,wordKey,wordOccurrences,exportVocabulary,recordWord} from '../src/reader/vocabulary';
 import {readFileSync} from 'node:fs';
 function epub(chapters:Record<string,string>={}) {
  return zipSync(Object.fromEntries(Object.entries({
@@ -52,5 +52,20 @@ describe('vocabulary reading',()=>{
  });
  it('exports learning words as safe Anki TSV and excludes known words',()=>{
   expect(exportVocabulary([{word:'ephemeral',language:'en',status:'learning',meaning:'短暂\t的',summary:'稍纵\n即逝<script>'},{word:'known',language:'en',status:'known'}])).toBe('ephemeral\t短暂 的\t稍纵 即逝script\ten');
+ });
+ it('includes contextual short abbreviations, excludes all-caps labels and preserves known-word feedback',()=>{
+  const input={id:'s0',title:'Model security',text:'NOTE: A Large Language Model (LLM) uses a Trusted Execution Environment (TEE). LLMs appear again. TODO: test THE labels.'};
+  const words=scanVocabulary(input,'en',new Set(['model','environment']),new Set(),40);
+  expect(words.filter(w=>w.kind==='abbreviation').map(w=>w.anchor)).toEqual(['LLM','TEE','LLMs']);
+  for(const word of words)expect(input.text.slice(word.start,word.end)).toBe(word.anchor);
+  expect(words.some(w=>['NOTE','TODO','THE'].includes(w.anchor))).toBe(false);
+  expect(scanVocabulary(input,'en',new Set(),new Set([wordKey('TEE','en')]),40).some(w=>w.anchor==='TEE')).toBe(false);
+  const llm=words.find(w=>w.anchor==='LLM')!;
+  const record=recordWord(llm,'en','learning',{anchor:'LLM',category:'缩写',meaning:'大语言模型',summary:'此处用于文本处理。',expansion:'Large Language Model',evidence:'',ambiguity:''});
+  expect(record.expansion).toBe('Large Language Model');
+  expect(exportVocabulary([record])).toContain('Large Language Model · 此处用于文本处理。');
+  const unresolved=recordWord(llm,'en','learning',{anchor:'LLM',category:'缩写',meaning:'语境含义',summary:'此处指模型。',expansion:'',evidence:'',ambiguity:'全称待确认，原文没有定义。'});
+  expect(unresolved.ambiguity).toBe('全称待确认，原文没有定义。');
+  const fields=exportVocabulary([unresolved]).split('\t');expect(fields).toHaveLength(4);expect(fields[2]).toContain('全称待确认，原文没有定义。');
  });
 });

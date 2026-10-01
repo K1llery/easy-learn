@@ -16,6 +16,14 @@ Apply candidate caps after inspecting the relevant reading unit. If the purpose 
 
 Treat the corpus threshold as a common-word approximation. It is neither an official exam list nor an individual knowledge estimate. Keep explicit known-word feedback authoritative within its intended language and morphology rules. Do not introduce aggressive stemming that conflates unrelated meanings merely to suppress marks.
 
+## Handle abbreviations as a distinct candidate kind
+
+Do not run contextual initialisms through ordinary minimum-length or all-capitals rejection rules. Reuse existing abbreviation detection and its exclusions for labels such as NOTE/TODO; avoid a second hard-coded dictionary of expansions. Preserve the abbreviation kind and source offsets through the model request.
+
+Trace the full-name field from the existing output contract through parsing, tooltips, inspector, vocabulary storage, and export. A Chinese meaning alone is insufficient. Request the English expansion when the context supports it; retain ambiguity or an explicit missing-full-name notice when it does not. Save and export uncertainty alongside the expansion and meaning, so collection does not turn an unresolved interpretation into an apparently certain one. Do not confidently assign a familiar expansion to a conflicting context.
+
+When a model-output contract materially changes, inspect persisted caches. Version only affected entries where possible so old incomplete results do not bypass the new contract, without discarding unrelated word records. Resolve missing output during preparation, not by starting a request on hover.
+
 ## Useful regression scenarios
 
 - Familiar words from across the alphabet remain common at the chosen baseline.
@@ -24,5 +32,6 @@ Treat the corpus threshold as a common-word approximation. It is neither an offi
 - Capitalised rare heading words are retained; identifiers and numeric artifacts follow existing filtering rules.
 - Repeated occurrences map to unchanged source text; known status is language-specific.
 - PDF line-end hyphenation is matched in both extracted prose and original text runs.
+- Short initialisms reach analysis with their kind intact; English expansions survive display, saving and export, and incomplete results remain explicitly uncertain.
 
 Use the actual generated artifact for data-order and threshold checks, alongside small fixtures for segmentation. Do not build a new NLP stack when the demonstrated failure is ordering or early truncation.

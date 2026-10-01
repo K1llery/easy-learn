@@ -72,6 +72,9 @@ it('distinguishes timeout during response reading',async()=>{
  await expect(callModel(config,request)).rejects.toThrow('超时');expect(fetcher).toHaveBeenCalledTimes(1);
 });
 describe('local output normalization',()=>{
+ it('retains English expansions and states uncertainty when an abbreviation has only a translation',()=>{
+  expect(parseModelOutput('analyze','{"items":[{"id":"c0","meaning":"灾难恢复","summary":"异地恢复","expansion":"Disaster Recovery"},{"id":"c1","meaning":"接口","summary":"连接服务"}]}',request)).toMatchObject({concepts:[{expansion:'Disaster Recovery',ambiguity:''},{expansion:'',ambiguity:'未提供英文全称，需结合更多上下文确认。'}]});
+ });
  it.each([
   'Here are the results:\n```json\n{"items":[{"id":"c0","explanation":"恢复流程"},{"id":"c1","skip":true}]}\n```',
   '[{"id":"c0","summary":"恢复流程"},{"id":"c1","relevant":false}]',

@@ -1,4 +1,4 @@
 interface:
   display_name: "阅读工作台维护"
-  short_description: "诊断并修复外语阅读工具中的词频筛选、PDF 目录与图表显示问题"
+  short_description: "检查外语阅读的词频与缩写、PDF 目录图表、连续阅读、缩放和页码导航"
   default_prompt: "使用 $reading-workbench-maintenance 检查并修复阅读工作台的问题，沿用成熟组件并验证实际阅读行为。"

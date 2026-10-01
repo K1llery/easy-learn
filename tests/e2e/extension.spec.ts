@@ -2,6 +2,7 @@ import { test, expect, chromium, type BrowserContext, type Worker, type Page } f
 import { createServer, type Server } from 'node:http';
 import { readFile, mkdir, cp, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
+import {paperPdf} from './pdf-fixture';
 let server: Server, context: BrowserContext, worker: Worker, id: string, base: string, temp: string;
 let calls: any[] = [];
 let responseStatus = 200, inFlight=0,peakInFlight=0,completed=0;
@@ -751,4 +752,12 @@ test('reads local documents in the trusted extension workbench and preloads mean
  await expect.poll(()=>page.locator('.reader-progress').innerText()).not.toContain('正在准备');const count=calls.length;
  await page.locator('.reader-word.is-ready').first().hover();await expect(page.getByRole('complementary',{name:'词语释义'})).toContainText('按当前语境解释');expect(calls.length).toBe(count);await expect(page.getByTestId('reader-prose')).toHaveText(text);
  const refreshed=await page.evaluate(()=>chrome.runtime.sendMessage({type:'SET_READING_PREFS',prefs:{concurrency:1,batchSize:2}}));expect(refreshed.ok).toBe(true);await expect(page.getByText('阅读设置已更新，点击开启伴读继续。')).toBeVisible();await expect(page.locator('.reader-word.is-ready')).toHaveCount(0);expect(calls.length).toBe(count);await page.close();
+});
+
+
+test('extension workbench uses the PDF viewer for zoom and continuous page navigation without model calls',async()=>{
+ const page=await context.newPage(),failures:string[]=[];page.on('pageerror',e=>failures.push(e.message));await page.goto(`chrome-extension://${id}/reader.html`);const before=calls.length;
+ await page.locator('#reader-file').setInputFiles({name:'public-controls.pdf',mimeType:'application/pdf',buffer:paperPdf()});await expect(page.getByTestId('pdf-canvas').first()).toBeVisible();await expect(page.getByRole('checkbox',{name:'连续阅读'})).toBeChecked();
+ await page.getByRole('combobox',{name:'缩放模式'}).selectOption('page-actual');await expect(page.locator('.pdf-zoom-slider output')).toHaveText('100%');await page.getByRole('slider',{name:'缩放比例'}).fill('125');
+ await page.getByRole('textbox',{name:'跳转页码'}).fill('2');await page.getByRole('button',{name:'跳转',exact:true}).click();await expect(page.locator('.page[data-page-number="2"] canvas').first()).toHaveAttribute('data-rendered-page','2');await expect(page.getByTestId('pdf-scroll-container')).toHaveAttribute('data-current-page','2');expect(calls.length).toBe(before);expect(failures).toEqual([]);await page.close();
 });

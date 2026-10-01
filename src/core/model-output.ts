@@ -25,8 +25,10 @@ function normalizeConcept(row:any,candidate?:Candidate):Concept|null {
   const anchor=candidate?.anchor??text(row.anchor??row.term,500);
   if(!summary||!anchor)return null;
   const kind=candidate?.kind;
+  const expansion=text(row.expansion,300);
+  const ambiguity=text(row.ambiguity,1500)||(kind==='abbreviation'&&!expansion?'未提供英文全称，需结合更多上下文确认。':'');
   const parts=Array.isArray(row.parts)?row.parts.flatMap((p:any)=>{const t=text(p?.text,300),e=text(p?.explanation??p?.description,600);return t&&e&&anchor.includes(t)?[{text:t,explanation:e}]:[];}).slice(0,16):[];
-  return {anchor,id:candidate?.id,category:kind==='command'?'命令':kind==='code'?'代码':kind==='abbreviation'?'缩写':kind==='vocabulary'?'词汇':['缩写','术语','词汇','背景','命令','代码'].includes(row.category)?row.category:'术语',meaning:text(row.meaning,300)||anchor,summary,expansion:text(row.expansion,300),evidence:text(row.evidence,1500),ambiguity:text(row.ambiguity,1500),parts};
+  return {anchor,id:candidate?.id,category:kind==='command'?'命令':kind==='code'?'代码':kind==='abbreviation'?'缩写':kind==='vocabulary'?'词汇':['缩写','术语','词汇','背景','命令','代码'].includes(row.category)?row.category:'术语',meaning:text(row.meaning,300)||anchor,summary,expansion,evidence:text(row.evidence,1500),ambiguity,parts};
 }
 export function parseModelOutput(operation:AIRequest['operation'],raw:string,request?:AIRequest) {
   const values=jsonValues(raw);const root:any=values[0];

@@ -14,7 +14,7 @@ export function candidateEnvironment(blocks:Block[],title=''):CandidateEnvironme
  const sample=title+' '+blocks.slice(0,50).map(b=>b.heading+' '+b.text.slice(0,300)).join(' ');
  return {technical:TECH_CONTEXT.test(sample),web:WEB_CONTEXT.test(sample)};
 }
-const KNOWN_ACRONYMS = new Set('AI ML DR DB OS IP UI IO API HTTP HTTPS REST RPC JSON XML HTML CSS SQL CLI SDK CPU GPU RAM URL URI DNS TCP UDP TLS SSL SSH JWT OAuth ORM CRUD ASGI WSGI MVC MVT OOP IDE LLM NLP RNN CNN RAG CUDA SIMD UTF ASCII YAML TOML PEP'.split(' '));
+const KNOWN_ACRONYMS = new Set('AI ML DR DB OS IP UI IO API HTTP HTTPS REST RPC JSON XML HTML CSS SQL CLI SDK CPU GPU RAM URL URI DNS TCP UDP TLS SSL SSH JWT OAuth ORM CRUD ASGI WSGI MVC MVT OOP IDE LLM TEE NLP RNN CNN RAG CUDA SIMD UTF ASCII YAML TOML PEP'.split(' '));
 const IGNORE = new Set(['THE','AND','FOR','NOT','TODO','NOTE','IMPORTANT','WARNING','INFO','ERROR','DEBUG','README','LICENSE','CONTRIBUTING','INSTALL','GETTING','STARTED','TRUE','FALSE','NULL','NONE','RELEASE','CHANGES','FAQ','TIP','VS','ALL','YOU','NEED','WMT2014','GREAT','NEWS','AVAILABLE','SOON','DEFAULT','GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS','SET','READ','WRITE','OK']);
 const COMMON = new Set(['python','fastapi','installation','example','examples','project','projects','name','value','data','code','usage','features','performance','documentation','test','tests','run','install','true','false','none','null','main','app','return','def','import']);
 export type LocalCandidate = Omit<Candidate,'id'> & { start:number };
@@ -55,6 +55,17 @@ export function vocabularyForms(word:string):Set<string> {
 export function isOutsideCommonVocabulary(word:string,commonWords:ReadonlySet<string>):boolean {
   return ![...vocabularyForms(word)].some(form=>commonWords.has(form));
 }
+// Share the same contextual initialism rules between web articles and imported books.
+export function findAbbreviations(text:string,technical=TECH_CONTEXT.test(text)):{anchor:string;start:number}[]{
+  const found=new Map<number,{anchor:string;start:number}>();
+  const add=(anchor:string,start:number)=>{if(!IGNORE.has(anchor))found.set(start,{anchor,start});};
+  if(technical)for(const match of text.matchAll(new RegExp('\\b(?:'+[...KNOWN_ACRONYMS].join('|')+')s?\\b','gi')))add(match[0],match.index!);
+  for(const match of text.matchAll(ACRONYMS)){
+    const anchor=match[0],nearby=text.slice(Math.max(0,match.index!-100),match.index!+anchor.length+100);
+    if(technical||KNOWN_ACRONYMS.has(anchor.replace(/s$/,''))||nearby.includes(`(${anchor})`)||new RegExp(`${anchor}\\s+(?:stands for|means|is short for)\\b`,'i').test(nearby))add(anchor,match.index!);
+  }
+  return [...found.values()].sort((a,b)=>a.start-b.start);
+}
 function snippet(text:string,start:number,length:number) {
   const left=Math.max(0,start-120),right=Math.min(text.length,start+length+200);
   return text.slice(left,right).slice(0,420);
@@ -85,13 +96,7 @@ export function findCandidates(block:Block,environment:CandidateEnvironment=cand
     const explicit=/\b(?:HTTP|method|request|operation)\s+["'`]?$/i.test(before)||/^["'`]?\s+(?:request|method|operation)\b/i.test(after);
     if(web&&(anchor===anchor.toUpperCase()||inlineTerms.has(anchor)||explicit))add(anchor,match.index!,'term',true);
   }
-  // Known initialisms are case tolerant on technical pages (http, json, asgi).
-  if(technical)for(const match of block.text.matchAll(new RegExp('\\b(?:'+[...KNOWN_ACRONYMS].join('|')+')s?\\b','gi')))add(match[0],match.index!,'abbreviation');
-  for(const match of block.text.matchAll(ACRONYMS)){
-    const anchor=match[0], nearby=block.text.slice(Math.max(0,match.index!-100),match.index!+anchor.length+100);
-    // Unknown capitals alone are not evidence of a technical concept.
-    if(technical||KNOWN_ACRONYMS.has(anchor.replace(/s$/,''))||nearby.includes(`(${anchor})`)||new RegExp(`${anchor}\\s+(?:stands for|means|is short for)\\b`,'i').test(nearby))add(anchor,match.index!,'abbreviation');
-  }
+  for(const {anchor,start} of findAbbreviations(block.text,technical))add(anchor,start,'abbreviation');
   // Unlisted library names are candidates when the sentence describes their role.
   for(const match of block.text.matchAll(/\b([A-Z][A-Za-z0-9_-]{2,40})\s+(?:is|provides|implements)\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}(?:library|framework|validator|protocol|serializer|database|toolkit|package)\b/g))add(match[1],match.index!,'term');
   for(const inline of block.element.querySelectorAll('code,a,strong,em')) {

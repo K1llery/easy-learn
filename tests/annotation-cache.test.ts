@@ -32,3 +32,12 @@ it('expires old entries and bounds cache size',async()=>{
  (values.annotationCacheV1 as any[]).forEach(e=>e.at=Date.now()-31*86400000);
  expect(await cache.get(['509'])).toEqual([undefined]);
 });
+it('refreshes old abbreviation results without invalidating ordinary word explanations',async()=>{
+ const {cache,values}=setup();
+ const legacyKey=async(c:Candidate)=>{const {id,...context}=c;const payload=JSON.stringify(['short-explanation-v1','https://api.deepseek.com/chat/completions',config.model,config.profile,config.style,config.tuning,'Doc',context]);const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));return Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');};
+ const term={...candidate,anchor:'ephemeral',kind:'vocabulary' as const},oldAbbreviation=await legacyKey(candidate),oldTerm=await legacyKey(term);
+ values.annotationCacheV1=[{key:oldAbbreviation,at:Date.now(),concept:{...concept,expansion:''}},{key:oldTerm,at:Date.now(),concept:{...concept,anchor:'ephemeral',category:'词汇'}}];
+ const abbreviationKey=(await cache.key(config,'Doc',candidate))!;
+ expect(abbreviationKey).not.toBe(oldAbbreviation);expect(await cache.get([abbreviationKey])).toEqual([undefined]);
+ expect(await cache.key(config,'Doc',term)).toBe(oldTerm);expect((await cache.get([oldTerm]))[0]).toMatchObject({anchor:'ephemeral'});
+});
