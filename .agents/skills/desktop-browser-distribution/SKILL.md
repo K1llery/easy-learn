@@ -21,10 +21,14 @@ Run repository unit checks and both UI builds for application changes. Use exist
 
 From WSL, copy the complete Windows folder plus smoke script and package.json into an isolated Windows temporary directory and run the bundled Windows Node there. Use PowerShell `Start-Process -Wait -PassThru`, redirected output and a success marker; WSL dispatch returning zero alone is insufficient evidence that a Windows GUI child completed. Wait for backend exit before removing temporary files; inspect only test-owned paths and processes.
 
+For native dependency/test runs, if an installed `.cmd` is reported as unknown, inspect the child process's PATH and PATHEXT before changing package scripts. A missing `.CMD` entry can cause this despite successful installation. Restore expected executable extensions only within the isolated verification process when that diagnosis is confirmed; do not change the user's global environment or add a workaround to normal hosted CI.
+
 Check ZIP root layout, SHA-256 sidecars and executable permission bits for Mac binaries. On native Mac, perform all app resource writes before signing Node and the containing app, then `codesign --verify --deep --strict`. Later writes invalidate the resource seal. Temporary signing is not Developer ID signing or notarization; verify Finder reopen on a real Mac before claiming it works there.
 
 ## Automate and report
 
 Use `.github/workflows/package.yml` and matching native runners. Keep lockfile installs, pinned tool/action versions, checks and uploaded artifacts. Do not imply a local workflow edit has run on GitHub. Keep artifact generation separate from Release publication, stores and signing credentials; follow the user's authorization for external writes.
+
+Distinguish the Node installed for project commands from each Action's own runtime. Changing `setup-node`'s `node-version` does not repair a dependency Action declaring `runs.using: node20`. Before updating pinned SHAs, inspect their official action manifests and supported runner versions, including pnpm setup and artifact upload; preserve package-manager versions and cache behavior. Windows checkout can convert text fixtures to CRLF: parse word lists by whitespace and keep generated vocabulary LF through scoped `.gitattributes`, without imposing newline rules on unrelated user files.
 
 Report tests actually run, original failures and fixes, native versus cross-built evidence, review outcome and remaining signing/store requirements. Put dated results in docs and durable entry points in AGENTS.md. Synchronize this canonical repository skill with its installed counterpart after updating it.

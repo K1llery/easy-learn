@@ -6,6 +6,8 @@ Check the shipped artifact, generation script, source order, normalisation, dupl
 
 Inspect both input rank and the final ranking. When source files contain successive rank ranges, preserve those offsets; filtering an entry should not silently change its original source rank. If combining corpora, document the scoring rule and its tradeoff. Everyday speech and encyclopedic prose cover different familiar vocabulary; merging them does not establish a learner's level.
 
+Check fixture newline handling before treating Windows-only frequency failures as corrupt data. Splitting CRLF text only at `\n` leaves `\r` in membership keys. Use the reading loader's whitespace normalization and exercise both LF and CRLF against the actual ranked artifact; keep order, uniqueness and late-rare-word assertions. For Easy Learn, `.gitattributes` keeps generated `public/vocabulary/*.txt` LF without changing unrelated files.
+
 Pin upstream revisions and verify hashes for reproducible generation. Separate licensing of data from licensing of generator code. Preserve attribution and the derivative license. Do not silently adopt a popular corpus whose terms do not fit the application.
 
 ## Select useful candidates
