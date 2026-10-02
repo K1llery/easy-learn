@@ -6,13 +6,14 @@ import {callModel,type AnalysisProgress} from '../core/ai';
 import {Queue,SessionCache,cacheKey} from '../core/session';
 import {AnnotationCache} from '../core/annotation-cache';
 
-export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cache/workbench')) {
+export type DesktopControl={version:string;token:string;onQuit:()=>void};
+export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cache/workbench'), desktop?:DesktopControl) {
   const queue=new Queue(),session=new SessionCache<any>();
   let settings:{config?:Config;reading?:Record<string,any>}={},persisted:Record<string,unknown>={},epoch=0;
   let mutations:Promise<unknown>=Promise.resolve();
   const ready=readFile(path.join(dataDir,'settings.json'),'utf8').then(text=>{
     const data=JSON.parse(text);const config=configSchema.safeParse(data.config);settings={config:config.success?config.data:undefined,reading:readingPrefsSchema.parse(data.reading??{})};
-  }).catch((e:NodeJS.ErrnoException)=>{if(e.code!=='ENOENT')throw new Error('工作台设置无法读取，请检查 .cache/workbench/settings.json。');});
+  }).catch((e:NodeJS.ErrnoException)=>{if(e.code!=='ENOENT')throw new Error('工作台设置无法读取，请检查本机设置文件或恢复备份。');});
   const annotations=new AnnotationCache({get:async key=>({[key]:persisted[key]}),set:async value=>{Object.assign(persisted,value);}});
   async function saveSettings(next:typeof settings){await mkdir(dataDir,{recursive:true,mode:0o700});const file=path.join(dataDir,'settings.json');await writeFile(file+'.tmp',JSON.stringify(next),{mode:0o600});await rename(file+'.tmp',file);}
   async function readBody(req:IncomingMessage){let size=0;const chunks:Buffer[]=[];for await(const chunk of req){size+=chunk.length;if(size>150000)throw new Error('请求内容过大。');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
@@ -39,6 +40,10 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
       const allowedHosts=new Set([`127.0.0.1:${address.port}`,`localhost:${address.port}`]);
       if(!allowedHosts.has(req.headers.host??'')){res.writeHead(403);res.end();return;}
       const url=new URL(req.url??'/',origin);
+      if(url.pathname==='/desktop/status'){
+        if(!desktop||req.method!=='GET'||req.headers['x-easy-learn-instance']!==desktop.token){res.writeHead(404);res.end();return;}
+        res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({app:'easy-learn',version:desktop.version}));return;
+      }
       if(url.pathname.startsWith('/api/')) {
         const allowedOrigins=new Set([origin,`http://localhost:${address.port}`]);
         if(req.method!=='POST'||!req.headers['content-type']?.startsWith('application/json')||(req.headers.origin&&!allowedOrigins.has(req.headers.origin))||req.headers['sec-fetch-site']==='cross-site'){res.writeHead(403);res.end();return;}
@@ -51,7 +56,7 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
         }
         if(url.pathname!=='/api/rpc')throw new Error('未知接口。');
         let data:unknown;
-        if(msg.type==='GET_SETTINGS')data=settings;
+        if(msg.type==='GET_SETTINGS')data={...settings,desktop:!!desktop};
         else if(msg.type==='PUBLIC_SETTINGS')data={profile:settings.config?.profile??defaultProfile,mastered:[],batchSize:settings.reading?.batchSize??4,concurrency:settings.reading?.concurrency??2,maxPerBlock:settings.reading?.maxPerBlock??6};
         else if(msg.type==='SAVE_SETTINGS'||msg.type==='SET_READING_PREFS') {
           const change=mutations.then(async()=>{
@@ -61,7 +66,8 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
             await saveSettings(next);settings=next;epoch++;session.clear();await annotations.clear();return null;
           });mutations=change.catch(()=>undefined);data=await change;
         } else if(msg.type==='AI'){const controller=new AbortController();res.on('close',()=>controller.abort());data=await ai(msg.request,controller.signal);}
-        else if(msg.type==='TEST'){await ai({operation:'explain',context:{title:'连接测试',heading:'',text:'An API is an application programming interface.',before:'',after:''}});data='连接成功，模型返回了可用的结果。';}
+        else if(msg.type==='TEST'){const controller=new AbortController();res.on('close',()=>controller.abort());await ai({operation:'explain',context:{title:'连接测试',heading:'',text:'An API is an application programming interface.',before:'',after:''}},controller.signal);data='连接成功，模型返回了可用的结果。';}
+        else if(msg.type==='QUIT_DESKTOP'&&desktop){if(req.headers.origin!==origin){res.writeHead(403);res.end();return;}res.once('finish',desktop.onQuit);data=null;}
         else throw new Error('未知操作。');
         res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:true,data}));return;
       }

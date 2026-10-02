@@ -105,7 +105,8 @@ chrome.runtime.onConnect.addListener(port => {
     port.onDisconnect.addListener(() => { if (panelPorts.get(id) === port) panelPorts.delete(id); });
   }
 });
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(details => {
+  if(details?.reason==='install')void chrome.runtime.openOptionsPage().catch(()=>undefined);
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'easy-learn-explain-selection', title: '用 Easy Learn 解释选中文字', contexts: ['selection'] });
     chrome.contextMenus.create({ id: 'easy-learn-translate-selection', title: '用 Easy Learn 翻译选中文字', contexts: ['selection'] });

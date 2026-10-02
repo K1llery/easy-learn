@@ -33,6 +33,7 @@ function Reader() {
   const [selected,setSelected]=useState<ReadingWord|null>(null);
   const [selection,setSelection]=useState<TextContext|null>(null),[study,setStudy]=useState<{context:TextContext;mode:ReadingAction;id:number}|null>(null);
   const [pdfDirty,setPdfDirty]=useState(false);
+  const [desktop,setDesktop]=useState(false),[exited,setExited]=useState(false);
   const studyId=useRef(0);
   const importing=useRef(false);
   const fileInput=useRef<HTMLInputElement>(null),port=useRef<ReturnType<typeof connectSurface>|null>(null);
@@ -46,6 +47,7 @@ function Reader() {
   useEffect(()=>{
     if(inExtension){port.current=connectSurface('reader');port.current.port.onMessage.addListener(msg=>{if(msg.type==='REFRESH'){setRecords(storedWords());setReading(false);active.current=false;resetAnalysis();void refreshSettings();setNotice('阅读设置已更新，点击开启伴读继续。');}});}
     void refreshSettings();
+    void rpc('GET_SETTINGS').then(data=>{setDesktop(data.desktop===true);if(!data.config)setSettings(true);}).catch(e=>setError(e.message));
     void fetch(inExtension?chrome.runtime.getURL('vocabulary/english-frequency.txt'):'/vocabulary/english-frequency.txt').then(r=>{if(!r.ok)throw new Error('词频表加载失败');return r.text();}).then(s=>setWordsFile(s.split(/\s+/).filter(Boolean))).catch(e=>setError(e.message));
     return()=>{epoch.current++;active.current=false;port.current?.disconnect();};
   },[]);
@@ -67,6 +69,7 @@ function Reader() {
   }
   async function openFile(file:File){if(importing.current)return;if(pdfDirty&&!window.confirm('PDF 批注尚未导出。打开新文件会丢失本次批注，是否继续？'))return;importing.current=true;setLoading('正在读取文件');setError('');try{const imported=await importReadingFile(file,setLoading);await loadDocument(imported.document,imported.pdf??null);}catch(e){setError((e as Error).message);setLoading('');}finally{importing.current=false;}}
   async function openPaste(){if(importing.current)return;if(pdfDirty&&!window.confirm('PDF 批注尚未导出。替换文章会丢失本次批注，是否继续？'))return;importing.current=true;setLoading('正在准备阅读');setError('');try{await loadDocument(textDocument(paste,'粘贴的文章'));}catch(e){setError((e as Error).message);setLoading('');}finally{importing.current=false;}}
+  async function quitDesktop(){if(pdfDirty&&!window.confirm('PDF 批注尚未导出，退出会丢失本次批注。是否继续？'))return;try{await rpc('QUIT_DESKTOP');active.current=false;setReading(false);setPdfDirty(false);setPdf(null);setDoc(null);setStudy(null);setExited(true);}catch(e){setError((e as Error).message);}}
   function navigate(index:number){setSelection(null);setSectionIndex(index);setPdfPage(doc?.sections[index].pageStart??1);setPdfDestination({page:doc?.sections[index].pageStart??1,top:doc?.sections[index].top,title:doc?.sections[index].title});setSelected(null);try{if(fingerprint)localStorage.setItem('reader-position:'+fingerprint,String(index));}catch{/* nonessential position */}window.scrollTo({top:0,behavior:'instant'});}
   const onPdfPageChange=useCallback((page:number)=>{setPdfPage(page);setSelected(null);setSectionIndex(current=>{const section=doc?.sections[current];if(section&&(section.pageStart??1)<=page&&(section.pageEnd??1)>=page)return current;const index=doc?.sections.findIndex(s=>(s.pageStart??1)<=page&&(s.pageEnd??1)>=page)??-1;return index>=0?index:current;});},[doc]);
   function startAnalysis(){setError('');setNotice('');setReading(true);active.current=true;pump();}
@@ -125,8 +128,9 @@ function Reader() {
   let cursor=0;const rendered:React.ReactNode[]=[];
   for(const {word,start,end} of occurrences){rendered.push(section!.text.slice(cursor,start));const concept=concepts[keyFor(word)];rendered.push(<button key={start} className={`reader-word ${concept?'is-ready':'is-pending'}`} title={concept?[concept.expansion,concept.meaning,concept.summary].filter(Boolean).join(' · '):'候选生词 · 释义尚未准备好'} onMouseEnter={()=>setSelected(word)} onFocus={()=>setSelected(word)} onClick={()=>setSelected(word)} aria-label={concept?`${word.anchor}：${concept.meaning}`:`${word.anchor}：待准备的候选生词`}>{section!.text.slice(start,end)}</button>);cursor=end;}
   if(section)rendered.push(section.text.slice(cursor));
+  if(exited)return <div className="reader-shell"><header className="reader-bar"><span className="brand">Easy Learn</span></header><main className="reader-message card" role="status">阅读服务已退出，可以关闭此页面。再次双击 Easy Learn 即可继续使用。</main></div>;
   return <div className="reader-shell">
-    <header className="reader-bar"><a className="brand" href="reader.html"><span className="brandmark">E</span>Easy Learn</a><nav aria-label="工作台" inert={!!loading}><button className="quiet" onClick={()=>fileInput.current?.click()}>打开文件</button><button className="quiet" onClick={()=>setPasteOpen(!pasteOpen)}>粘贴文本</button><button className="quiet" onClick={()=>setVocabOpen(!vocabOpen)}>生词本{learning.length>0?` · ${learning.length}`:''}</button><button className="quiet" onClick={()=>setSettings(!settings)}>设置</button></nav></header>
+    <header className="reader-bar"><a className="brand" href="reader.html"><span className="brandmark">E</span>Easy Learn</a><nav aria-label="工作台" inert={!!loading}><button className="quiet" onClick={()=>fileInput.current?.click()}>打开文件</button><button className="quiet" onClick={()=>setPasteOpen(!pasteOpen)}>粘贴文本</button><button className="quiet" onClick={()=>setVocabOpen(!vocabOpen)}>生词本{learning.length>0?` · ${learning.length}`:''}</button><button className="quiet" onClick={()=>setSettings(!settings)}>设置</button>{desktop&&<button className="quiet" onClick={()=>void quitDesktop()}>退出软件</button>}</nav></header>
     <input ref={fileInput} id="reader-file" type="file" accept=".pdf,.epub,.txt,.md,.markdown" aria-label="导入阅读文件" hidden disabled={!!loading} onChange={e=>{const file=e.target.files?.[0];if(file)void openFile(file);e.target.value='';}}/>
     {settings&&<ReaderSettings onClose={()=>setSettings(false)} onSaved={()=>{setReading(false);active.current=false;resetAnalysis();void refreshSettings();}}/>}
     {error&&<div className="reader-message error" role="alert">{error}</div>}

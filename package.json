@@ -1,6 +1,6 @@
 {
   "name": "easy-learn",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.32.1",
@@ -10,7 +10,10 @@
     "test:e2e": "playwright test",
     "check": "tsc --noEmit",
     "build:workbench": "tsc --noEmit && node scripts/build-workbench.mjs",
-    "workbench": "node scripts/workbench.mjs"
+    "workbench": "node scripts/workbench.mjs",
+    "package:desktop": "pnpm build:workbench && node scripts/build-desktop.mjs",
+    "package:extension": "pnpm build && node scripts/package-extension.mjs",
+    "test:desktop": "node scripts/smoke-desktop.mjs"
   },
   "dependencies": {
     "dompurify": "3.4.16",

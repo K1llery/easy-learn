@@ -105,6 +105,8 @@ test.afterAll(async () => { await context?.close(); await new Promise<void>(reso
 
 test('complete reading, translation, followup and hiding flow in a real extension', async () => {
   const settings=await context.newPage(); await settings.goto(`chrome-extension://${id}/options.html`);
+  await settings.evaluate(()=>chrome.runtime.sendMessage({type:'CLEAR_SETTINGS'}));await settings.reload();
+  await expect(settings.getByLabel('服务方案')).toHaveValue('deepseek');await expect(settings.getByLabel('API Base URL')).not.toBeVisible();await expect(settings.getByLabel('API Key',{exact:true})).toBeVisible();await settings.getByLabel('服务方案').selectOption('custom');
   await settings.getByLabel('API Base URL').fill(`${base}/v1`); await settings.getByLabel('模型名称').fill('fixture-model'); await settings.getByLabel('API Key',{exact:true}).fill('fixture-key');
   await settings.getByRole('button',{name:'保存并授权'}).click(); await expect(settings.getByRole('status')).toContainText('设置已保存');
   await settings.getByRole('button',{name:'测试已保存的连接'}).click(); await expect(settings.getByRole('status')).toContainText('连接成功');
