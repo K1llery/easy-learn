@@ -1,8 +1,47 @@
-import type { Result } from '../core/types';
-export async function rpc<T = any>(type: string, fields: Record<string, unknown> = {}): Promise<T> {
+import type {
+  Result,
+  Config,
+  Mastered,
+  ReadingPrefs,
+  Profile,
+  AnnotationType,
+} from '../core/types';
+import type { ProviderSettings } from '../core/provider-settings';
+export type SettingsResponse = {
+  config?: Config;
+  mastered?: Mastered[];
+  reading?: ReadingPrefs & {
+    localOnly?: boolean;
+    codeAnnotations?: boolean;
+    rememberAnnotations?: boolean;
+    annotationTypes?: AnnotationType[];
+  };
+  providerSettings?: ProviderSettings;
+  desktop?: boolean;
+};
+export type PublicSettings = ReadingPrefs & {
+  profile: Profile;
+  mastered: Mastered[];
+};
+export async function rpc<T = unknown>(
+  type: string,
+  fields: Record<string, unknown> = {},
+): Promise<T> {
   let response: Result<T>;
-  try { response = typeof chrome !== 'undefined' && chrome.runtime?.id ? await chrome.runtime.sendMessage({ type, ...fields }) : await (await fetch('/api/rpc', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,...fields})})).json(); }
-  catch { throw new Error('扩展连接已中断，请刷新页面后重新开启伴读。'); }
+  try {
+    response =
+      typeof chrome !== 'undefined' && chrome.runtime?.id
+        ? await chrome.runtime.sendMessage({ type, ...fields })
+        : await (
+            await fetch('/api/rpc', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type, ...fields }),
+            })
+          ).json();
+  } catch {
+    throw new Error('扩展连接已中断，请刷新页面后重新开启伴读。');
+  }
   if (!response?.ok) throw new Error(response?.error ?? '扩展没有响应，请重试。');
   return response.data;
 }

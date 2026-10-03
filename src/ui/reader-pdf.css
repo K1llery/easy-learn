@@ -1,31 +1,220 @@
 /* Page/text layout comes from the installed PDF.js viewer (Apache-2.0).
    Keep Canvas and TextLayer geometry owned by the same upstream viewer. */
-.reader-pdf{width:100%;margin:18px 0;min-width:0}
-.pdf-reader-controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px 12px 0 0;padding:12px;font-size:12px}
-.pdf-reader-controls label{margin:0;font-size:12px;font-weight:400;display:flex;align-items:center;gap:6px}
-.pdf-reader-controls input[type=checkbox]{accent-color:#0071e3;width:14px;height:14px}
-.pdf-reader-controls select{font-size:12px;width:auto;padding:6px}
-.pdf-zoom-slider{flex:1;min-width:130px;max-width:230px;flex-wrap:wrap}
-.pdf-zoom-slider>span{width:100%;display:flex;justify-content:space-between;color:var(--secondary)}
-.pdf-zoom-slider input[type=range]{width:100%;padding:0;height:20px;accent-color:#0071e3;border:0;background:transparent;cursor:pointer}
-.pdf-page-jump{display:flex;align-items:center;gap:6px;margin-left:auto}
-.pdf-page-jump input{width:44px;font-size:12px;padding:5px;text-align:center}
-.pdf-page-jump button{font-size:12px;padding:6px 8px}
-.pdf-viewport-frame{position:relative;height:clamp(360px,70vh,1100px);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;overflow:hidden;background:#dedee2}
-.pdf-scroll-container{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;scroll-behavior:auto;color-scheme:only light}
-.pdf-scroll-container:focus-visible{outline:2px solid #0071e3;outline-offset:-2px}
-.reader-pdf .pdfViewer{--page-margin:12px auto;--page-border:0;--pdfViewer-padding-bottom:12px;--page-bg-color:#fff}
-.pdf-scroll-container[data-zoom-mode=page-fit] .pdfViewer .page{margin:2px auto}
-.reader-pdf .pdfViewer .page{box-shadow:0 2px 10px #0002;flex-shrink:0}
-.reader-pdf .pdfViewer:is(.scrollHorizontal,.scrollWrapped),.reader-pdf .pdfViewer .spread{text-align:center}
-.reader-pdf .pdf-word{display:inline;position:static;color:transparent!important;font:inherit;letter-spacing:inherit;word-spacing:inherit;line-height:1;padding:0!important;margin:0;border:0!important;border-radius:1px;min-width:0;background:transparent;box-shadow:none;vertical-align:baseline;transform:none!important;user-select:text;cursor:pointer}
-.reader-pdf .pdf-word.is-ready{background:#007aff25}.reader-pdf .pdf-word.is-pending{background:#8e8e9315}.reader-pdf .pdf-word:hover,.reader-pdf .pdf-word:focus-visible{background:#007aff45}
-.reader-view-switch{display:flex;gap:6px;margin:12px 0}.reader-view-switch button{font-size:12px}.reader-view-switch button[aria-pressed=true]{color:#0071e3;background:var(--selected)}
-.reader-sidebar nav button[data-depth="1"]{padding-left:22px}.reader-sidebar nav button[data-depth="2"]{padding-left:34px}.reader-sidebar nav button[data-depth="3"],.reader-sidebar nav button[data-depth="4"],.reader-sidebar nav button[data-depth="5"]{padding-left:46px}
-.reader-expansion{font-size:13px;color:var(--secondary);overflow-wrap:anywhere}
-@media(max-width:700px){.pdf-reader-controls{gap:10px}.pdf-page-jump{margin-left:0;width:100%;justify-content:center}.pdf-viewport-frame{height:65vh;min-height:350px}.pdf-zoom-slider{min-width:110px}.pdf-section-heading{font-size:22px}}
-.pdf-edit-controls{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border:1px solid var(--line);border-top:0;background:var(--surface)}
-.pdf-edit-controls button{font-size:12px;padding:6px 9px}.pdf-edit-controls button[aria-pressed=true]{background:var(--selected);color:#0071e3;border-color:#0071e3}
-.pdf-scroll-container[data-tool=hand],.pdf-scroll-container[data-tool=hand] .textLayer,.pdf-scroll-container[data-tool=hand] .pdf-word{cursor:grab!important}
-.pdf-scroll-container[data-tool=hand] .textLayer{user-select:none}
-.pdf-scroll-container.is-grabbing,.pdf-scroll-container.is-grabbing *{cursor:grabbing!important;user-select:none!important}
+.reader-pdf {
+  width: 100%;
+  margin: 18px 0;
+  min-width: 0;
+}
+.pdf-reader-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+  padding: 12px;
+  font-size: 12px;
+}
+.pdf-reader-controls label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pdf-reader-controls input[type='checkbox'] {
+  accent-color: #0071e3;
+  width: 14px;
+  height: 14px;
+}
+.pdf-reader-controls select {
+  font-size: 12px;
+  width: auto;
+  padding: 6px;
+}
+.pdf-zoom-slider {
+  flex: 1;
+  min-width: 130px;
+  max-width: 230px;
+  flex-wrap: wrap;
+}
+.pdf-zoom-slider > span {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  color: var(--secondary);
+}
+.pdf-zoom-slider input[type='range'] {
+  width: 100%;
+  padding: 0;
+  height: 20px;
+  accent-color: #0071e3;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.pdf-page-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.pdf-page-jump input {
+  width: 44px;
+  font-size: 12px;
+  padding: 5px;
+  text-align: center;
+}
+.pdf-page-jump button {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.pdf-viewport-frame {
+  position: relative;
+  height: clamp(360px, 70vh, 1100px);
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+  background: #dedee2;
+}
+.pdf-scroll-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  color-scheme: only light;
+}
+.pdf-scroll-container:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: -2px;
+}
+.reader-pdf .pdfViewer {
+  --page-margin: 12px auto;
+  --page-border: 0;
+  --pdfViewer-padding-bottom: 12px;
+  --page-bg-color: #fff;
+}
+.pdf-scroll-container[data-zoom-mode='page-fit'] .pdfViewer .page {
+  margin: 2px auto;
+}
+.reader-pdf .pdfViewer .page {
+  box-shadow: 0 2px 10px #0002;
+  flex-shrink: 0;
+}
+.reader-pdf .pdfViewer:is(.scrollHorizontal, .scrollWrapped),
+.reader-pdf .pdfViewer .spread {
+  text-align: center;
+}
+.reader-pdf .pdf-word {
+  display: inline;
+  position: static;
+  color: transparent !important;
+  font: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  line-height: 1;
+  padding: 0 !important;
+  margin: 0;
+  border: 0 !important;
+  border-radius: 1px;
+  min-width: 0;
+  background: transparent;
+  box-shadow: none;
+  vertical-align: baseline;
+  transform: none !important;
+  user-select: text;
+  cursor: pointer;
+}
+.reader-pdf .pdf-word.is-ready {
+  background: #007aff25;
+}
+.reader-pdf .pdf-word.is-pending {
+  background: #8e8e9315;
+}
+.reader-pdf .pdf-word:hover,
+.reader-pdf .pdf-word:focus-visible {
+  background: #007aff45;
+}
+.reader-view-switch {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.reader-view-switch button {
+  font-size: 12px;
+}
+.reader-view-switch button[aria-pressed='true'] {
+  color: #0071e3;
+  background: var(--selected);
+}
+.reader-sidebar nav button[data-depth='1'] {
+  padding-left: 22px;
+}
+.reader-sidebar nav button[data-depth='2'] {
+  padding-left: 34px;
+}
+.reader-sidebar nav button[data-depth='3'],
+.reader-sidebar nav button[data-depth='4'],
+.reader-sidebar nav button[data-depth='5'] {
+  padding-left: 46px;
+}
+.reader-expansion {
+  font-size: 13px;
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .pdf-reader-controls {
+    gap: 10px;
+  }
+  .pdf-page-jump {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .pdf-viewport-frame {
+    height: 65vh;
+    min-height: 350px;
+  }
+  .pdf-zoom-slider {
+    min-width: 110px;
+  }
+  .pdf-section-heading {
+    font-size: 22px;
+  }
+}
+.pdf-edit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  background: var(--surface);
+}
+.pdf-edit-controls button {
+  font-size: 12px;
+  padding: 6px 9px;
+}
+.pdf-edit-controls button[aria-pressed='true'] {
+  background: var(--selected);
+  color: #0071e3;
+  border-color: #0071e3;
+}
+.pdf-scroll-container[data-tool='hand'],
+.pdf-scroll-container[data-tool='hand'] .textLayer,
+.pdf-scroll-container[data-tool='hand'] .pdf-word {
+  cursor: grab !important;
+}
+.pdf-scroll-container[data-tool='hand'] .textLayer {
+  user-select: none;
+}
+.pdf-scroll-container.is-grabbing,
+.pdf-scroll-container.is-grabbing * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}

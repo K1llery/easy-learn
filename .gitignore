@@ -14,3 +14,7 @@ artifacts/
 dist-workbench/
 dist-workbench-server/
 *.zip
+
+.ruff_cache/
+.venv/
+__pycache__/

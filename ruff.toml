@@ -1,0 +1,7 @@
+target-version = "py310"
+line-length = 100
+include = ["scripts/*.py"]
+extend-exclude = [".cache", "artifacts", "dist", "dist-workbench", "dist-workbench-server", "node_modules"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I"]

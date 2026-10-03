@@ -4,19 +4,8 @@
   "description": "英文技术文章与 PDF 伴读；选段解释、整页选择题测验、订阅账户直连、主动练习与本地复习。",
   "version": "0.16.0",
   "minimum_chrome_version": "120",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage",
-    "contextMenus",
-    "sidePanel",
-    "identity"
-  ],
-  "optional_host_permissions": [
-    "https://*/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
-  ],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "identity"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -31,15 +20,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "panel.html",
-        "assets/*",
-        "vocabulary/*"
-      ],
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ]
+      "resources": ["panel.html", "assets/*", "vocabulary/*"],
+      "matches": ["http://*/*", "https://*/*"]
     }
   ],
   "content_security_policy": {

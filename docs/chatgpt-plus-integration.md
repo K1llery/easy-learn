@@ -35,13 +35,13 @@ CPA（此处指 CLIProxyAPI）可以在本地通过 Codex OAuth 登录，再提�
 
 ## 发布路径比较
 
-| 路径 | 用户步骤 | 能否消耗 Plus 用量 | 适合纯扩展商店安装 | 判断 |
-| --- | --- | --- | --- | --- |
-| 用户自带服务商 API Key | 选预设，粘贴 Key，授权 | 否；使用 API / 服务商额度 | 是 | **近期主路径**；简化为预设后的单字段设置，并明确费用、数据发送及本地凭据风险。 |
-| Easy Learn 自有后端 | 登录 Easy Learn，按产品额度使用 | 否；由运营方支付 API 费用 | 是 | **未来免 Key 路径**；需建账号、计费、用量上限、滥用防护和隐私说明。 |
-| CPA 本地代理 | 当前本机可由项目工具准备、启动，再填本机密钥 | 本机实测使用 Codex 通道 | 否 | 当前个人方案；不作为上架默认方案。 |
-| CPA 云端代理代管用户 ChatGPT 登录 | 用户登录第三方代理 | 技术上可能 | 表面上是 | 不建议：凭据与网页内容经过运营方服务器，账号通道、权限、持续可用性均缺少适合此产品的官方保证。 |
-| 官方 Codex SDK / app-server | 需要服务器端 Node.js 或本机运行环境及 Codex 认证 | Plus 可用于受支持的 Codex 用法 | 否 | 官方支持的是 Codex 代理工作流，不是当前扩展的通用短文本解释接口。[Codex SDK][codex-sdk] |
+| 路径                              | 用户步骤                                         | 能否消耗 Plus 用量             | 适合纯扩展商店安装 | 判断                                                                                           |
+| --------------------------------- | ------------------------------------------------ | ------------------------------ | ------------------ | ---------------------------------------------------------------------------------------------- |
+| 用户自带服务商 API Key            | 选预设，粘贴 Key，授权                           | 否；使用 API / 服务商额度      | 是                 | **近期主路径**；简化为预设后的单字段设置，并明确费用、数据发送及本地凭据风险。                 |
+| Easy Learn 自有后端               | 登录 Easy Learn，按产品额度使用                  | 否；由运营方支付 API 费用      | 是                 | **未来免 Key 路径**；需建账号、计费、用量上限、滥用防护和隐私说明。                            |
+| CPA 本地代理                      | 当前本机可由项目工具准备、启动，再填本机密钥     | 本机实测使用 Codex 通道        | 否                 | 当前个人方案；不作为上架默认方案。                                                             |
+| CPA 云端代理代管用户 ChatGPT 登录 | 用户登录第三方代理                               | 技术上可能                     | 表面上是           | 不建议：凭据与网页内容经过运营方服务器，账号通道、权限、持续可用性均缺少适合此产品的官方保证。 |
+| 官方 Codex SDK / app-server       | 需要服务器端 Node.js 或本机运行环境及 Codex 认证 | Plus 可用于受支持的 Codex 用法 | 否                 | 官方支持的是 Codex 代理工作流，不是当前扩展的通用短文本解释接口。[Codex SDK][codex-sdk]        |
 
 ## 为什么“内置 CPA”不能满足单独安装扩展的目标
 
@@ -69,7 +69,6 @@ Chrome 允许扩展向远程 API 发送请求，但要求扩展的可执行逻�
 [chrome-mv3]: https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements
 [chrome-disclosure]: https://developer.chrome.com/docs/webstore/program-policies/disclosure-requirements
 [chrome-identity]: https://developer.chrome.com/docs/extensions/reference/api/identity
-
 [gpt6-luna]: https://developers.openai.com/api/docs/models/gpt-6-luna
 [reasoning]: https://developers.openai.com/api/docs/guides/reasoning
 [gpt6-migration]: https://developers.openai.com/api/docs/guides/latest-model
