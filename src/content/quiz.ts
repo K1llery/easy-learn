@@ -9,13 +9,21 @@ export function openQuizOverlay(shadow: ShadowRoot, source: () => QuizSource) {
   layer.dataset.easyLearn = '';
   layer.setAttribute('role', 'dialog');
   layer.setAttribute('aria-label', '整页测验');
-  layer.style.cssText = 'position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:16px;background:#00000080;backdrop-filter:blur(2px);pointer-events:auto';
+  layer.style.cssText =
+    'position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:16px;background:#00000080;backdrop-filter:blur(2px);pointer-events:auto';
   const card = document.createElement('div');
-  card.style.cssText = 'width:min(560px,calc(100vw - 32px));max-height:min(80vh,660px);overflow:auto;border-radius:18px';
+  card.style.cssText =
+    'width:min(560px,calc(100vw - 32px));max-height:min(80vh,660px);overflow:auto;border-radius:18px';
   layer.append(card);
   let root: Root | undefined;
-  const close = () => { root?.unmount(); root = undefined; layer.remove(); };
-  layer.addEventListener('mousedown', event => { if (event.target === layer) close(); });
+  const close = () => {
+    root?.unmount();
+    root = undefined;
+    layer.remove();
+  };
+  layer.addEventListener('mousedown', (event) => {
+    if (event.target === layer) close();
+  });
   try {
     root = createRoot(card);
     root.render(createElement(QuizRunner, { source: source(), onClose: close }));

@@ -24,13 +24,13 @@ flowchart LR
 
 各环境的职责如下：
 
-| 环境 | 主要文件 | 能做什么 | 不承担什么 |
-| --- | --- | --- | --- |
-| 工具栏弹窗 | [popup.tsx](../src/ui/popup.tsx)、[start-reading.ts](../src/ui/start-reading.ts) | 找到当前标签页，注入或切换伴读脚本 | 不分析正文、不直接调用模型 |
-| 网页内容脚本 | [content/index.ts](../src/content/index.ts)、[content/](../src/content/) | 读取可见正文、寻找候选、绘制注释、管理网页浮窗 | 不读取保存的 API Key |
-| 扩展后台 Service Worker | [background.ts](../src/background.ts) | 检查消息来源与权限、排队、缓存、请求模型、持久化数据 | 不直接操作网页 DOM |
-| 扩展页面 | [options.tsx](../src/ui/options.tsx)、[panel.tsx](../src/ui/panel.tsx)、[review.tsx](../src/ui/review.tsx) | 配置模型、展示解释/翻译、练习和复习 | 不把密钥注入网页 |
-| 模型适配层 | [core/ai.ts](../src/core/ai.ts)、[providers.ts](../src/core/providers.ts) | 组装 Chat Completions 请求、处理流式响应、解析结果 | 不决定网页哪里应被标注 |
+| 环境                    | 主要文件                                                                                                   | 能做什么                                             | 不承担什么                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------- |
+| 工具栏弹窗              | [popup.tsx](../src/ui/popup.tsx)、[start-reading.ts](../src/ui/start-reading.ts)                           | 找到当前标签页，注入或切换伴读脚本                   | 不分析正文、不直接调用模型 |
+| 网页内容脚本            | [content/index.ts](../src/content/index.ts)、[content/](../src/content/)                                   | 读取可见正文、寻找候选、绘制注释、管理网页浮窗       | 不读取保存的 API Key       |
+| 扩展后台 Service Worker | [background.ts](../src/background.ts)                                                                      | 检查消息来源与权限、排队、缓存、请求模型、持久化数据 | 不直接操作网页 DOM         |
+| 扩展页面                | [options.tsx](../src/ui/options.tsx)、[panel.tsx](../src/ui/panel.tsx)、[review.tsx](../src/ui/review.tsx) | 配置模型、展示解释/翻译、练习和复习                  | 不把密钥注入网页           |
+| 模型适配层              | [core/ai.ts](../src/core/ai.ts)、[providers.ts](../src/core/providers.ts)                                  | 组装 Chat Completions 请求、处理流式响应、解析结果   | 不决定网页哪里应被标注     |
 
 这里的“后台”是 Chrome 的 Service Worker，具有事件驱动的生命周期；不要把它理解为一直运行的服务器进程。[connection.ts](../src/core/connection.ts) 在伴读页面或面板打开期间通过 Port 发送扩展内部心跳，这不调用模型。网页中的 panel 以扩展页面 iframe 呈现；PDF 右键选段使用浏览器侧栏，整份 PDF 阅读使用独立的伴读页。
 
@@ -72,24 +72,24 @@ flowchart LR
 
 先看 [types.ts](../src/core/types.ts)。它用 Zod 同时定义运行时校验和 TypeScript 类型：
 
-| 类型 | 作用 |
-| --- | --- |
-| `Config` | 模型地址、模型名、访问密钥和学习偏好 |
-| `TextContext` | 标题、章节、当前文本及可选的邻段/整节 |
-| `Candidate` | 本地找出的待解释片段，含 ID、类别和短语境 |
-| `Concept` | 可标注到原文的解释结果 |
-| `AIRequest` | `analyze`、`explain`、`choice`、`quiz`、`evaluate`、`pageQuiz` 六种模型任务 |
+| 类型          | 作用                                                                        |
+| ------------- | --------------------------------------------------------------------------- |
+| `Config`      | 模型地址、模型名、访问密钥和学习偏好                                        |
+| `TextContext` | 标题、章节、当前文本及可选的邻段/整节                                       |
+| `Candidate`   | 本地找出的待解释片段，含 ID、类别和短语境                                   |
+| `Concept`     | 可标注到原文的解释结果                                                      |
+| `AIRequest`   | `analyze`、`explain`、`choice`、`quiz`、`evaluate`、`pageQuiz` 六种模型任务 |
 
 模型不保证每次严格返回 JSON，所以 [model-output.ts](../src/core/model-output.ts) 先归一化兼容形式，再用 Zod 校验。自动注释还会从不完整的流中保留**已完整且可对应候选的条目**；失败项可单独重试，不自动追加付费修复请求。
 
-| 数据层 | 保存什么 | 生命周期 |
-| --- | --- | --- |
-| 内容脚本的 `workByKey` 与本地词典 | 当前页面的候选、状态、即时释义 | 伴读关闭或页面结束即消失 |
-| 后台 `SessionCache` | 某文档的完整模型响应 | 内存中，按作用域管理；每个缓存最多 150 条 |
-| `annotationCacheV1` | 术语、缩写、词汇的短释义 | `chrome.storage.local`；最多 500 条、30 天，语境参与哈希键 |
-| `config`、`reading`、`mastered` | 服务配置、开关、隐藏记录 | `chrome.storage.local` |
-| `learningCardsV1` | 用户主动保存的练习与实践记录 | `chrome.storage.local`；最多 50 条、约 2 MB |
-| `pdfSelection:<tabId>` | 右键选中的 PDF 文字 | `chrome.storage.session`；侧栏取走即删除 |
+| 数据层                            | 保存什么                       | 生命周期                                                   |
+| --------------------------------- | ------------------------------ | ---------------------------------------------------------- |
+| 内容脚本的 `workByKey` 与本地词典 | 当前页面的候选、状态、即时释义 | 伴读关闭或页面结束即消失                                   |
+| 后台 `SessionCache`               | 某文档的完整模型响应           | 内存中，按作用域管理；每个缓存最多 150 条                  |
+| `annotationCacheV1`               | 术语、缩写、词汇的短释义       | `chrome.storage.local`；最多 500 条、30 天，语境参与哈希键 |
+| `config`、`reading`、`mastered`   | 服务配置、开关、隐藏记录       | `chrome.storage.local`                                     |
+| `learningCardsV1`                 | 用户主动保存的练习与实践记录   | `chrome.storage.local`；最多 50 条、约 2 MB                |
+| `pdfSelection:<tabId>`            | 右键选中的 PDF 文字            | `chrome.storage.session`；侧栏取走即删除                   |
 
 缓存键会区分模型、服务地址、学习偏好和语境；同为“DR”也不能跨语境直接复用。[Queue](../src/core/session.ts) 限制同时最多两个模型请求，并让主动解释/翻译优先于**排队中**的自动注释，不中断已经发出的请求。内容脚本的 `generation`、面板的 `epoch` 与 `AbortController` 用来丢弃切页、关面板或改设置后的过期结果。学习记录的 `revision` 则处理两个界面同时修改同一条记录的问题。
 
