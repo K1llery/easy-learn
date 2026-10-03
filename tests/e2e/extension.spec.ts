@@ -41,7 +41,11 @@ function output(request: any) {
     {question:'灾难恢复的主要目的是什么？',options:[{id:'A',text:'在区域故障后从其他区域恢复服务'},{id:'B',text:'提高写入速度'},{id:'C',text:'减少存储成本'},{id:'D',text:'简化部署'}],correctOption:'A',explanation:'原文说明 DR 让系统在整个区域不可用时，仍能从其他区域恢复服务。',evidence:request.context.text.includes('Disaster recovery keeps')?'Disaster recovery keeps a second copy of data in another region.':'Use DR to recover from a regional failure.'},
     {question:'为什么副本不能只放在本机房？',options:[{id:'A',text:'本机房磁盘更贵'},{id:'B',text:'单一区域故障时本地副本可能一起不可用'},{id:'C',text:'副本协议限制'},{id:'D',text:'备份窗口不够'}],correctOption:'B',explanation:'正文提到区域故障时本地副本可能一起不可用。'}
   ]};
-  return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。' : ''};
+  const translation = request.context?.translationMarker
+    ? request.context.text.replace(/⟦(EL\d*):(\d+)⟧([\s\S]*?)⟦\/\1:\2⟧/g,
+      (_: string, marker: string, id: string, text: string) => `⟦${marker}:${id}⟧中文：${text}⟦/${marker}:${id}⟧`)
+    : '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。';
+  return {meaning:request.concept?.meaning ?? '灾难恢复',expansion:request.concept?.expansion ?? 'Disaster Recovery',evidence:'原文提到 regional failure。',ambiguity:'',explanation:request.mode === 'followup' ? '普通备份保存数据；灾难恢复还包括切换服务与恢复流程。' : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',example:'主机房断电时，备用机房继续提供服务。',prerequisites:[{term:'副本',explanation:'保存在另一处的数据拷贝。'}],translation:request.mode === 'translate' ? translation : ''};
 }
 async function currentWorker():Promise<Worker> { const active=context.serviceWorkers()[0];if(active){worker=active;return active;}worker=await context.waitForEvent('serviceworker');return worker; }
 async function rpc(type: string, fields: Record<string, unknown> = {}) { return (await currentWorker()).evaluate(async ({type,fields}) => { return chrome.runtime.sendMessage({type,...fields}); }, {type,fields}); }
@@ -831,6 +835,101 @@ test('translation pauses on rate limits and resumes only after the reader reques
   await page.getByRole('button', {name: '继续翻译', exact: true}).click();
   await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(8);
   await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('8/8 段');
+  await page.close();
+});
+
+test('full-page translation keeps source typography, nested emphasis and responsive styling', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?translation-format=1`);
+  await page.evaluate(() => {
+    document.head.insertAdjacentHTML('beforeend', `<style>
+      .typography {font:19px/1.6 Georgia,serif;color:rgb(32,51,72)}
+      .typography h1 {font:800 38px/1.15 Georgia,serif;color:rgb(120,40,90);letter-spacing:1px}
+      .typography h2 {font-size:27px;font-weight:650;text-align:center}
+      .typography strong {font-weight:800}
+      .typography mark {background:rgb(255,225,90);color:rgb(80,45,10)}
+      .typography .accent {color:rgb(10,100,170);font-size:22px;text-decoration:underline}
+      .typography #format-body {opacity:.75;background:rgba(255,120,20,.1)}
+      .typography li {font-size:21px;color:rgb(65,90,35);opacity:.8;background:rgba(100,180,60,.1)}
+      .typography td {font-size:17px;font-style:italic}
+      @media(max-width:800px) {.typography h1{font-size:30px}.typography .accent{font-size:18px}}
+    </style>`);
+    document.body.innerHTML = `<article class="typography">
+      <h1 id="format-title">Reading with emphasis</h1><h2 id="format-section">Daily reading</h2>
+      <p id="format-body">Read <strong id="format-bold">carefully</strong>, <mark id="format-mark"><strong><em id="format-nested">important</em></strong></mark>, <span id="format-accent" class="accent">colored</span>, <del id="format-deleted">old</del>, H<sub id="format-sub">2</sub>O.<br id="format-break"><span id="format-hidden-break" style="display:none"><br></span><a id="format-link" href="#format-section">Next section</a><span hidden>Hidden text</span></p>
+      <ul><li id="format-list">Read <b id="format-list-bold">today</b>.</li></ul>
+      <table><tbody><tr><td id="format-cell">A <mark id="format-cell-mark">notice</mark>.</td></tr></tbody></table>
+    </article>`;
+  });
+  const original = await page.locator('article').innerHTML();
+  const sourceNodes = await page.locator('article').evaluateHandle(el => [...el.querySelectorAll('*')]);
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', {name:'翻译全文',exact:true}).click();
+  await expect(page.getByRole('status').filter({hasText:'全文翻译'})).toContainText('5/5 段');
+  const rootStyles = async () => page.evaluate(() => {
+    const properties = ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','color','textAlign'];
+    return ['format-title','format-section','format-body','format-list','format-cell'].map(id => {
+      const source = document.getElementById(id)!;
+      const translation = /^(LI|TD)$/.test(source.tagName) ? source.querySelector('[data-easy-learn="translation"]')! : source.nextElementSibling!;
+      const pick = (el: Element) => Object.fromEntries(properties.map(key => [key,(getComputedStyle(el) as any)[key]]));
+      return {source:pick(source),translation:pick(translation)};
+    });
+  });
+  for (const pair of await rootStyles()) expect(pair.translation).toEqual(pair.source);
+  const emphasis = await page.evaluate(() => {
+    const pairs: Record<string,string[]> = {
+      'format-bold':['fontWeight'], 'format-nested':['fontWeight','fontStyle','color'],
+      'format-accent':['fontSize','color','textDecorationLine'], 'format-deleted':['textDecorationLine'],
+      'format-sub':['fontSize','verticalAlign'], 'format-list-bold':['fontWeight'],
+      'format-cell-mark':['backgroundColor','color'], 'format-link':['color','textDecorationLine'],
+    };
+    return Object.entries(pairs).map(([id,properties]) => {
+      const source = document.getElementById(id)!;
+      const translated = [...document.querySelectorAll('[data-easy-learn="translation"] span')]
+        .find(el => el.textContent === `中文：${source.textContent}`)!;
+      return properties.map(key => ({id,key,source:(getComputedStyle(source) as any)[key],translation:(getComputedStyle(translated) as any)[key]}));
+    }).flat();
+  });
+  for (const pair of emphasis) expect(pair.translation,`${pair.id}: ${pair.key}`).toBe(pair.source);
+  const nested = page.locator('[data-easy-learn="translation"] span').filter({hasText:'中文：important'});
+  await expect(nested).toHaveCSS('background-color','rgb(255, 225, 90)');
+  await expect(page.locator('#format-list > [data-easy-learn="translation"]')).toHaveCSS('opacity','1');
+  await expect(page.locator('#format-list > [data-easy-learn="translation"]')).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+  await expect(page.locator('#format-body + [data-easy-learn="translation"]')).toHaveCSS('opacity','0.75');
+  await expect(page.locator('#format-body + [data-easy-learn="translation"]')).toHaveCSS('background-color','rgba(255, 120, 20, 0.1)');
+  for (const selector of ['#format-body + [data-easy-learn="translation"]','#format-list > [data-easy-learn="translation"]']) {
+    const spans = page.locator(`${selector} span`);
+    await expect(spans.filter({hasText:'中文：Read'})).toHaveCSS('opacity','1');
+    await expect(spans.filter({hasText:'中文：Read'})).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+    await expect(spans.filter({hasText:selector.includes('body')?'中文：carefully':'中文：today'})).toHaveCSS('opacity','1');
+  }
+  await expect(page.locator('#format-body + [data-easy-learn="translation"] br')).toHaveCount(1);
+  const translatedText = (await page.locator('[data-easy-learn="translation"]').allTextContents()).join('');
+  expect(translatedText).not.toContain('⟦EL:');
+  expect(translatedText).not.toContain('Hidden text');
+  expect(await page.locator('article').evaluate((el,nodes) => {
+    const copy=el.cloneNode(true) as Element;
+    copy.querySelectorAll('[data-easy-learn]').forEach(node=>node.remove());
+    return {html:copy.innerHTML,same:nodes.every(node=>el.contains(node))};
+  },sourceNodes)).toEqual({html:original,same:true});
+  const count = calls.filter(call=>call.mode==='translate').length;
+  await page.locator('#format-break').evaluate(el=>(el as HTMLElement).style.display='none');
+  await expect(page.locator('#format-body + [data-easy-learn="translation"] br')).toHaveCount(0);
+  await page.locator('#format-hidden-break').evaluate(el=>(el as HTMLElement).style.display='inline');
+  await expect(page.locator('#format-body + [data-easy-learn="translation"] br')).toHaveCount(1);
+  await page.locator('#format-section').evaluate(el=>(el as HTMLElement).style.fontSize='32px');
+  await expect(page.locator('#format-section + [data-easy-learn="translation"]')).toHaveCSS('font-size','32px');
+  await page.setViewportSize({width:760,height:1000});
+  await expect(page.locator('#format-title + [data-easy-learn="translation"]')).toHaveCSS('font-size','30px');
+  for (const pair of await rootStyles()) expect(pair.translation).toEqual(pair.source);
+  await page.getByRole('button',{name:'还原原文',exact:true}).click();
+  await page.getByRole('button',{name:'翻译全文',exact:true}).click();
+  await expect(page.locator('#format-title + [data-easy-learn="translation"]')).toHaveCSS('font-size','30px');
+  expect(calls.filter(call=>call.mode==='translate')).toHaveLength(count);
+  await page.screenshot({path:'test-results/full-page-translation-format.png',fullPage:true});
+  await page.locator('#format-link').click();
+  expect(page.url()).toContain('#format-section');
   await page.close();
 });
 

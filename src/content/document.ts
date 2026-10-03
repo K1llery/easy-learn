@@ -1,26 +1,29 @@
 import type { TextContext } from '../core/types';
 const EXCLUDE = 'nav,header,footer,aside,script,style,noscript,textarea,input,select,button,[contenteditable]:not([contenteditable="false"]),[role="navigation"],[role="banner"],[role="complementary"],[aria-hidden="true"],[hidden],[data-ad],[data-ad-slot],.advertisement,.ads,[data-easy-learn]';
 export type Block = { element: HTMLElement; text: string; heading: string; sectionId: number; kind?: 'prose' | 'command' | 'code'; offset?: number; sourceText?: string };
-function textNodes(element: Element) {
+export function isReadableElement(element: Element, visibility = new Map<Element, boolean>()) {
+  if (element.closest(EXCLUDE)) return false;
+  for (let el: Element | null = element; el; el = el.parentElement) {
+    let hidden = visibility.get(el);
+    if (hidden === undefined) {
+      const style = getComputedStyle(el);
+      hidden = style.display === 'none' || style.visibility === 'hidden';
+      visibility.set(el, hidden);
+    }
+    if (hidden) return false;
+  }
+  return true;
+}
+export function readableTextNodes(element: Element) {
   const visibility = new Map<Element, boolean>();
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, { acceptNode(node) {
     const parent = node.parentElement;
-    if (!parent || parent.closest(EXCLUDE)) return NodeFilter.FILTER_REJECT;
-    for (let el: Element | null = parent; el; el = el.parentElement) {
-      let hidden = visibility.get(el);
-      if (hidden === undefined) {
-        const style = getComputedStyle(el);
-        hidden = style.display === 'none' || style.visibility === 'hidden';
-        visibility.set(el, hidden);
-      }
-      if (hidden) return NodeFilter.FILTER_REJECT;
-    }
-    return NodeFilter.FILTER_ACCEPT;
+    return parent && isReadableElement(parent, visibility) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
   } });
   const nodes: Text[] = []; while (walker.nextNode()) nodes.push(walker.currentNode as Text);
   return nodes;
 }
-export function readableText(element: Element): string { return textNodes(element).map(n => n.data).join('').trim(); }
+export function readableText(element: Element): string { return readableTextNodes(element).map(n => n.data).join('').trim(); }
 const SHELL_COMMANDS = 'apt|apt-get|awk|basename|bash|brew|cargo|cat|cd|conda|go|pipx|poetry|chmod|chown|clear|cmp|comm|cp|curl|cut|date|diff|dirname|docker|echo|env|export|fastapi|file|find|git|grep|gunzip|head|hostname|jq|kill|less|ln|ls|make|man|mkdir|mktemp|more|mv|nc|node|npm|npx|openssl|pgrep|pip3?|pkill|pnpm|printf|ps|pwd|python3?|rm|rmdir|rsync|ruff|sed|seq|sh|sort|source|ssh|stat|sudo|tail|tar|tee|time|touch|tr|true|uname|uniq|uvx?|vim|wc|wget|which|whoami|xargs|yarn';
 const COMMAND = new RegExp('^(?:\\$\\s+)?(?:(?:sudo|time|command)\\s+(?:-[^\\s]+\\s+)*)?(?:' + SHELL_COMMANDS + ')(?=\\s|$)', 'i');
 const SHELL_PROMPT = /^(?:\([^)]+\)\s+)?(?:(?:[\w.-]+@[\w.-]+)\s*:?[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|[\w.-]+[ \t]*:[ \t]*(?:~|\/[^$#>\n]*|[^$#>\n]*)[#$][ \t]*|PS\s+[^>\n]*>\s*)/i;
@@ -97,7 +100,7 @@ export function contextFor(block: Block, blocks: Block[], expanded = false): Tex
     ...(expanded ? { section: blocks.filter(b => b.sectionId === block.sectionId).map(b => b.text).join('\n').slice(0, 24000) } : {}) };
 }
 export function locateText(element: HTMLElement, anchor: string, offset = 0): Range | null {
-  const nodes = textNodes(element), raw = nodes.map(n => n.data).join('');
+  const nodes = readableTextNodes(element), raw = nodes.map(n => n.data).join('');
   const leading = raw.length - raw.trimStart().length;
   const start = raw.indexOf(anchor, leading + offset); if (start < 0 || !anchor) return null;
   const end = start + anchor.length; let position = 0; const range = document.createRange(); let started = false;

@@ -38,7 +38,7 @@ export function normalizeAnnotationTypes(value: unknown): AnnotationType[] {
   if (!Array.isArray(value)) return [...defaultAnnotationTypes];
   return [...new Set(value.filter((item): item is AnnotationType => typeof item === 'string' && annotationTypeValues.includes(item as AnnotationType)))];
 }
-export const contextSchema = z.object({ title: z.string().max(500), heading: z.string().max(500), text: z.string().min(1).max(16000), before: z.string().max(4000), after: z.string().max(4000), section: z.string().max(24000).optional(), kind: z.enum(['prose', 'command', 'code']).optional() });
+export const contextSchema = z.object({ title: z.string().max(500), heading: z.string().max(500), text: z.string().min(1).max(16000), before: z.string().max(4000), after: z.string().max(4000), section: z.string().max(24000).optional(), kind: z.enum(['prose', 'command', 'code']).optional(), translationMarker: z.string().regex(/^EL\d*$/).max(32).optional() });
 export type TextContext = z.infer<typeof contextSchema>;
 export const conceptSchema = z.object({ anchor: z.string().min(1).max(500), category: z.enum(['缩写', '术语', '词汇', '背景', '命令', '代码']), meaning: z.string().min(1).max(300), expansion: z.string().max(300), evidence: z.string().max(1500), ambiguity: z.string().max(1500), summary: z.string().max(1200).default(''), id:z.string().max(20).optional(), parts: z.array(z.object({ text: z.string().min(1).max(300), explanation: z.string().min(1).max(600) })).max(16).default([]) });
 export type Concept = z.input<typeof conceptSchema>;

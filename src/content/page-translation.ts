@@ -1,13 +1,9 @@
-import { extractBlocks, isExtensionMutation, matchesSnapshot, type Block } from './document';
+import { extractBlocks, isExtensionMutation, matchesSnapshot, readableTextNodes, type Block } from './document';
 import { readingPriority } from './reading-order';
 import type { TextContext } from '../core/types';
+import { applyTextStyle, formattedTranslation, textStyle, translatedRuns, translationParts, type TranslationPart } from './translation-format';
 
-type Part = {
-  source: string;
-  translation?: string;
-  state: 'pending' | 'loading' | 'ready' | 'failed';
-};
-type Unit = { block: Block; parts: Part[]; node?: HTMLElement };
+type Unit = { block: Block; parts: TranslationPart[]; sourceNodes: {node: Text; parent: Element | null}[]; sourceBreaks: Element[]; node?: HTMLElement; rendered?: string };
 export type TranslationStatus = {
   visible: boolean;
   paused: boolean;
@@ -21,23 +17,7 @@ type Options = {
   concurrency: () => number;
   changed: (status: TranslationStatus) => void;
 };
-export const translationStyle = `.easy-learn-translation{display:block!important;margin:8px 0 15px;padding:0 0 0 12px;border-left:2px solid #0071e344;color:inherit;font:400 .95em/1.7 system-ui;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.88}.easy-learn-translation[hidden]{display:none!important}`;
-
-function splitParagraph(text: string): Part[] {
-  const result: Part[] = [];
-  while (text) {
-    let end = Math.min(text.length, 2000);
-    if (end < text.length) {
-      const boundary = text.lastIndexOf(' ', end);
-      if (boundary > 1000) end = boundary;
-      if (/[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-    }
-    const source = text.slice(0, end).trim();
-    if (source) result.push({ source, state: 'pending' });
-    text = text.slice(end).trimStart();
-  }
-  return result;
-}
+export const translationStyle = `.easy-learn-translation{display:block!important;margin:8px 0 15px;padding:0 0 0 12px;border-left:2px solid #0071e344;white-space:pre-wrap!important;overflow-wrap:anywhere!important}.easy-learn-translation[hidden]{display:none!important}.easy-learn-translation span{display:inline!important;margin:0!important;padding:0!important;border:0!important;float:none!important;position:static!important}`;
 
 /** 原文节点不替换；译文与请求状态只保留在当前页面。 */
 export class PageTranslation {
@@ -51,16 +31,18 @@ export class PageTranslation {
   private timer = 0;
   private canceling: Promise<unknown> | undefined;
   private observer: MutationObserver;
+  private onResize = () => this.schedule();
 
   constructor(private options: Options) {
     this.observer = new MutationObserver(records => {
       const displaced = [...this.units.values()].some(unit => unit.node && !this.isPlaced(unit));
       if (!records.every(isExtensionMutation) || displaced) this.schedule();
     });
-    this.observer.observe(document.body, {
+    this.observer.observe(document.documentElement, {
       childList: true, characterData: true, subtree: true, attributes: true,
       attributeFilter: ['hidden', 'aria-hidden', 'style', 'class'],
     });
+    window.addEventListener('resize', this.onResize);
   }
 
   start() {
@@ -81,6 +63,7 @@ export class PageTranslation {
       for (const unit of this.units.values()) {
         unit.node?.remove();
         unit.node = undefined;
+        unit.rendered = undefined;
       }
     });
     this.notify();
@@ -123,6 +106,7 @@ export class PageTranslation {
   dispose() {
     this.restore();
     this.observer.disconnect();
+    window.removeEventListener('resize', this.onResize);
     clearTimeout(this.timer);
   }
 
@@ -142,7 +126,7 @@ export class PageTranslation {
       .filter(block => block.kind === 'prose' && /\p{L}/u.test(block.text));
     const live = new Set(blocks.map(block => block.element));
     for (const [element, unit] of this.units) {
-      if (!live.has(element) || !matchesSnapshot(unit.block)) {
+      if (!live.has(element) || !this.matchesUnit(unit)) {
         this.preservePosition(() => unit.node?.remove());
         this.units.delete(element);
       }
@@ -150,7 +134,10 @@ export class PageTranslation {
     for (const block of blocks) {
       let unit = this.units.get(block.element);
       if (!unit) {
-        unit = { block, parts: splitParagraph(block.text) };
+        unit = { block, parts: translationParts(block),
+          sourceNodes: readableTextNodes(block.element).map(node => ({node, parent: node.parentElement})),
+          sourceBreaks: this.sourceBreaks(block.element),
+        };
         this.units.set(block.element, unit);
       }
       this.render(unit);
@@ -159,12 +146,18 @@ export class PageTranslation {
   }
 
   private render(unit: Unit) {
-    if (!this.visible || !matchesSnapshot(unit.block)) return;
+    if (!this.visible || !this.matchesUnit(unit)) return;
     // 按原文顺序拼接，保留尚未完成的片段位置。
-    const translation = unit.parts.map(part => part.translation ?? '').join('\n');
-    if (!translation.trim() || (unit.node?.textContent === translation && this.isPlaced(unit))) return;
+    if (!unit.parts.some(part => part.translation?.trim())) return;
+    const inline = /^(LI|TD)$/.test(unit.block.element.tagName);
+    const style = textStyle(unit.block.element);
+    // 列表/单元格内的译文已经处于原文背景和透明度之下，避免叠加两次。
+    if (inline) { style.opacity = '1'; style['background-color'] = 'transparent'; }
+    const formatted = unit.parts.map(part => part.translation ? formattedTranslation(part, unit.block.element) : undefined);
+    const signature = JSON.stringify([style, formatted.map(part => part?.pieces.map(piece =>
+      [piece.text, piece.run?.breakBefore, piece.style]))]);
+    if (unit.node && unit.rendered === signature && this.isPlaced(unit)) return;
     this.preservePosition(() => {
-      const inline = /^(LI|TD)$/.test(unit.block.element.tagName);
       if (!unit.node) {
         unit.node = document.createElement(inline ? 'span' : 'div');
         unit.node.dataset.easyLearn = 'translation';
@@ -176,7 +169,25 @@ export class PageTranslation {
         if (inline) unit.block.element.append(unit.node);
         else unit.block.element.after(unit.node);
       }
-      if (unit.node.textContent !== translation) unit.node.textContent = translation;
+      applyTextStyle(unit.node, style);
+      if (unit.rendered !== signature) {
+        const content = document.createDocumentFragment();
+        for (const part of formatted) {
+          if (!part) continue;
+          if (!part.valid) this.error = '部分译文未保留格式标记，已显示完整文字；可还原原文查看强调内容。';
+          for (const piece of part.pieces) {
+            for (let i = 0; i < (piece.run?.breakBefore ?? 0); i++) content.append(document.createElement('br'));
+            if (piece.style) {
+              const span = document.createElement('span');
+              applyTextStyle(span, piece.style);
+              span.textContent = piece.text;
+              content.append(span);
+            } else content.append(document.createTextNode(piece.text));
+          }
+        }
+        unit.node.replaceChildren(content);
+        unit.rendered = signature;
+      }
     });
   }
 
@@ -185,6 +196,19 @@ export class PageTranslation {
     return /^(LI|TD)$/.test(unit.block.element.tagName)
       ? unit.node.parentElement === unit.block.element
       : unit.node.previousElementSibling === unit.block.element;
+  }
+
+  private matchesUnit(unit: Unit) {
+    if (!matchesSnapshot(unit.block)) return false;
+    const nodes = readableTextNodes(unit.block.element);
+    const breaks = this.sourceBreaks(unit.block.element);
+    return breaks.length === unit.sourceBreaks.length && breaks.every((node, index) => node === unit.sourceBreaks[index]) &&
+      nodes.length === unit.sourceNodes.length && nodes.every((node, index) =>
+      node === unit.sourceNodes[index].node && node.parentElement === unit.sourceNodes[index].parent);
+  }
+
+  private sourceBreaks(element: HTMLElement) {
+    return [...element.querySelectorAll('br')].filter(node => !node.closest('[data-easy-learn]'));
   }
 
   private preservePosition(change: () => void) {
@@ -233,7 +257,7 @@ export class PageTranslation {
       return readingPriority(x.top, x.bottom, innerHeight) - readingPriority(y.top, y.bottom, innerHeight);
     });
     while (this.inflight < this.options.concurrency()) {
-      const unit = ordered.find(candidate => matchesSnapshot(candidate.block) && candidate.parts.some(part => part.state === 'pending'));
+      const unit = ordered.find(candidate => this.matchesUnit(candidate) && candidate.parts.some(part => part.state === 'pending'));
       const part = unit?.parts.find(part => part.state === 'pending');
       if (!unit || !part) break;
       this.dispatch(unit, part);
@@ -241,16 +265,17 @@ export class PageTranslation {
     this.notify();
   }
 
-  private dispatch(unit: Unit, part: Part) {
+  private dispatch(unit: Unit, part: TranslationPart) {
     part.state = 'loading';
     this.inflight++;
     const epoch = this.epoch;
     void this.options.request({
       title: document.title.slice(0, 500), heading: unit.block.heading,
       text: part.source, before: '', after: '',
+      ...(part.marker ? {translationMarker: part.marker} : {}),
     }).then(translation => {
-      if (epoch !== this.epoch || this.units.get(unit.block.element) !== unit || !matchesSnapshot(unit.block)) return;
-      if (!translation.trim()) throw new Error('此段未收到有效译文，请手动继续。');
+      if (epoch !== this.epoch || this.units.get(unit.block.element) !== unit || !this.matchesUnit(unit)) return;
+      if (!translatedRuns({...part, translation}).pieces.some(piece => piece.text.trim())) throw new Error('此段未收到有效译文，请手动继续。');
       part.translation = translation;
       part.state = 'ready';
       this.render(unit);

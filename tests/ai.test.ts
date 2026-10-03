@@ -56,6 +56,18 @@ it('uses GPT-6 Luna without reasoning for compact translations and low effort ot
  expect(explainBody.reasoning_effort).toBe('low');
  expect(explainBody).not.toHaveProperty('temperature');
 });
+
+it('serializes inline format markers and instructs only marked translations to preserve them', async () => {
+ const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async()=>response('{"translation":"⟦EL:0⟧重要⟦/EL:0⟧"}'));
+ const context={...request.context,text:'⟦EL:0⟧Important⟦/EL:0⟧',translationMarker:'EL'};
+ await callModel(config,{operation:'explain',mode:'translate',context});
+ const body=JSON.parse(fetcher.mock.calls[0][1]!.body as string);
+ expect(JSON.parse(body.messages[1].content).context).toEqual(context);
+ expect(body.messages[0].content).toContain('每对标记必须原样保留一次');
+ expect(body.messages[0].content).toContain('不得嵌套、删除、新增或改写标记');
+ await callModel(config,{operation:'explain',mode:'translate',context:request.context});
+ expect(JSON.parse(fetcher.mock.calls[1][1]!.body as string).messages[0].content).not.toContain('行内格式标记');
+});
 it('never makes a paid automatic repair request on unusable output',async()=>{
  const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async()=>response('无法对应两个候选的自由文本'));
  await expect(callModel(config,request)).rejects.toThrow('未自动重试');expect(fetcher).toHaveBeenCalledTimes(1);

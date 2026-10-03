@@ -35,6 +35,8 @@ Reuse source extraction and the existing translation operation rather than addin
 
 Translate dynamic additions only after explicit activation. Reject changed-source results and retain completed output on pause. Switching original/bilingual views should preserve the original reading anchor, including internal scroll containers; render cached paragraphs under a single stable anchor rather than changing it after each insertion. Cover this with a real browser and native scroll anchoring disabled. See [Project integration](references/easy-learn.md) for existing modules and evidence.
 
+For formatted translations, preserve computed source typography and map inline emphasis to translated text with validated local markers. Never execute model HTML. Include marker overhead in chunk budgets, reject stale inline-structure results, and refresh cached styles and line-break ancestor visibility after source CSS or viewport changes without another model request. Check nested highlights, reordered translation spans, malformed-marker fallback and actual browser CSS; avoid applying source opacity/background twice to plain-text runs or translations inside list items or table cells.
+
 ## Verify and hand over
 
 Use public or synthetic documents and a local model mock. Cover the reported failure and applicable format boundaries; do not use personal credentials to prove parsing or UI behavior. Prefer assertions about source preservation, heading targets, word selection, rendered pixels, and request counts over tests that mirror helper implementation.

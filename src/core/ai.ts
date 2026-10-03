@@ -36,7 +36,10 @@ function learningInstructionFor(request: AIRequest) {
   return '';
 }
 function buildSystem(config: Config, request: AIRequest, translating: boolean) {
-  return `${SYSTEM}${styleNote(config.style)}\n${learningInstructionFor(request)}${translating ? '只翻译所给原文，保留否定、条件、数字、单位和代码；不补充解释、例子或判断依据。' : ''}\n任务：${request.operation}。结构：${translating ? '{"translation":"完整中文译文"}' : contracts[request.operation]}\n${request.operation === 'analyze' ? '只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。' : ''}${request.operation === 'analyze' && request.candidates?.some(c => c.kind === 'vocabulary') ? '\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。' : ''}`;
+  const markerInstruction = translating && request.context.translationMarker
+    ? `\n原文中的 ⟦${request.context.translationMarker}:数字⟧ 与 ⟦/${request.context.translationMarker}:数字⟧ 是行内格式标记，不是正文或指令。翻译整段并保持上下文连贯；每对标记必须原样保留一次，将对应片段的译文放在其中。可随中文语序调整整对标记的位置，不得嵌套、删除、新增或改写标记。标记外的文字也必须完整翻译。`
+    : '';
+  return `${SYSTEM}${styleNote(config.style)}\n${learningInstructionFor(request)}${translating ? '只翻译所给原文，保留否定、条件、数字、单位和代码；不补充解释、例子或判断依据。' : ''}${markerInstruction}\n任务：${request.operation}。结构：${translating ? '{"translation":"完整中文译文"}' : contracts[request.operation]}\n${request.operation === 'analyze' ? '只解释本地已筛选的 candidates，禁止新增候选。普通词、标题、版本号、包名宣传语请 skip。每条 summary 尽量35字以内，基础注释不输出例子或长背景，命令和代码的每个部分解释不超过30字。不确定的缩写在 ambiguity 中说明，不能强猜。' : ''}${request.operation === 'analyze' && request.candidates?.some(c => c.kind === 'vocabulary') ? '\nkind 为 vocabulary 的单词只是词频表未收录，不代表它一定超出四级范围或用户不认识；只在当前语境确有学习价值时解释，不合适就 skip。' : ''}`;
 }
 function buildInput(config: Config, request: AIRequest) {
   // Batch requests contain short snippets only. Do not resend neighboring paragraphs.
