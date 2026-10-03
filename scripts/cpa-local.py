@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Manage a private, localhost-only CLIProxyAPI for personal Easy Learn use."""
+
 import argparse
 import base64
 import hashlib
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import secrets
 import signal
 import subprocess
@@ -14,6 +13,8 @@ import sys
 import tarfile
 import tempfile
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
@@ -29,7 +30,9 @@ PID = STATE / "server.pid"
 LOG = STATE / "server.log"
 VERSION = "7.3.15"
 ARCHIVE = STATE / f"CLIProxyAPI_{VERSION}_linux_amd64.tar.gz"
-ARCHIVE_URL = f"https://github.com/router-for-me/CLIProxyAPI/releases/download/v{VERSION}/{ARCHIVE.name}"
+ARCHIVE_URL = (
+    f"https://github.com/router-for-me/CLIProxyAPI/releases/download/v{VERSION}/{ARCHIVE.name}"
+)
 ARCHIVE_SHA256 = "801c3a23061d57a830e67fcd033fda26e96c2bfe93e1b2e34e4428ed7defc7e5"
 LOCAL_URL = "http://127.0.0.1:8317/v1/models"
 
@@ -69,7 +72,14 @@ def ensure_binary() -> None:
     if digest != ARCHIVE_SHA256:
         raise RuntimeError("CPA 安装包校验失败，请删除 .cache/cpa 中的安装包后重试。")
     with tarfile.open(ARCHIVE, "r:gz") as package:
-        member = next((item for item in package.getmembers() if item.name == "cli-proxy-api" and item.isfile()), None)
+        member = next(
+            (
+                item
+                for item in package.getmembers()
+                if item.name == "cli-proxy-api" and item.isfile()
+            ),
+            None,
+        )
         if member is None:
             raise RuntimeError("CPA 安装包中缺少可执行程序。")
         source = package.extractfile(member)
@@ -91,6 +101,7 @@ def import_auth(path: Path) -> None:
         raise RuntimeError("所选文件不是可用的 ChatGPT Codex 登录凭据。")
     AUTH_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     AUTH_DIR.chmod(0o700)
+
     # CPA reads its own copy; never edit the Codex application's auth.json.
     def claim(token: str) -> dict:
         try:
@@ -102,7 +113,11 @@ def import_auth(path: Path) -> None:
     access_claims = claim(tokens["access_token"])
     id_claims = claim(tokens["id_token"])
     expiry = access_claims.get("exp")
-    expires_at = datetime.fromtimestamp(expiry, timezone.utc).isoformat().replace("+00:00", "Z") if isinstance(expiry, int) else ""
+    expires_at = (
+        datetime.fromtimestamp(expiry, timezone.utc).isoformat().replace("+00:00", "Z")
+        if isinstance(expiry, int)
+        else ""
+    )
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     item = {
         "type": "codex",
@@ -133,21 +148,24 @@ def setup(args: argparse.Namespace) -> None:
     if not CONFIG.is_file() or args.proxy_url:
         if args.proxy_url:
             proxy_address = urlparse(args.proxy_url)
-            if proxy_address.scheme not in ("http", "https", "socks5", "socks5h") or not proxy_address.hostname or not proxy_address.port:
+            if (
+                proxy_address.scheme not in ("http", "https", "socks5", "socks5h")
+                or not proxy_address.hostname
+                or not proxy_address.port
+            ):
                 raise RuntimeError("代理地址需要使用带主机和端口的 http、https 或 socks5 地址。")
         proxy = "proxy-url: " + json.dumps(args.proxy_url) + "\n" if args.proxy_url else ""
         config = (
             'host: "127.0.0.1"\n'
-            'port: 8317\n'
+            "port: 8317\n"
             f'auth-dir: "{AUTH_DIR}"\n'
-            'api-keys:\n'
+            "api-keys:\n"
             f'  - "{KEY.read_text().strip()}"\n'
-            'remote-management:\n'
-            '  allow-remote: false\n'
+            "remote-management:\n"
+            "  allow-remote: false\n"
             '  secret-key: ""\n'
-            '  disable-control-panel: true\n'
-            'debug: false\n'
-            + proxy
+            "  disable-control-panel: true\n"
+            "debug: false\n" + proxy
         )
         private_file(CONFIG, config)
     print("本机 CPA 已准备好；访问密钥保存在 .cache/cpa/extension-key。")
@@ -165,8 +183,14 @@ def start() -> None:
         raise RuntimeError("请先运行 setup，准备程序、配置和凭据。")
     log_fd = os.open(LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(log_fd, "ab") as output:
-        process = subprocess.Popen([str(BIN), "-config", str(CONFIG)], cwd=ROOT, stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(
+            [str(BIN), "-config", str(CONFIG)],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
     private_file(PID, str(process.pid) + "\n")
     for _ in range(40):
         time.sleep(0.25)

@@ -41,7 +41,7 @@ pnpm workbench
 
 ## 安装试用
 
-1. 如果已经有本项目的 `dist` 文件夹，可直接安装。重新构建需要 Node.js 22.12+（或 24 LTS）与 pnpm：
+1. 如果已经有本项目的 `dist` 文件夹，可直接安装。重新构建需要 Node.js 22.13+（或 24 LTS）与 pnpm：
    ```sh
    pnpm install --frozen-lockfile
    pnpm build
@@ -63,11 +63,11 @@ pnpm workbench
 
 在扩展设置中选择「自定义服务」，填写：
 
-| 设置 | 值 |
-| --- | --- |
-| API Base URL | `https://api.cline.bot/api/v1` |
-| 模型名称 | `cline-pass/deepseek-v4.1-flash` |
-| API Key | 自己的 Cline API Key |
+| 设置         | 值                               |
+| ------------ | -------------------------------- |
+| API Base URL | `https://api.cline.bot/api/v1`   |
+| 模型名称     | `cline-pass/deepseek-v4.1-flash` |
+| API Key      | 自己的 Cline API Key             |
 
 点击「保存并授权」，再点击「测试已保存的连接」。扩展会补齐 `/chat/completions` 并发送 Bearer 认证，同时兼容 Cline 非流式响应的 `data` 包装。2026-09-30 使用临时凭据、小段公开技术文字验证了项目模型调用代码的非流式解释与流式注释；浏览器回归仍使用本机模拟服务。更新后先重新加载扩展，再刷新文章。
 
@@ -145,13 +145,16 @@ pnpm workbench
 ## 开发与验证
 
 ```sh
-pnpm check
-pnpm test
-pnpm build
+pnpm install --frozen-lockfile
+pnpm lint          # 检查 JS/TS 和 React Hooks；新增告警会阻断检查
+pnpm format        # 统一 JS/TS、CSS、HTML、JSON、YAML 和 Markdown 的格式
+pnpm verify        # lint、格式检查、单元测试、扩展构建、工作台构建
 # 使用项目内缓存，无需写入系统的浏览器缓存目录
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm exec playwright install chromium
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e
 ```
+
+Go 使用 `go vet` / `gofmt`，Python 使用固定版本的 Ruff。安装步骤、各语言命令与历史告警迁移方法见 [代码质量指南](docs/code-quality.md)。推送和 PR 会运行质量检查及浏览器测试，打包流程也会先检查 JS/TS 和代码格式。
 
 单元测试检查正文过滤、上下文边界、原文锚点、缓存、并发及模型错误。端到端测试使用真实 Chromium 扩展与本机模拟模型 API，不发送真实文章给外部服务。测试专用扩展副本临时加入本机测试站点权限，用来程序化触发注入；生产 manifest 不含该权限。
 
@@ -179,16 +182,13 @@ PDF 伴读已支持文本型 PDF 的整页文字提取、内置目录与页码�
 
 0.5.0 性能：本地 500 段/1,000 处词典命中样本约 32 ms 完成标注、零 API 请求；未知概念仍需等待模型。基准范围和复现方法见 [免费服务与速度说明](docs/free-providers.md)。
 
-
 0.6.0 增强 FastAPI 阅读识别：Pydantic、HTTP、GET、POST 及常见 Web 前置概念提供即时本地释义；未知缩写结合文章主题提交模型判断，显式介绍的陌生库名也纳入候选。内置释义是通用说明，不能替代具体上下文的深入解释。参考 [FastAPI 首步教程](https://fastapi.tiangolo.com/tutorial/first-steps/) 和 [Pydantic 文档](https://pydantic.dev/docs/validation/latest/get-started/)。
-
 
 ### 0.7.0：让注释跟上阅读
 
 DeepSeek 官方 Flash 预设显式关闭思考；每批 4 个候选，逐条显示，滚动后重新排序。基础注释缩短为一句当前作用，缩写全称直接显示。新增可清除的本地术语缓存、主动请求优先和当前屏幕准备比例。修复邻段缩写定义误伤词典命中的问题。
 
 真实 API 小样本：原配置 8 个词等待约 7.34 秒；新版实际适配器处理 4 个词，首条约 1.12 秒、全部约 1.99 秒。这是不同批次/模式的端到端体验对比，并非严格同条件倍速结论。8 次请求（7 成功、1 连接失败），已返回 usage 合计 6,366 tokens；未保存测试密钥。详细结果、局限和下一步验收见 [0.7.0 性能记录](docs/performance-0.7.0.md)。
-
 
 ### 0.9.0：原生 PDF 选段解释与翻译
 

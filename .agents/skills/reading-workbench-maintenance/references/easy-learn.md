@@ -2,19 +2,19 @@
 
 Use this map when the workspace contains `src/reader` and the Easy Learn workbench. It includes integration through 0.16.0, not a guarantee that future file names or dependencies are unchanged.
 
-| Concern | Existing integration |
-| --- | --- |
-| Browser paragraph translation, extraction and owned mutations | `src/content/page-translation.ts`, `src/content/document.ts`, `src/content/index.ts` |
-| Document imports and text limits | `src/ui/reader-source.ts`, `src/reader/document.ts` |
-| PDF hierarchy and page/text mappings | `src/reader/pdf-structure.ts`, `src/core/pdf-navigation.ts` |
-| PDF loading, compatibility worker, fonts and decoder paths | `src/ui/pdf-source.ts` |
-| Original viewer, continuous pages, zoom, navigation and word overlays | `src/ui/reader-pdf.tsx`, `src/ui/reader-pdf.css`, `src/ui/pdf-viewer.d.ts` |
-| Ranked scanning, abbreviations and word state | `src/reader/vocabulary.ts`; shared `vocabularyForms` and `findAbbreviations` in `src/content/candidates.ts` |
-| Word-list provenance and generation | `public/vocabulary/ATTRIBUTION.md`, `scripts/vocabulary-sources.json`, `scripts/build-vocabulary.mjs` |
-| Selected explanation / translation / quiz | `src/ui/reader-study.tsx`, shared `rpc.ts`, `use-action.ts`, `quick-quiz.tsx` |
-| Scheduler, navigation, source lifecycle | `src/ui/reader.tsx`, `src/ui/reader-rpc.ts` |
-| Extension and standalone asset packaging | `scripts/build.mjs`, `scripts/build-workbench.mjs` |
-| Standalone static MIME / CSP and mockable server | `src/workbench/server.ts` |
+| Concern                                                               | Existing integration                                                                                        |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Browser paragraph translation, extraction and owned mutations         | `src/content/page-translation.ts`, `src/content/document.ts`, `src/content/index.ts`                        |
+| Document imports and text limits                                      | `src/ui/reader-source.ts`, `src/reader/document.ts`                                                         |
+| PDF hierarchy and page/text mappings                                  | `src/reader/pdf-structure.ts`, `src/core/pdf-navigation.ts`                                                 |
+| PDF loading, compatibility worker, fonts and decoder paths            | `src/ui/pdf-source.ts`                                                                                      |
+| Original viewer, continuous pages, zoom, navigation and word overlays | `src/ui/reader-pdf.tsx`, `src/ui/reader-pdf.css`, `src/ui/pdf-viewer.d.ts`                                  |
+| Ranked scanning, abbreviations and word state                         | `src/reader/vocabulary.ts`; shared `vocabularyForms` and `findAbbreviations` in `src/content/candidates.ts` |
+| Word-list provenance and generation                                   | `public/vocabulary/ATTRIBUTION.md`, `scripts/vocabulary-sources.json`, `scripts/build-vocabulary.mjs`       |
+| Selected explanation / translation / quiz                             | `src/ui/reader-study.tsx`, shared `rpc.ts`, `use-action.ts`, `quick-quiz.tsx`                               |
+| Scheduler, navigation, source lifecycle                               | `src/ui/reader.tsx`, `src/ui/reader-rpc.ts`                                                                 |
+| Extension and standalone asset packaging                              | `scripts/build.mjs`, `scripts/build-workbench.mjs`                                                          |
+| Standalone static MIME / CSP and mockable server                      | `src/workbench/server.ts`                                                                                   |
 
 Do not duplicate parsers or existing model/cache modules. Keep code annotations default off and CLI explanations independent, as required by project guidance. Importing a reading file and revealing a prepared explanation must not start model requests. Existing model settings and word records should survive a preview update.
 

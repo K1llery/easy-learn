@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dist-workbench/
+dist-workbench-server/
+artifacts/
+.cache/
+.pnpm-store/
+playwright-report/
+test-results/
+.env*
+pnpm-lock.yaml
+public/licenses/
+public/vocabulary/
+desktop/launcher/LICENSE.go-runtime
+# 保留浏览器测试夹具的原始 DOM、空白与阅读顺序。
+tests/fixtures/
+example/
+.ruff_cache/
+.venv/
+**/__pycache__/

@@ -11,10 +11,15 @@
 
 ## Build, Test, and Development Commands
 
-Use Node.js 22.12+ and pnpm pinned in `package.json`.
+Use Node.js 22.13+ (or Node.js 24 LTS) and pnpm pinned in `package.json`.
 
 - `pnpm install --frozen-lockfile`: install locked dependencies.
 - `pnpm check`: check strict TypeScript.
+- `pnpm lint` / `pnpm lint:fix`: check JS/TS and React Hooks / apply safe lint fixes.
+- `pnpm format` / `pnpm format:check`: write / check Prettier formatting.
+- `pnpm verify`: lint, formatting checks, unit tests, extension build, and workbench build.
+- `pnpm lint:go` / `pnpm format:go:check`: cross-target Go vet / gofmt checks.
+- `pnpm lint:python` / `pnpm format:python:check`: Ruff checks after installing `requirements-dev.txt`.
 - `pnpm build`: type-check and generate the extension in `dist/`.
 - `pnpm build:workbench && pnpm workbench`: build and serve the reader at `http://127.0.0.1:4178`.
 - `pnpm test` / `pnpm test:e2e`: run unit / browser tests.
@@ -23,7 +28,7 @@ Use Node.js 22.12+ and pnpm pinned in `package.json`.
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript, ES modules, and React function components. For TypeScript/TSX, use two-space indentation, single quotes, and semicolons; match adjacent formatting. Use kebab-case filenames, PascalCase components/types, and camelCase functions/variables. Format Go with `gofmt`. No JavaScript formatter or linter is configured; avoid unrelated reformatting.
+Use strict TypeScript, ES modules, and React function components. Prettier enforces two-space indentation, single quotes, semicolons, trailing commas, LF line endings, and a 100-column target. Use kebab-case filenames, PascalCase components/types, and camelCase functions/variables. Format Go with `gofmt` and Python with Ruff. Keep downloaded examples, vocabulary data, licenses, fixtures, and build outputs out of lint/format scope; see `docs/code-quality.md`.
 
 ## Testing Guidelines
 

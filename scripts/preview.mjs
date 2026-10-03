@@ -21,13 +21,35 @@ window.chrome={permissions:{request:async()=>true},runtime:{
  return {ok:true,data};}}};
 document.addEventListener('DOMContentLoaded',()=>{const note=document.createElement('div');note.textContent='界面预览 · 使用固定模拟结果 · 不调用真实模型';note.style='padding:7px 14px;background:#fff0d2;color:#715727;font:12px system-ui;text-align:center';document.body.prepend(note);});
 `;
-createServer(async(req,res)=>{
- const route=new URL(req.url,'http://localhost').pathname;
- if(route==='/mock.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end(mock);return;}
- const file=route==='/'?'panel.html':route.slice(1);
- if(!['panel.html','options.html'].includes(file)&&!/^assets\/[\w.-]+$/.test(file)){res.writeHead(404);res.end();return;}
- try{let data=await readFile(path.join('dist',file));
- if(file.endsWith('.html'))data=Buffer.from(data.toString().replace('<head>','<head><script src="/mock.js"></script>'));
- res.writeHead(200,{'Content-Type':file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.css')?'text/css':'text/javascript'});res.end(data);
- }catch{res.writeHead(404);res.end('先运行 pnpm build');}
-}).listen(4173,'127.0.0.1',()=>console.log('UI preview: http://127.0.0.1:4173 (mock only)'));
+createServer(async (req, res) => {
+  const route = new URL(req.url, 'http://localhost').pathname;
+  if (route === '/mock.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    res.end(mock);
+    return;
+  }
+  const file = route === '/' ? 'panel.html' : route.slice(1);
+  if (!['panel.html', 'options.html'].includes(file) && !/^assets\/[\w.-]+$/.test(file)) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  try {
+    let data = await readFile(path.join('dist', file));
+    if (file.endsWith('.html'))
+      data = Buffer.from(
+        data.toString().replace('<head>', '<head><script src="/mock.js"></script>'),
+      );
+    res.writeHead(200, {
+      'Content-Type': file.endsWith('.html')
+        ? 'text/html; charset=utf-8'
+        : file.endsWith('.css')
+          ? 'text/css'
+          : 'text/javascript',
+    });
+    res.end(data);
+  } catch {
+    res.writeHead(404);
+    res.end('先运行 pnpm build');
+  }
+}).listen(4173, '127.0.0.1', () => console.log('UI preview: http://127.0.0.1:4173 (mock only)'));

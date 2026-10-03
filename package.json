@@ -13,7 +13,19 @@
     "workbench": "node scripts/workbench.mjs",
     "package:desktop": "pnpm build:workbench && node scripts/build-desktop.mjs",
     "package:extension": "pnpm build && node scripts/package-extension.mjs",
-    "test:desktop": "node scripts/smoke-desktop.mjs"
+    "test:desktop": "node scripts/smoke-desktop.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
+    "lint:prune": "eslint . --prune-suppressions --max-warnings 0",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "lint:go": "node scripts/go-quality.mjs lint",
+    "format:go": "node scripts/go-quality.mjs format",
+    "format:go:check": "node scripts/go-quality.mjs check",
+    "lint:python": "python -m ruff check .",
+    "format:python": "python -m ruff format .",
+    "format:python:check": "python -m ruff format --check .",
+    "verify": "pnpm lint && pnpm format:check && pnpm test && pnpm build && pnpm build:workbench"
   },
   "dependencies": {
     "dompurify": "3.4.16",
@@ -26,14 +38,24 @@
     "zod": "4.1.12"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.56.1",
     "@types/chrome": "0.1.24",
     "@types/node": "24.10.1",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
     "jsdom": "27.2.0",
+    "prettier": "3.9.9",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.71.0",
     "vite": "7.2.2",
     "vitest": "3.2.4"
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
   }
 }

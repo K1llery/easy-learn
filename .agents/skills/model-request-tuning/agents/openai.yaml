@@ -1,4 +1,4 @@
 interface:
-  display_name: "模型请求与吞吐率调优"
-  short_description: "核对模型思考强度、Fast 与输出预算的请求体，并验证流式释义和并发行为"
-  default_prompt: "使用 $model-request-tuning 检查模型参数是否正确传出，并优化阅读辅助工具的响应体验。"
+  display_name: '模型请求与吞吐率调优'
+  short_description: '核对模型思考强度、Fast 与输出预算的请求体，并验证流式释义和并发行为'
+  default_prompt: '使用 $model-request-tuning 检查模型参数是否正确传出，并优化阅读辅助工具的响应体验。'

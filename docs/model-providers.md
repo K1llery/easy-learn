@@ -23,28 +23,28 @@ Qwen 预设使用北京地域业务空间专属 Host。到百炼控制台的工�
 
 ## 预设清单
 
-| 市场分组 | 服务与模型 | 接口特点 |
-| --- | --- | --- |
-| 订阅账户登录 | ChatGPT Plus / Pro / Team（`gpt-6-luna`，Codex 通道） | 扩展内 OAuth 登录，使用订阅包含的 Codex 用量；无需 API Key，令牌只存本机。 |
-| 订阅账户登录 | Claude Pro / Max（`claude-sonnet-4-5`） | 扩展内 OAuth 登录，使用订阅包含的 Claude Code 用量；无需 API Key，令牌只存本机。 |
-| 本机与局域网 | 本机 CPA（`gpt-6-luna`） | `127.0.0.1:8317` 的 OpenAI 兼容代理；见 [Plus 接入记录](chatgpt-plus-integration.md)。 |
-| 本机与局域网 | Ollama / LM Studio / vLLM | 本机或局域网 OpenAI 兼容接口，零 API 费用；速度取决于本机硬件。 |
-| 中国大陆 | 阿里云百炼 `qwen3.8-flash` | 需把百炼控制台业务空间 API Host 复制到预设地址；北京地域额度和计费见官方价格表。 |
-| 中国大陆 | DeepSeek `deepseek-flash` | OpenAI 兼容；非思考模式。按量计费，价格随时段与缓存变化。 |
-| 中国大陆 | 智谱 `glm-4.7-flash` | OpenAI 兼容免费额度；受账户并发和速率限制。 |
-| 中国大陆 | 硅基流动 `Qwen/Qwen3-8B` | 一个 Key 调用多家开源模型；部分小模型有免费额度。 |
-| 中国大陆 | 火山方舟豆包 `doubao-seed-flash` | 需在控制台创建推理接入点，模型名填接入点 ID。 |
-| 中国大陆 | 腾讯混元 `hunyuan-turbos-latest` | OpenAI 兼容接口，需创建混元 API Key。 |
-| 海外 / 国际 | OpenAI 官方 `gpt-6-mini` / `gpt-4.1-mini` | 官方 Chat Completions，按量计费。 |
-| 海外 / 国际 | Anthropic Claude API（`claude-sonnet-4-5`） | 原生 Messages 协议，扩展自动适配；按量计费。 |
-| 海外 / 国际 | Google `gemini-3.8-flash` / `gemini-2.5-flash-lite` | Gemini 官方 OpenAI 兼容接口；免费层规则以官方为准。 |
-| 海外 / 国际 | Moonshot `kimi-k2.6` | Kimi 官方国际 API；服务区域与账户条件以平台为准。 |
-| 海外 / 国际 | Groq `qwen/qwen3.8-27b` | 托管 Qwen 模型；免费计划有请求与 Token 限额。 |
-| 海外 / 国际 | OpenRouter `openrouter/free` | 免费路由到可用模型，实际模型可能改变并可能限流。 |
-| 海外 / 国际 | Cline `cline-pass/deepseek-v4.1-flash`（ClinePass 订阅） | Cline 官方网关；非流式返回 `{success, data}` 包装，扩展已自动拆包并读取用量，流式为标准事件。大陆可直连，偶发不稳时重试。 |
-| 海外 / 国际 | Mistral `mistral-small-latest` | 官方 API，兼容 Chat Completions。 |
-| 海外 / 国际 | xAI `grok-4-mini` | 官方 API，兼容 Chat Completions。 |
-| 海外 / 国际 | Together AI `Qwen/Qwen3-30B-A3B` | 开源模型聚合，兼容 Chat Completions。 |
+| 市场分组     | 服务与模型                                               | 接口特点                                                                                                                  |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 订阅账户登录 | ChatGPT Plus / Pro / Team（`gpt-6-luna`，Codex 通道）    | 扩展内 OAuth 登录，使用订阅包含的 Codex 用量；无需 API Key，令牌只存本机。                                                |
+| 订阅账户登录 | Claude Pro / Max（`claude-sonnet-4-5`）                  | 扩展内 OAuth 登录，使用订阅包含的 Claude Code 用量；无需 API Key，令牌只存本机。                                          |
+| 本机与局域网 | 本机 CPA（`gpt-6-luna`）                                 | `127.0.0.1:8317` 的 OpenAI 兼容代理；见 [Plus 接入记录](chatgpt-plus-integration.md)。                                    |
+| 本机与局域网 | Ollama / LM Studio / vLLM                                | 本机或局域网 OpenAI 兼容接口，零 API 费用；速度取决于本机硬件。                                                           |
+| 中国大陆     | 阿里云百炼 `qwen3.8-flash`                               | 需把百炼控制台业务空间 API Host 复制到预设地址；北京地域额度和计费见官方价格表。                                          |
+| 中国大陆     | DeepSeek `deepseek-flash`                                | OpenAI 兼容；非思考模式。按量计费，价格随时段与缓存变化。                                                                 |
+| 中国大陆     | 智谱 `glm-4.7-flash`                                     | OpenAI 兼容免费额度；受账户并发和速率限制。                                                                               |
+| 中国大陆     | 硅基流动 `Qwen/Qwen3-8B`                                 | 一个 Key 调用多家开源模型；部分小模型有免费额度。                                                                         |
+| 中国大陆     | 火山方舟豆包 `doubao-seed-flash`                         | 需在控制台创建推理接入点，模型名填接入点 ID。                                                                             |
+| 中国大陆     | 腾讯混元 `hunyuan-turbos-latest`                         | OpenAI 兼容接口，需创建混元 API Key。                                                                                     |
+| 海外 / 国际  | OpenAI 官方 `gpt-6-mini` / `gpt-4.1-mini`                | 官方 Chat Completions，按量计费。                                                                                         |
+| 海外 / 国际  | Anthropic Claude API（`claude-sonnet-4-5`）              | 原生 Messages 协议，扩展自动适配；按量计费。                                                                              |
+| 海外 / 国际  | Google `gemini-3.8-flash` / `gemini-2.5-flash-lite`      | Gemini 官方 OpenAI 兼容接口；免费层规则以官方为准。                                                                       |
+| 海外 / 国际  | Moonshot `kimi-k2.6`                                     | Kimi 官方国际 API；服务区域与账户条件以平台为准。                                                                         |
+| 海外 / 国际  | Groq `qwen/qwen3.8-27b`                                  | 托管 Qwen 模型；免费计划有请求与 Token 限额。                                                                             |
+| 海外 / 国际  | OpenRouter `openrouter/free`                             | 免费路由到可用模型，实际模型可能改变并可能限流。                                                                          |
+| 海外 / 国际  | Cline `cline-pass/deepseek-v4.1-flash`（ClinePass 订阅） | Cline 官方网关；非流式返回 `{success, data}` 包装，扩展已自动拆包并读取用量，流式为标准事件。大陆可直连，偶发不稳时重试。 |
+| 海外 / 国际  | Mistral `mistral-small-latest`                           | 官方 API，兼容 Chat Completions。                                                                                         |
+| 海外 / 国际  | xAI `grok-4-mini`                                        | 官方 API，兼容 Chat Completions。                                                                                         |
+| 海外 / 国际  | Together AI `Qwen/Qwen3-30B-A3B`                         | 开源模型聚合，兼容 Chat Completions。                                                                                     |
 
 选择预设只改填地址和模型名；换服务时会清除原服务密钥。点击保存并授权后才允许扩展向对应服务域名请求。订阅登录类预设不需要 API Key：登录窗口由官方站点提供，扩展仅拿到令牌并保存在本机（见 [Plus 接入记录](chatgpt-plus-integration.md)）。自定义服务仍可填写兼容 Chat Completions 的 HTTPS API，或在「接口协议」中选择 Anthropic；接口必须支持本扩展使用的消息和结构化输出请求。浏览器里的跨源连接还取决于供应商服务器是否允许扩展来源。
 
