@@ -1855,6 +1855,26 @@ test('translation pauses on rate limits and resumes only after the reader reques
   await page.close();
 });
 
+test('translation retries failed paragraphs after the reader restores and reopens translation', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?translation-restart=1`);
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  responseStatus = 429;
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('限流');
+  await page.getByRole('button', { name: '还原原文', exact: true }).click();
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(0);
+  const stopped = calls.length;
+  responseStatus = 200;
+  await page.getByRole('button', { name: '翻译全文', exact: true }).hover();
+  expect(calls).toHaveLength(stopped);
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(8);
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await page.close();
+});
+
 test('full-page translation keeps source typography, nested emphasis and responsive styling', async () => {
   const page = await context.newPage();
   await page.goto(`${base}/article?translation-format=1`);

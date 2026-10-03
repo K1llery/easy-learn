@@ -101,6 +101,28 @@ it('pauses on rate limits, keeps completed results, and only retries on explicit
   await vi.waitFor(() => expect(state.status().ready).toBe(3));
   expect(request).toHaveBeenCalledTimes(4);
 });
+it('retries failed paragraphs after restoring and explicitly restarting while reusing completed translations', async () => {
+  document.body.innerHTML =
+    '<article><p>First source</p><p>Second source</p><p>Third source</p></article>';
+  const request = vi
+    .fn(async (_context: TextContext) => '剩余译文')
+    .mockResolvedValueOnce('已完成的第一段')
+    .mockRejectedValueOnce(new Error('服务限流'));
+  const state = create(request, 1);
+  translator.toggle();
+  await vi.waitFor(() => expect(state.status().paused).toBe(true));
+  expect(state.status().ready).toBe(1);
+  expect(request).toHaveBeenCalledTimes(2);
+  translator.toggle();
+  expect(state.status().visible).toBe(false);
+  expect(document.querySelectorAll('[data-easy-learn="translation"]')).toHaveLength(0);
+  translator.toggle();
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  expect(state.status()).toMatchObject({ visible: true, paused: false, error: '' });
+  expect(request).toHaveBeenCalledTimes(4);
+  expect(request.mock.calls.filter(([context]) => context.text === 'First source')).toHaveLength(1);
+  expect(document.body.textContent).toContain('已完成的第一段');
+});
 it('waits for cancellation before rapid resume, and preserves all long-paragraph text across chunks', async () => {
   const source = 'A long scientific sentence. '.repeat(800);
   document.body.innerHTML = '<article><p></p></article>';

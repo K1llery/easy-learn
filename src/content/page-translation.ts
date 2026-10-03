@@ -69,6 +69,10 @@ export class PageTranslation {
   }
 
   start() {
+    // 显式开启或继续时才重试失败片段，已完成的译文继续复用。
+    for (const unit of this.units.values()) {
+      for (const part of unit.parts) if (part.state === 'failed') part.state = 'pending';
+    }
     this.visible = true;
     this.paused = false;
     this.error = '';
@@ -119,9 +123,6 @@ export class PageTranslation {
   }
 
   resume() {
-    for (const unit of this.units.values()) {
-      for (const part of unit.parts) if (part.state === 'failed') part.state = 'pending';
-    }
     this.start();
   }
 
