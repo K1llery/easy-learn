@@ -56,7 +56,12 @@ test.beforeAll(async () => {
               evidence: input.context.text,
             }
           : input.mode === 'translate'
-            ? { translation: '这段原文描述了保护公开示例的假设。' }
+            ? {
+                translation:
+                  input.targetLanguage && input.targetLanguage !== 'zh-CN'
+                    ? `${input.targetLanguage}：Translated public text.`
+                    : '这段原文描述了保护公开示例的假设。',
+              }
             : {
                 meaning: '保护假设',
                 expansion: '',
@@ -1244,4 +1249,53 @@ test('PDF selection survives a streamed skip that removes a selected candidate',
   await expect(page.locator('.pdf-word').filter({ hasText: /^attestation$/ })).toHaveCount(0);
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(selected);
   await context.close();
+});
+
+test('workbench saves a translation default, supports local overrides and separates language caches', async () => {
+  const { context, page } = await open();
+  const before = calls.length;
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: '默认译文语言 / Default translation language' })
+    .selectOption('ko');
+  await page.getByRole('button', { name: '保存连接', exact: true }).click();
+  await expect(page.getByText('连接已保存。', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '完成', exact: true }).click();
+  await page.locator('#reader-file').setInputFiles({
+    name: 'public-study.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(original),
+  });
+  await page.locator('.reader-prose').evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+  await page.getByRole('button', { name: '翻译', exact: true }).click();
+  const study = page.getByRole('region', { name: '选段学习' });
+  await expect(study.locator('.reader-study-result')).toContainText('ko：');
+  await expect(study.locator('.reader-study-result')).toHaveAttribute('lang', 'ko');
+  expect(JSON.parse(calls.at(-1)!.messages[1].content).targetLanguage).toBe('ko');
+  await study.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('en');
+  await expect(study.locator('.reader-study-result')).toHaveCount(0);
+  expect(calls.length - before).toBe(1);
+  await study.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
+  await expect(study.locator('.reader-study-result')).toContainText('en：');
+  expect(calls.length - before).toBe(2);
+  await study.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('ko');
+  await study.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
+  await expect(study.locator('.reader-study-result')).toContainText('ko：');
+  expect(calls.length - before).toBe(2);
+  await context.close();
+  await fetch(`${base}/api/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'SET_READING_PREFS',
+      prefs: { translationTargetLanguage: 'zh-CN' },
+    }),
+  });
 });

@@ -1,3 +1,4 @@
+import { translationLanguageInfo } from './core/translation-languages';
 import { defaultConcurrency, defaultBatchSize } from './core/reading-defaults';
 import {
   aiRequestSchema,
@@ -278,6 +279,8 @@ async function handle(
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
     return {
+      translationTargetLanguage: translationLanguageInfo(data.reading?.translationTargetLanguage)
+        .code,
       localOnly: data.reading?.localOnly === true,
       codeAnnotations: data.reading?.codeAnnotations === true,
       annotationTypes: normalizeAnnotationTypes(data.reading?.annotationTypes),
@@ -294,7 +297,7 @@ async function handle(
   if (msg.type === 'TEST' && (await chrome.storage.local.get('reading')).reading?.localOnly)
     throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
   if (msg.type === 'AI') {
-    const request = aiRequestSchema.parse(msg.request);
+    let request = aiRequestSchema.parse(msg.request);
     const pageTranslation =
       msg.pageTranslation === true &&
       request.operation === 'explain' &&
@@ -332,8 +335,16 @@ async function handle(
         safePost(documentPorts.get(scope), { type: 'AI_PROGRESS', requestId, ...partial });
     };
     try {
-      if ((await chrome.storage.local.get('reading')).reading?.localOnly)
+      const reading = (await chrome.storage.local.get('reading')).reading;
+      if (reading?.localOnly)
         throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
+      if (request.operation === 'explain' && request.mode === 'translate')
+        request = {
+          ...request,
+          targetLanguage:
+            request.targetLanguage ??
+            translationLanguageInfo(reading?.translationTargetLanguage).code,
+        };
       const cfg = await config();
       await assertModelAccess(cfg);
       if (controller.signal.aborted) throw new Error('请求已取消。');

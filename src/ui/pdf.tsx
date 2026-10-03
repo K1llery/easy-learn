@@ -1,3 +1,4 @@
+import { TranslationLanguageSelect, useTranslationLanguage } from './translation-language';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { PdfPageText } from '../core/pdf-document';
@@ -12,6 +13,7 @@ import './style.css';
 type Status = 'input' | 'loading' | 'ready';
 
 function PdfApp() {
+  const { targetLanguage, setTargetLanguage, ready: languageReady } = useTranslationLanguage();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const [url, setUrl] = useState(params.get('url') ?? '');
   const [title, setTitle] = useState((params.get('title') ?? 'PDF 文档').slice(0, 500));
@@ -247,8 +249,20 @@ function PdfApp() {
           </p>
         </section>
       )}
+      <TranslationLanguageSelect
+        value={targetLanguage}
+        disabled={!languageReady}
+        onChange={setTargetLanguage}
+      />
       {pages.map((page) => (
-        <PdfPage key={page.page} page={page} title={title} sourceUrl={loadedUrl} />
+        <PdfPage
+          translationReady={languageReady}
+          targetLanguage={targetLanguage}
+          key={page.page}
+          page={page}
+          title={title}
+          sourceUrl={loadedUrl}
+        />
       ))}
       {quizOpen && (
         <div

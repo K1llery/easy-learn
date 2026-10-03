@@ -1,5 +1,6 @@
 import { maxConcurrency } from './reading-defaults';
 import { z } from 'zod';
+import { translationLanguageSchema } from './translation-languages';
 export const profileSchema = z.object({
   domain: z.string().trim().min(1).max(80),
   level: z.enum(['入门', '熟悉', '进阶']),
@@ -43,6 +44,7 @@ export const configSchema = z
       ctx.addIssue({ code: 'custom', message: '请填写 API Key，或改用订阅账户登录。' });
   });
 export const readingPrefsSchema = z.object({
+  translationTargetLanguage: translationLanguageSchema.optional(),
   vocabularyBaseline: z.union([z.literal(2000), z.literal(5000), z.literal(10000)]).optional(),
   vocabularyPerBlock: z.number().int().min(1).max(6).optional(),
   concurrency: z.number().int().min(1).max(maxConcurrency).optional(),
@@ -173,6 +175,7 @@ export const aiRequestSchema = z
     context: contextSchema,
     concept: conceptSchema.optional(),
     mode: z.enum(['explain', 'translate', 'followup']).optional(),
+    targetLanguage: translationLanguageSchema.optional(),
     goal: z.string().trim().max(300).optional(),
     question: z.string().max(2000).optional(),
     answer: z.string().max(5000).optional(),
@@ -182,6 +185,8 @@ export const aiRequestSchema = z
       .optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.targetLanguage && (value.operation !== 'explain' || value.mode !== 'translate'))
+      ctx.addIssue({ code: 'custom', message: '译文语言仅用于翻译任务。' });
     if (value.operation === 'evaluate' && (!value.question?.trim() || !value.answer?.trim()))
       ctx.addIssue({ code: 'custom', message: '请先写下自己的回答。' });
     if (value.candidates && value.operation !== 'analyze')

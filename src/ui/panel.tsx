@@ -1,3 +1,5 @@
+import { translationLanguageInfo } from '../core/translation-languages';
+import { TranslationLanguageSelect, useTranslationLanguage } from './translation-language';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -30,6 +32,7 @@ type PdfSelection = {
 const isSidePanelSurface = window.location.pathname.endsWith('/sidepanel.html');
 const sourceTabParam = new URLSearchParams(window.location.search).get('sourceTab');
 function Panel() {
+  const { targetLanguage, setTargetLanguage, ready: languageReady } = useTranslationLanguage();
   const [view, setView] = useState<'reading' | 'review'>(
     new URLSearchParams(window.location.search).get('view') === 'review' ? 'review' : 'reading',
   );
@@ -156,10 +159,22 @@ function Panel() {
       context: expanded ? payload!.expandedContext : payload!.context,
       ...(payload?.concept ? { concept: payload.concept } : {}),
       ...extras,
+      ...(extras.mode === 'translate' ? { targetLanguage } : {}),
     };
   }
+  const automaticTarget =
+    payload?.mode === 'translate' ? (languageReady ? targetLanguage : null) : undefined;
   useEffect(() => {
-    if (!payload || payload.mode === 'practice' || payload.mode === 'quiz') return;
+    setTranslation('');
+  }, [targetLanguage]);
+  useEffect(() => {
+    if (
+      automaticTarget === null ||
+      !payload ||
+      payload.mode === 'practice' ||
+      payload.mode === 'quiz'
+    )
+      return;
     const translating = payload.mode === 'translate';
     const label = translating ? '正在翻译所选文字…' : '正在结合上下文解释…';
     void run<Explanation>(
@@ -169,6 +184,7 @@ function Panel() {
         context: payload.context,
         concept: payload.concept,
         mode: payload.mode,
+        ...(translating ? { targetLanguage: automaticTarget! } : {}),
       },
       (data) => {
         if (translating) {
@@ -180,7 +196,7 @@ function Panel() {
         }
       },
     );
-  }, [payload, run]);
+  }, [payload, automaticTarget, run]);
   function pasteText(mode: 'explain' | 'translate' | 'practice' | 'quiz') {
     const context = {
       title: '粘贴文本',
@@ -261,6 +277,11 @@ function Panel() {
           </button>
         </nav>
         <div hidden={view !== 'reading'}>
+          <TranslationLanguageSelect
+            value={targetLanguage}
+            disabled={!languageReady || !!busy}
+            onChange={setTargetLanguage}
+          />
           {!payload ? (
             <>
               <div className="intro">
@@ -295,8 +316,11 @@ function Panel() {
                   >
                     帮我理解
                   </button>
-                  <button disabled={!paste.trim()} onClick={() => pasteText('translate')}>
-                    翻译成中文
+                  <button
+                    disabled={!paste.trim() || !languageReady}
+                    onClick={() => pasteText('translate')}
+                  >
+                    翻译 / Translate
                   </button>
                   <button disabled={!paste.trim()} onClick={() => pasteText('practice')}>
                     先练再看
@@ -405,7 +429,7 @@ function Panel() {
                 )}
                 <div className="actions">
                   <button
-                    disabled={!!busy}
+                    disabled={!!busy || !languageReady}
                     onClick={() =>
                       void run<Explanation>(
                         '正在翻译原文…',
@@ -449,8 +473,14 @@ function Panel() {
                 {expanded && <p className="muted">已包含当前章节（最多 24,000 字符）。</p>}
                 {translation && (
                   <section className="card" aria-label="段落翻译">
-                    <span className="tag">中文翻译</span>
-                    <p style={{ marginTop: 12 }}>{translation}</p>
+                    <span className="tag">{translationLanguageInfo(targetLanguage).label}译文</span>
+                    <p
+                      lang={targetLanguage}
+                      dir={translationLanguageInfo(targetLanguage).direction}
+                      style={{ marginTop: 12 }}
+                    >
+                      {translation}
+                    </p>
                   </section>
                 )}
                 <section className="section-line">

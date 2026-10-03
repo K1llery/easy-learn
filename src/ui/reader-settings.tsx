@@ -4,6 +4,12 @@ import {
   concurrencyChoices,
   batchSizeChoices,
 } from '../core/reading-defaults';
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
+import { TranslationLanguageSelect } from './translation-language';
 import React, { useEffect, useRef, useState } from 'react';
 import { providers, providerFor } from '../core/providers';
 import { configSchema, defaultProfile, type Config } from '../core/types';
@@ -20,6 +26,7 @@ export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSa
     style: 'concise',
   });
   const [prefs, setPrefs] = useState({
+    translationTargetLanguage: defaultTranslationLanguage as TranslationLanguage,
     batchSize: defaultBatchSize,
     concurrency: defaultConcurrency,
     maxPerBlock: 6,
@@ -41,6 +48,9 @@ export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSa
           setAdvanced(id === 'custom');
         }
         setPrefs({
+          translationTargetLanguage: translationLanguageInfo(
+            data.reading?.translationTargetLanguage,
+          ).code,
           batchSize: data.reading?.batchSize ?? defaultBatchSize,
           concurrency: data.reading?.concurrency ?? defaultConcurrency,
           maxPerBlock: data.reading?.maxPerBlock ?? 6,
@@ -135,6 +145,14 @@ export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSa
               </a>
             </p>
           )}
+          <TranslationLanguageSelect
+            label="默认译文语言 / Default translation language"
+            value={prefs.translationTargetLanguage}
+            disabled={busy}
+            onChange={(translationTargetLanguage) =>
+              setPrefs({ ...prefs, translationTargetLanguage })
+            }
+          />
           <details open={advanced} onToggle={(e) => setAdvanced(e.currentTarget.open)}>
             <summary>高级连接与速度设置</summary>
             <label htmlFor="reader-base">API Base URL</label>

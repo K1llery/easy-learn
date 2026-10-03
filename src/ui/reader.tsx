@@ -1,3 +1,8 @@
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
 import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -50,6 +55,10 @@ function storedWords(): Record<string, WordRecord> {
 }
 const keyFor = (w: ReadingWord) => JSON.stringify([w.sectionId, w.key, w.context]);
 function Reader() {
+  const [translationReady, setTranslationReady] = useState(false);
+  const [translationTargetLanguage, setTranslationTargetLanguage] = useState<TranslationLanguage>(
+    defaultTranslationLanguage,
+  );
   const [doc, setDoc] = useState<ReadingDocument | null>(null),
     [sectionIndex, setSectionIndex] = useState(0),
     [fingerprint, setFingerprint] = useState('');
@@ -112,11 +121,14 @@ function Reader() {
   async function refreshSettings() {
     try {
       const data = await rpc<PublicSettings>('PUBLIC_SETTINGS');
+      setTranslationTargetLanguage(translationLanguageInfo(data.translationTargetLanguage).code);
       setBatchSize(data.batchSize ?? defaultBatchSize);
       setConcurrency(data.concurrency ?? defaultConcurrency);
       setDensity(data.maxPerBlock ?? 6);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setTranslationReady(true);
     }
   }
   useEffect(() => {
@@ -678,6 +690,7 @@ function Reader() {
       )}
       {study && (
         <ReaderStudy
+          initialTargetLanguage={translationTargetLanguage}
           key={study.id}
           context={study.context}
           mode={study.mode}
@@ -896,7 +909,7 @@ function Reader() {
               {(['explain', 'translate', 'quiz'] as const).map((mode) => (
                 <button
                   key={mode}
-                  disabled={!selection}
+                  disabled={!selection || (mode === 'translate' && !translationReady)}
                   onClick={() => {
                     if (selection) setStudy({ context: selection, mode, id: ++studyId.current });
                   }}
