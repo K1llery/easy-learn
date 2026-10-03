@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { PDFViewer } from 'pdfjs-dist/types/web/pdf_viewer';
 import type { EventBus } from 'pdfjs-dist/types/web/event_utils';
@@ -56,7 +56,7 @@ export function ReaderPdf(props: Props) {
   const animations = useRef<Animation[]>([]);
   const savedHash = useRef(''),
     checkChanges = useRef(() => {});
-  function revealHeading(view: PDFPageView) {
+  const revealHeading = useCallback((view: PDFPageView) => {
     const target = pendingHeading.current,
       layer = view.textLayer?.div;
     if (
@@ -124,7 +124,7 @@ export function ReaderPdf(props: Props) {
           ),
         );
     for (const span of hits) span.dataset.navigationTarget = target.title;
-  }
+  }, []);
   function changeTool(next: Tool) {
     const current = viewer.current;
     if (!current || !editorModes.current || switching || saving) return;
@@ -335,35 +335,42 @@ export function ReaderPdf(props: Props) {
       if (a && f) selection.setBaseAndExtent(a.node, a.offset, f.node, f.offset);
     }
   }
-  function goTo(target: PdfDestination) {
-    const ticket = ++navigationEpoch.current,
-      current = viewer.current;
-    if (!current?.pagesCount) return;
-    pendingHeading.current = target.title ? { ...target, ticket } : null;
-    current.scrollPageIntoView({ pageNumber: target.page });
-    if (target.top === undefined) revealHeading(current.getPageView(target.page - 1));
-    if (target.top !== undefined) {
-      // Offsets use viewport scale 1; viewer zoom 1 also converts PDF points to CSS pixels.
-      const locate = (proxy: import('pdfjs-dist').PDFPageProxy) => {
-        if (viewer.current !== current || ticket !== navigationEpoch.current) return;
-        const y = proxy.getViewport({ scale: 1 }).convertToPdfPoint(0, target.top!)[1];
-        current.scrollPageIntoView({
-          pageNumber: target.page,
-          destArray: [null, { name: 'XYZ' }, 0, y, null],
-          ignoreDestinationZoom: true,
-        });
-        revealHeading(current.getPageView(target.page - 1));
-      };
-      const view: PDFPageView = current.getPageView(target.page - 1);
-      if (view.pdfPage) locate(view.pdfPage);
-      else
-        void pdf
-          .getPage(target.page)
-          .then(locate)
-          .catch(() => undefined);
-    }
-  }
+  const goTo = useCallback(
+    (target: PdfDestination) => {
+      const ticket = ++navigationEpoch.current,
+        current = viewer.current;
+      if (!current?.pagesCount) return;
+      pendingHeading.current = target.title ? { ...target, ticket } : null;
+      current.scrollPageIntoView({ pageNumber: target.page });
+      if (target.top === undefined) revealHeading(current.getPageView(target.page - 1));
+      if (target.top !== undefined) {
+        // Offsets use viewport scale 1; viewer zoom 1 also converts PDF points to CSS pixels.
+        const locate = (proxy: import('pdfjs-dist').PDFPageProxy) => {
+          if (viewer.current !== current || ticket !== navigationEpoch.current) return;
+          const y = proxy.getViewport({ scale: 1 }).convertToPdfPoint(0, target.top!)[1];
+          current.scrollPageIntoView({
+            pageNumber: target.page,
+            destArray: [null, { name: 'XYZ' }, 0, y, null],
+            ignoreDestinationZoom: true,
+          });
+          revealHeading(current.getPageView(target.page - 1));
+        };
+        const view: PDFPageView = current.getPageView(target.page - 1);
+        if (view.pdfPage) locate(view.pdfPage);
+        else
+          void pdf
+            .getPage(target.page)
+            .then(locate)
+            .catch(() => undefined);
+      }
+    },
+    [pdf, revealHeading],
+  );
   useEffect(() => {
+    const pageContainer = pages.current;
+    const invalidateNavigation = () => {
+      navigationEpoch.current++;
+    };
     let disposed = false,
       current: PDFViewer | undefined;
     const lifecycle = new AbortController();
@@ -513,7 +520,7 @@ export function ReaderPdf(props: Props) {
     });
     return () => {
       disposed = true;
-      navigationEpoch.current++;
+      invalidateNavigation();
       pendingHeading.current = null;
       for (const animation of animations.current) animation.cancel();
       lifecycle.abort();
@@ -523,12 +530,12 @@ export function ReaderPdf(props: Props) {
         current.setDocument(null as unknown as PDFDocumentProxy);
         viewer.current = null;
       }
-      pages.current?.replaceChildren();
+      pageContainer?.replaceChildren();
     };
-  }, [pdf]);
+  }, [pdf, goTo, revealHeading]);
   useEffect(() => {
     if (initialized) goTo(destination);
-  }, [destination, initialized]);
+  }, [destination, initialized, goTo]);
   useEffect(() => {
     if (initialized && viewer.current) viewer.current.scrollMode = continuous ? 0 : 3;
   }, [continuous, initialized]);

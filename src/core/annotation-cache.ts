@@ -2,7 +2,7 @@ import { conceptSchema, endpoint, type Candidate, type Concept, type Config } fr
 
 type Entry = { key: string; at: number; concept: Concept };
 type Storage = {
-  get(key: string): Promise<Record<string, any>>;
+  get(key: string): Promise<Record<string, unknown>>;
   set(value: Record<string, unknown>): Promise<void>;
 };
 const STORE = 'annotationCacheV1',
@@ -40,7 +40,7 @@ export class AnnotationCache {
   private async entries() {
     const data = (await this.storage.get(STORE))[STORE];
     return (Array.isArray(data) ? data : []).filter(
-      (e: any) =>
+      (e: Partial<Entry>) =>
         typeof e?.key === 'string' &&
         typeof e.at === 'number' &&
         Date.now() - e.at < TTL &&

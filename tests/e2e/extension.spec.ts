@@ -1,3 +1,5 @@
+import type { AddressInfo } from 'node:net';
+import type { AIRequest } from '../../src/core/types';
 import {
   test,
   expect,
@@ -11,7 +13,7 @@ import { readFile, mkdir, cp, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { paperPdf } from './pdf-fixture';
 let server: Server, context: BrowserContext, worker: Worker, id: string, base: string, temp: string;
-const calls: any[] = [];
+const calls: AIRequest[] = [];
 let responseStatus = 200,
   inFlight = 0,
   peakInFlight = 0,
@@ -52,11 +54,11 @@ function outlinePdf() {
     .join('')}trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(pdf, 'ascii');
 }
-function output(request: any) {
+function output(request: AIRequest) {
   const text = request.context?.text ?? '';
   if (request.candidates)
     return {
-      items: request.candidates.map((c: any) => ({
+      items: request.candidates!.map((c) => ({
         id: c.id,
         meaning: c.context.includes('daily run')
           ? '每日运行'
@@ -204,13 +206,14 @@ async function highlightedRanges(page: Page) {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id! },
       func: () => {
-        const registry = (CSS as any).highlights as Map<string, any> | undefined;
+        const registry = (CSS as unknown as { highlights?: Map<string, Iterable<Range>> })
+          .highlights;
         return registry
           ? [...registry.entries()]
               .filter(([key]) => key.endsWith('-primary') || key.endsWith('-repeat'))
               .map(([key, value]) => ({
                 key,
-                text: [...value].map((range: any) => range.toString()),
+                text: [...value].map((range) => range.toString()),
               }))
           : [];
       },
@@ -229,7 +232,7 @@ test.beforeAll(async () => {
       let body = '';
       for await (const chunk of req) body += chunk;
       const input = JSON.parse(body);
-      const request = JSON.parse(input.messages[1].content);
+      const request = JSON.parse(input.messages[1].content) as AIRequest;
       calls.push(request);
       inFlight++;
       peakInFlight = Math.max(peakInFlight, inFlight);
@@ -244,7 +247,7 @@ test.beforeAll(async () => {
         write(
           items
             .slice(1)
-            .map((item: any) => ',' + JSON.stringify(item))
+            .map((item) => ',' + JSON.stringify(item))
             .join('') + ']}',
         );
         res.end('data: {"choices":[],"usage":{"total_tokens":80}}\n\ndata: [DONE]\n\n');
@@ -262,7 +265,7 @@ test.beforeAll(async () => {
               content:
                 responseStyle === 'numbered' && request.candidates
                   ? request.candidates
-                      .map((c: any) => `${c.id}: 为这个技术概念预载的中文解释。`)
+                      .map((c) => `${c.id}: 为这个技术概念预载的中文解释。`)
                       .join('\n')
                   : JSON.stringify(output(request)),
             },
@@ -292,7 +295,7 @@ test.beforeAll(async () => {
     res.end(await readFile('tests/fixtures/article.html'));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  base = `http://127.0.0.1:${(server.address() as any).port}`;
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   await mkdir('.cache', { recursive: true });
   temp = await mkdtemp(path.resolve('.cache/e2e-'));
   const extension = path.join(temp, 'extension');
@@ -495,7 +498,7 @@ test('dynamic context invalidation, selection, pasted text, and recoverable mode
     .poll(() =>
       calls
         .slice(before)
-        .some((c) => c.candidates?.some((x: any) => x.context.includes('begins at 08:00'))),
+        .some((c) => c.candidates?.some((x) => x.context.includes('begins at 08:00'))),
     )
     .toBe(true);
   await page.locator('#api').evaluate((el) => {
@@ -754,13 +757,33 @@ test('six remote batches run concurrently and local marks appear before either r
       '</article>';
   });
   await page.evaluate(() => {
-    (window as any).__completedAt = 0;
-    (window as any).__statusTrace = [];
+    (
+      window as typeof window & {
+        __completedAt: number;
+        __statusTrace: { at: number; text: string | null | undefined }[];
+      }
+    ).__completedAt = 0;
+    (
+      window as typeof window & {
+        __completedAt: number;
+        __statusTrace: { at: number; text: string | null | undefined }[];
+      }
+    ).__statusTrace = [];
     const observer = new MutationObserver(() => {
       const text = document.querySelector('[role=status]')?.textContent;
-      (window as any).__statusTrace.push({ at: Date.now(), text });
+      (
+        window as typeof window & {
+          __completedAt: number;
+          __statusTrace: { at: number; text: string | null | undefined }[];
+        }
+      ).__statusTrace.push({ at: Date.now(), text });
       if (text?.includes('当前内容已处理') && text.includes('已解释 50')) {
-        (window as any).__completedAt = Date.now();
+        (
+          window as typeof window & {
+            __completedAt: number;
+            __statusTrace: { at: number; text: string | null | undefined }[];
+          }
+        ).__completedAt = Date.now();
         observer.disconnect();
       }
     });
@@ -779,7 +802,17 @@ test('six remote batches run concurrently and local marks appear before either r
   expect(calls.length - count).toBe(6);
   await writeFile(
     'test-results/status-timeline.json',
-    JSON.stringify(await page.evaluate(() => (window as any).__statusTrace)),
+    JSON.stringify(
+      await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __completedAt: number;
+              __statusTrace: { at: number; text: string | null | undefined }[];
+            }
+          ).__statusTrace,
+      ),
+    ),
   );
   const elapsedMs = performance.now() - start;
   expect(elapsedMs).toBeGreaterThanOrEqual(300);
@@ -1007,7 +1040,7 @@ test('jumping ahead prioritizes the new reading position in the next available b
   await expect.poll(() => calls.length - start).toBe(2);
   await page.locator('#chapter-25').scrollIntoViewIfNeeded();
   await expect.poll(() => calls.length - start).toBeGreaterThan(2);
-  expect(calls[start + 2].candidates.some((c: any) => c.context.includes('number 25'))).toBe(true);
+  expect(calls[start + 2].candidates!.some((c) => c.context.includes('number 25'))).toBe(true);
   await expect(page.getByRole('status')).toContainText('当前内容已处理');
   await page.close();
 });
@@ -1097,9 +1130,9 @@ test('selected text is consumed once and only that excerpt reaches the PDF readi
   await panel.goto(`chrome-extension://${id}/sidepanel.html?sourceTab=${tabId}`);
   await expect(panel.getByRole('heading', { name: '翻译所选文字' })).toBeVisible();
   await expect(panel.getByLabel('段落翻译')).toContainText('使用灾难恢复（DR）应对区域故障。');
-  const request = calls.at(-1);
-  expect(request.mode).toBe('translate');
-  expect(request.context).toEqual({
+  const request = calls.at(-1)!;
+  expect(request!.mode).toBe('translate');
+  expect(request!.context).toEqual({
     title: 'Attention Paper',
     heading: '',
     text: excerpt,
@@ -1136,9 +1169,9 @@ test('selected text is consumed once and only that excerpt reaches the PDF readi
   await expect(explainPanel.getByLabel('概念解释')).toContainText(
     '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',
   );
-  const explainRequest = calls.at(-1);
-  expect(explainRequest.mode).toBe('explain');
-  expect(explainRequest.context).toEqual({
+  const explainRequest = calls.at(-1)!;
+  expect(explainRequest!.mode).toBe('explain');
+  expect(explainRequest!.context).toEqual({
     title: 'Recovery Paper',
     heading: '',
     text: explanationText,
@@ -1325,7 +1358,7 @@ test('practices before seeing explanations, retains failed attempts, and saves o
   await panel.getByRole('button', { name: '解释', exact: true }).click();
   await expect(panel.getByLabel('概念解释')).toBeVisible();
   expect(calls.length - start).toBe(5);
-  expect(calls.at(-1).operation).toBe('explain');
+  expect(calls.at(-1)!.operation).toBe('explain');
   await panel.reload();
   await panel.getByRole('button', { name: '我的复习', exact: true }).click();
   await expect(panel.getByText('为自己的项目设计恢复方案', { exact: true })).toBeVisible();
@@ -1442,10 +1475,10 @@ test('whole-page quiz scans the page, grades choices in place and reports the sc
   await dialog.getByRole('button', { name: '查看成绩' }).click();
   await expect(dialog.locator('.elq-score')).toContainText('2 / 2');
   await expect(dialog.getByText('可以试着不用选项，自己解释一个关键概念。')).toBeVisible();
-  const request = calls.at(-1);
-  expect(request.operation).toBe('pageQuiz');
-  expect(request.count).toBe(5);
-  expect(request.context.text).toContain('Disaster recovery');
+  const request = calls.at(-1)!;
+  expect(request!.operation).toBe('pageQuiz');
+  expect(request!.count).toBe(5);
+  expect(request!.context.text).toContain('Disaster recovery');
   await page.screenshot({ path: 'test-results/page-quiz.png' });
   await dialog.getByRole('button', { name: '完成' }).click();
   await expect(dialog).toHaveCount(0);
@@ -1466,9 +1499,9 @@ test('PDF companion extracts text, quizzes the whole document and quizzes a sing
   await expect(dialog.getByText('灾难恢复的主要目的是什么？')).toBeVisible();
   await page.getByRole('radio', { name: '在区域故障后从其他区域恢复服务' }).check();
   await expect(dialog.getByText('答对了')).toBeVisible();
-  const request = calls.at(-1);
-  expect(request.operation).toBe('pageQuiz');
-  expect(request.context).toMatchObject({ title: 'Disaster Recovery Paper' });
+  const request = calls.at(-1)!;
+  expect(request!.operation).toBe('pageQuiz');
+  expect(request!.context).toMatchObject({ title: 'Disaster Recovery Paper' });
   await expect(dialog.getByRole('button', { name: '查看第 1 页原文' })).toBeVisible();
   await dialog.getByRole('button', { name: '查看第 1 页原文' }).click();
   await expect(dialog).toHaveCount(0);
@@ -1614,7 +1647,7 @@ test('PDF reader explains only the selected difficult sentence', async () => {
   });
   await pageCard.getByRole('button', { name: '翻译选中内容' }).click();
   await expect(pageCard.getByRole('region', { name: '选段翻译' })).toBeVisible();
-  expect(calls.at(-1)).toMatchObject({
+  expect(calls.at(-1)!).toMatchObject({
     operation: 'explain',
     mode: 'translate',
     context: { text: 'When a regional failure happens, the replica takes over.' },
@@ -1654,7 +1687,7 @@ test('PDF reader asks for my interpretation before requesting feedback for a sel
   await expect(check.getByRole('region', { name: '理解反馈' })).toBeVisible();
   await expect(check.getByText('已在所选原文中找到这段引文')).toBeVisible();
   expect(calls.slice(start)).toHaveLength(1);
-  expect(calls.at(-1)).toMatchObject({
+  expect(calls.at(-1)!).toMatchObject({
     operation: 'evaluate',
     context: {
       title: 'Disaster Recovery Paper',
@@ -1665,7 +1698,7 @@ test('PDF reader asks for my interpretation before requesting feedback for a sel
     },
     answer: '发生区域故障时，副本会接管。',
   });
-  expect(calls.at(-1).question).toContain('对照原文');
+  expect(calls.at(-1)!.question).toContain('对照原文');
   await pageCard.getByRole('button', { name: '清除选段' }).click();
   await expect(check).toHaveCount(0);
   await source.evaluate((element, excerpt) => {
@@ -1774,8 +1807,8 @@ test('extension workbench preserves selected PDF text for learning and exports n
   await page.mouse.up();
   await page.getByRole('button', { name: '解释', exact: true }).click();
   await expect(page.getByRole('region', { name: '选段学习' })).toContainText('灾难恢复');
-  const input = calls.at(-1);
-  expect(input.context.text).toContain('ephemeral assumption');
+  const input = calls.at(-1)!;
+  expect(input!.context.text).toContain('ephemeral assumption');
   await page.getByRole('button', { name: '关闭选段学习' }).click();
   const before = calls.length;
   await page.getByRole('button', { name: '文字批注', exact: true }).click();
@@ -1911,7 +1944,7 @@ test('full-page translation keeps source typography, nested emphasis and respons
   await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('5/5 段');
   const rootStyles = async () =>
     page.evaluate(() => {
-      const properties = [
+      const properties: Extract<keyof CSSStyleDeclaration, string>[] = [
         'fontFamily',
         'fontSize',
         'fontWeight',
@@ -1928,14 +1961,14 @@ test('full-page translation keeps source typography, nested emphasis and respons
             ? source.querySelector('[data-easy-learn="translation"]')!
             : source.nextElementSibling!;
           const pick = (el: Element) =>
-            Object.fromEntries(properties.map((key) => [key, (getComputedStyle(el) as any)[key]]));
+            Object.fromEntries(properties.map((key) => [key, getComputedStyle(el)[key]]));
           return { source: pick(source), translation: pick(translation) };
         },
       );
     });
   for (const pair of await rootStyles()) expect(pair.translation).toEqual(pair.source);
   const emphasis = await page.evaluate(() => {
-    const pairs: Record<string, string[]> = {
+    const pairs: Record<string, Extract<keyof CSSStyleDeclaration, string>[]> = {
       'format-bold': ['fontWeight'],
       'format-nested': ['fontWeight', 'fontStyle', 'color'],
       'format-accent': ['fontSize', 'color', 'textDecorationLine'],
@@ -1954,8 +1987,8 @@ test('full-page translation keeps source typography, nested emphasis and respons
         return properties.map((key) => ({
           id,
           key,
-          source: (getComputedStyle(source) as any)[key],
-          translation: (getComputedStyle(translated) as any)[key],
+          source: getComputedStyle(source)[key],
+          translation: getComputedStyle(translated)[key],
         }));
       })
       .flat();

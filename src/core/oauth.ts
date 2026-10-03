@@ -196,7 +196,7 @@ export async function startOAuth(kind: OAuthKind): Promise<{ email?: string }> {
 }
 // Accepts the auth.json written by the Codex CLI; same validation as the local CPA tool.
 export async function importChatgptCredentials(text: string): Promise<{ email?: string }> {
-  let source: any;
+  let source: { auth_mode?: unknown; tokens?: Record<string, string> };
   try {
     source = JSON.parse(text);
   } catch {

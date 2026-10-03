@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Explanation, TextContext } from '../core/types';
 import { QuickQuiz } from './quick-quiz';
 import { useAction } from './use-action';
@@ -23,7 +23,9 @@ export function ReaderStudy({
       setResult,
     );
   }
+  const initialAction = useRef({ mode, request });
   useEffect(() => {
+    const { mode, request } = initialAction.current;
     if (mode !== 'quiz') request();
   }, []);
   return (

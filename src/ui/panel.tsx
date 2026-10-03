@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   type AIRequest,
@@ -102,7 +102,7 @@ function Panel() {
         setError((e as Error).message);
       }
     }
-    function onExtensionMessage(msg: any) {
+    function onExtensionMessage(msg: { type?: unknown; tabId: number }) {
       if (
         !isSidePanelSurface ||
         msg?.type !== 'PDF_SELECTION_READY' ||
@@ -127,7 +127,11 @@ function Panel() {
       connection.disconnect();
     };
   }, []);
-  async function run<T>(label: string, request: AIRequest, accept: (data: T) => void) {
+  const run = useCallback(async function run<T>(
+    label: string,
+    request: AIRequest,
+    accept: (data: T) => void,
+  ) {
     const current = ++epoch.current;
     setBusy(label);
     setError('');
@@ -145,7 +149,7 @@ function Panel() {
     } finally {
       if (epoch.current === current) setBusy('');
     }
-  }
+  }, []);
   function request(operation: AIRequest['operation'], extras: Partial<AIRequest> = {}): AIRequest {
     return {
       operation,
@@ -176,7 +180,7 @@ function Panel() {
         }
       },
     );
-  }, [payload]);
+  }, [payload, run]);
   function pasteText(mode: 'explain' | 'translate' | 'practice' | 'quiz') {
     const context = {
       title: '粘贴文本',
@@ -211,7 +215,7 @@ function Panel() {
           evidence: explanation!.evidence.slice(0, 1500),
           ambiguity: explanation!.ambiguity.slice(0, 1500),
         };
-        setMastered(await rpc('MASTER', { concept }));
+        setMastered(await rpc<Mastered>('MASTER', { concept }));
       }
     } catch (e) {
       setError((e as Error).message);

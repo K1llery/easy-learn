@@ -116,7 +116,9 @@ else {
   const highlightName = `easy-learn-${chrome.runtime.id}-primary`,
     repeatHighlightName = `easy-learn-${chrome.runtime.id}-repeat`;
   const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
-  const HighlightClass = (globalThis as any).Highlight;
+  const HighlightClass = (
+    globalThis as typeof globalThis & { Highlight?: new (...ranges: Range[]) => unknown }
+  ).Highlight;
   const style = document.createElement('style');
   style.dataset.easyLearn = '';
   style.textContent = `::highlight(${highlightName}){background-color:#0071e31a;color:inherit;text-decoration:underline solid #0071e366 1px;text-underline-offset:3px}::highlight(${repeatHighlightName}){background-color:transparent;color:inherit;text-decoration:underline dotted #8e8e93 1px;text-underline-offset:3px}`;

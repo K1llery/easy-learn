@@ -110,12 +110,22 @@ async function fetchModel(
     throw new Error('无法连接模型服务，请检查地址、网络和服务器权限。');
   }
 }
+type CompletionPayload = {
+  success?: unknown;
+  data?: CompletionPayload;
+  content?: { type?: unknown; text?: unknown }[];
+  choices?: {
+    message?: { content?: string | { type?: unknown; text?: unknown }[] };
+    finish_reason?: unknown;
+  }[];
+  usage?: { total_tokens?: number; input_tokens?: number; output_tokens?: number };
+};
 class ModelEventError extends Error {}
 // ClinePass-style gateways (api.cline.bot and compatible aggregators) wrap
 // non-streaming completions in {success, data}. Only an explicit success
 // envelope is unwrapped; a failure envelope is never treated as model text.
 // Standard OpenAI bodies pass through untouched.
-export function readGatewayCompletion(payload: any): any {
+export function readGatewayCompletion(payload: CompletionPayload): CompletionPayload {
   if (!payload || typeof payload !== 'object' || typeof payload.success !== 'boolean')
     return payload;
   if (payload.success === false)
@@ -252,7 +262,7 @@ export async function callModel(
           signal,
         );
         await requireOk(response, kind);
-        let payload: any;
+        let payload: CompletionPayload;
         try {
           payload = await response.json();
         } catch (error) {
@@ -266,8 +276,8 @@ export async function callModel(
         }
         const raw = Array.isArray(payload?.content)
           ? payload.content
-              .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
-              .map((c: any) => c.text)
+              .filter((c) => c?.type === 'text' && typeof c.text === 'string')
+              .map((c) => c.text)
               .join('\n')
           : '';
         if (!raw.trim() || raw.length > 60000)
@@ -469,7 +479,7 @@ export async function callModel(
         throw error;
       }
       await requireOk(response, kind);
-      let payload: any;
+      let payload: CompletionPayload;
       if (streaming && response.headers.get('content-type')?.includes('text/event-stream')) {
         let raw = '',
           usage: number | null = null,
@@ -545,8 +555,8 @@ export async function callModel(
           ? content
           : Array.isArray(content)
             ? content
-                .filter((c: any) => c?.type === 'text')
-                .map((c: any) => c.text)
+                .filter((c) => c?.type === 'text')
+                .map((c) => c.text)
                 .join('\n')
             : '';
       if (!raw.trim() || raw.length > 60000)

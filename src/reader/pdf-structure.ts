@@ -18,10 +18,13 @@ const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 function headingTags(tree: StructTreeNode | null): Map<string, number> {
   const tags = new Map<string, number>();
-  function visit(node: any, level?: number) {
+  function visit(
+    node: { role?: string; type?: string; id?: string; children?: StructTreeNode['children'] },
+    level?: number,
+  ) {
     const match = /^H([1-6])$/.exec(node.role ?? '');
     const next = match ? Number(match[1]) : level;
-    if (node.type === 'content' && next) tags.set(node.id, next);
+    if (node.type === 'content' && next) tags.set(node.id!, next);
     for (const child of node.children ?? []) visit(child, next);
   }
   if (tree) visit(tree);

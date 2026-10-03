@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import type { ChoiceQuiz, TextContext } from '../core/types';
 import { findSourceEvidence } from '../core/source-evidence';
 import { rpc } from './rpc';
@@ -11,14 +11,14 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
     [answer, setAnswer] = useState(''),
     [started, setStarted] = useState(false);
   const { busy, error, run } = useAction();
-  const questionContext: TextContext = {
-    title: '',
-    heading: '',
-    text: context.text,
-    before: '',
-    after: '',
-  };
-  function generate() {
+  const generate = useCallback(() => {
+    const questionContext: TextContext = {
+      title: '',
+      heading: '',
+      text: context.text,
+      before: '',
+      after: '',
+    };
     setQuiz(null);
     setAnswer('');
     void run(
@@ -26,13 +26,13 @@ export function QuickQuiz({ context, active }: { context: TextContext; active: b
       () => rpc<ChoiceQuiz>('AI', { request: { operation: 'choice', context: questionContext } }),
       setQuiz,
     );
-  }
+  }, [context.text, run]);
   useEffect(() => {
     if (active && !started) {
       setStarted(true);
       generate();
     }
-  }, [active, started]);
+  }, [active, started, generate]);
   const correct = quiz?.options.find((option) => option.id === quiz.correctOption);
   const evidence = quiz && findSourceEvidence(context.text, quiz.evidence);
   return (

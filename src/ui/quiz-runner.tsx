@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PageQuiz } from '../core/types';
 import { findSourceEvidence } from '../core/source-evidence';
 import { rpc } from './rpc';
@@ -67,7 +67,7 @@ export function QuizRunner({
     [assistedCorrect, setAssistedCorrect] = useState(0);
   const { busy, error, run } = useAction();
   const started = useRef(false);
-  function generate() {
+  const generate = useCallback(() => {
     setQuiz(null);
     setIndex(0);
     setPicked('');
@@ -94,13 +94,13 @@ export function QuizRunner({
         }),
       setQuiz,
     );
-  }
+  }, [source.count, source.title, source.text, run]);
   useEffect(() => {
     if (!started.current) {
       started.current = true;
       generate();
     }
-  }, []);
+  }, [generate]);
   function pick(id: string) {
     if (revealed || !quiz) return;
     setPicked(id);

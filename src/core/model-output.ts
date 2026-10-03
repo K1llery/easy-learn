@@ -7,6 +7,17 @@ import {
   pageQuizSchema,
   evaluationSchema,
 } from './types';
+// 模型字段在下方归一化后再交给 schema 校验，保持别名与宽松输入兼容。
+type ModelFields = Record<string, unknown> & {
+  category?: Concept['category'];
+  parts?: ModelFields[];
+  items?: ModelFields[];
+  concepts?: ModelFields[];
+  results?: ModelFields[];
+  prerequisites?: ModelFields[];
+  options?: ModelFields[];
+  questions?: ModelFields[];
+};
 const text = (v: unknown, max = 1200) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 function jsonValues(raw: string): unknown[] {
   const clean = raw
@@ -52,7 +63,7 @@ function jsonValues(raw: string): unknown[] {
   }
   return values;
 }
-function normalizeConcept(row: any, candidate?: Candidate): Concept | null {
+function normalizeConcept(row: ModelFields, candidate?: Candidate): Concept | null {
   if (!row || typeof row !== 'object' || row.skip === true || row.relevant === false) return null;
   const summary = text(row.summary ?? row.explanation ?? row.description ?? row.definition);
   const anchor = candidate?.anchor ?? text(row.anchor ?? row.term, 500);
@@ -64,7 +75,7 @@ function normalizeConcept(row: any, candidate?: Candidate): Concept | null {
     (kind === 'abbreviation' && !expansion ? '未提供英文全称，需结合更多上下文确认。' : '');
   const parts = Array.isArray(row.parts)
     ? row.parts
-        .flatMap((p: any) => {
+        .flatMap((p: ModelFields) => {
           const t = text(p?.text, 300),
             e = text(p?.explanation ?? p?.description, 600);
           return t && e && anchor.includes(t) ? [{ text: t, explanation: e }] : [];
@@ -83,8 +94,8 @@ function normalizeConcept(row: any, candidate?: Candidate): Concept | null {
             ? '缩写'
             : kind === 'vocabulary'
               ? '词汇'
-              : ['缩写', '术语', '词汇', '背景', '命令', '代码'].includes(row.category)
-                ? row.category
+              : ['缩写', '术语', '词汇', '背景', '命令', '代码'].includes(row.category!)
+                ? row.category!
                 : '术语',
     meaning: text(row.meaning, 300) || anchor,
     summary,
@@ -99,11 +110,11 @@ export function parseModelOutput(
   raw: string,
   request?: AIRequest,
 ) {
-  const values = jsonValues(raw);
-  const root: any = values[0];
+  const values = jsonValues(raw) as ModelFields[];
+  const root = values[0];
   if (operation === 'analyze') {
     const candidates = request?.candidates;
-    let rows: any[] = Array.isArray(root)
+    let rows: ModelFields[] = Array.isArray(root)
       ? root
       : Array.isArray(root?.items)
         ? root.items
@@ -114,13 +125,13 @@ export function parseModelOutput(
             : root?.id || root?.anchor
               ? [root]
               : [];
-    if (values.length > 1 && values.every((v: any) => v?.id || v?.anchor)) rows = values as any[];
+    if (values.length > 1 && values.every((v: ModelFields) => v?.id || v?.anchor)) rows = values;
     // Keyed maps {"c0":"..."} and numbered plain-text explanations are common.
     if (!rows.length && root && typeof root === 'object')
       rows = Object.entries(root)
         .filter(([key]) => /^c\d+$/.test(key))
-        .map(([id, v]: [string, any]) =>
-          typeof v === 'string' ? { id, summary: v } : { ...v, id },
+        .map(([id, v]: [string, unknown]) =>
+          typeof v === 'string' ? { id, summary: v } : { ...(v as ModelFields), id },
         );
     if (!rows.length && !values.length && candidates) {
       rows = raw
@@ -129,7 +140,7 @@ export function parseModelOutput(
           const match = line.trim().match(/^(?:[-*]\s*)?(c\d+)\s*[:：.)-]\s*([\s\S]+)$/);
           return match ? { id: match[1], summary: match[2] } : null;
         })
-        .filter(Boolean);
+        .filter(Boolean) as ModelFields[];
       if (!rows.length && candidates.length === 1 && !/[{}[\]]/.test(raw))
         rows = [{ id: candidates[0].id, summary: raw }];
     }
@@ -183,9 +194,14 @@ export function parseModelOutput(
       example: text(obj.example, 2000),
       prerequisites: Array.isArray(obj.prerequisites)
         ? obj.prerequisites
-            .filter((p: any) => typeof p?.term === 'string' && typeof p?.explanation === 'string')
+            .filter(
+              (p: ModelFields) => typeof p?.term === 'string' && typeof p?.explanation === 'string',
+            )
             .slice(0, 5)
-            .map((p: any) => ({ term: text(p.term, 200), explanation: text(p.explanation, 2000) }))
+            .map((p: ModelFields) => ({
+              term: text(p.term, 200),
+              explanation: text(p.explanation, 2000),
+            }))
         : [],
       translation:
         text(obj.translation, 10000) || (request?.mode === 'translate' ? explanation : ''),
@@ -195,23 +211,29 @@ export function parseModelOutput(
     return choiceQuizSchema.parse({
       question: text(root?.question, 1200),
       options: Array.isArray(root?.options)
-        ? root.options.map((option: any) => ({ id: option?.id, text: text(option?.text, 500) }))
+        ? root.options.map((option: ModelFields) => ({
+            id: option?.id,
+            text: text(option?.text, 500),
+          }))
         : [],
       correctOption: root?.correctOption,
       explanation: text(root?.explanation, 1500),
       evidence: text(root?.evidence, 500),
     });
   if (operation === 'pageQuiz') {
-    const rows: any[] = Array.isArray(root?.questions)
+    const rows: ModelFields[] = Array.isArray(root?.questions)
       ? root.questions
       : Array.isArray(root)
         ? root
         : [];
     return pageQuizSchema.parse({
-      questions: rows.map((row: any) => ({
+      questions: rows.map((row: ModelFields) => ({
         question: text(row?.question, 1200),
         options: Array.isArray(row?.options)
-          ? row.options.map((option: any) => ({ id: option?.id, text: text(option?.text, 500) }))
+          ? row.options.map((option: ModelFields) => ({
+              id: option?.id,
+              text: text(option?.text, 500),
+            }))
           : [],
         correctOption: row?.correctOption,
         explanation: text(row?.explanation, 1500),

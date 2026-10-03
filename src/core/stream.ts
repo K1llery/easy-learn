@@ -1,5 +1,14 @@
+export type ModelEvent = {
+  error?: unknown;
+  type?: unknown;
+  message?: unknown;
+  delta?: unknown;
+  usage?: { total_tokens?: unknown };
+  response?: { error?: { message?: unknown }; usage?: { total_tokens?: unknown } };
+  choices?: { delta?: { content?: unknown } }[];
+};
 /** Decode SSE across arbitrary UTF-8/network boundaries. Never expose provider diagnostics. */
-export async function readEvents(response: Response, accept: (event: any) => void) {
+export async function readEvents(response: Response, accept: (event: ModelEvent) => void) {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('服务未返回可读取的响应。');
   const decoder = new TextDecoder();
@@ -17,7 +26,7 @@ export async function readEvents(response: Response, accept: (event: any) => voi
       done = true;
       return;
     }
-    let event: any;
+    let event: ModelEvent;
     try {
       event = JSON.parse(data);
     } catch {
