@@ -476,3 +476,226 @@
   display: grid;
   gap: 10px;
 }
+
+.reader-directory-tools {
+  padding: 0 10px 14px;
+}
+.reader-directory-tools .row {
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.reader-directory-tools button {
+  font-size: 11px;
+  padding: 4px;
+}
+.reader-directory-tools input {
+  font-size: 12px;
+  padding: 9px;
+  min-width: 0;
+}
+.reader-filter-count {
+  color: var(--secondary);
+  font-size: 11px;
+  margin-top: 8px;
+}
+.reader-sidebar nav button {
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.reader-sidebar nav button:hover {
+  background: var(--selected);
+  color: var(--ink);
+}
+.reader-location {
+  padding: 0 0 18px;
+}
+.reader-location-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--secondary);
+  margin-bottom: 10px;
+}
+.reader-location-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.reader-location-actions button {
+  padding: 3px 10px;
+  font-size: 16px;
+}
+.reader-location progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--line);
+  color: var(--accent);
+}
+.reader-location progress::-webkit-progress-bar {
+  background: var(--line);
+}
+.reader-location progress::-webkit-progress-value {
+  background: var(--accent);
+}
+.reader-location progress::-moz-progress-bar {
+  background: var(--accent);
+}
+.reader-focus-toggle[aria-pressed='true'] {
+  background: var(--selected);
+}
+.reader-shell.is-focused .reader-layout {
+  display: block;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.reader-shell.is-focused .reader-main {
+  padding: 26px 48px 48px;
+}
+.reader-shell.is-focused .reader-sidebar,
+.reader-shell.is-focused .reader-toolbar label,
+.reader-shell.is-focused .reader-progress,
+.reader-shell.is-focused .reader-main > .reader-hint:not(.reader-notice) {
+  display: none;
+}
+.reader-shell.is-focused .reader-inspector {
+  display: none;
+}
+.reader-shell.is-focused .reader-inspector.has-selection {
+  display: block;
+  position: fixed;
+  right: 18px;
+  bottom: 20px;
+  top: auto;
+  width: min(300px, calc(100vw - 36px));
+  max-height: 55vh;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px #00000018;
+  z-index: 6;
+  padding: 18px;
+}
+.reader-shell.is-focused .reader-inspector h2 {
+  margin: 10px 0;
+}
+.reader-vocabulary .row h2 {
+  margin: 0;
+}
+.reader-vocabulary-tools {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0 12px;
+}
+.reader-vocabulary-tools input {
+  flex: 1;
+  min-width: 0;
+}
+.reader-vocabulary-tools select {
+  width: auto;
+  max-width: 140px;
+}
+.reader-vocabulary-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.reader-vocabulary-status button {
+  font-size: 12px;
+  padding: 7px 12px;
+}
+.reader-vocabulary-status button[aria-pressed='true'] {
+  background: var(--selected);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.reader-vocabulary-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+}
+.reader-vocabulary-summary button {
+  font-size: 12px;
+}
+.reader-vocabulary .learned > div {
+  min-width: 0;
+}
+.reader-vocabulary .learned b {
+  overflow-wrap: anywhere;
+}
+.reader-vocabulary .learned > button {
+  flex-shrink: 0;
+}
+.reader-vocabulary .reader-hint {
+  margin-top: 10px;
+}
+@keyframes reader-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reader-welcome,
+.reader-vocabulary,
+.reader-study {
+  animation: reader-reveal 0.18s ease-out;
+}
+@media (max-width: 700px) {
+  .reader-directory-tools {
+    padding-inline: 0;
+  }
+  .reader-directory-tools .row {
+    justify-content: flex-start;
+    gap: 16px;
+  }
+  .reader-sidebar nav {
+    scroll-padding: 4px;
+  }
+  .reader-sidebar nav button {
+    max-width: min(200px, 70vw);
+  }
+  .reader-shell.is-focused .reader-main {
+    padding: 18px;
+  }
+  .reader-vocabulary-tools {
+    flex-wrap: wrap;
+  }
+  .reader-vocabulary-tools input {
+    flex-basis: 100%;
+  }
+  .reader-vocabulary-tools select {
+    max-width: 100%;
+    width: 100%;
+  }
+  .reader-location-label small {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-shell *,
+  .reader-shell *::before,
+  .reader-shell *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.reader-shell.is-focused .reader-toolbar {
+  border: 0;
+  padding-bottom: 0;
+}

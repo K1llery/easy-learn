@@ -16,6 +16,8 @@ import {
 import { importReadingFile } from './reader-source';
 import { analyzeReading, inExtension } from './reader-rpc';
 import { ReaderSettings } from './reader-settings';
+import { ReaderDirectory } from './reader-directory';
+import { ReaderVocabulary } from './reader-vocabulary';
 import { ReaderPdf, type PdfDestination } from './reader-pdf';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { rpc } from './rpc';
@@ -79,7 +81,9 @@ function Reader() {
     [study, setStudy] = useState<{ context: TextContext; mode: ReadingAction; id: number } | null>(
       null,
     );
-  const [pdfDirty, setPdfDirty] = useState(false);
+  const [pdfDirty, setPdfDirty] = useState(false),
+    [focused, setFocused] = useState(false);
+  const focusButton = useRef<HTMLButtonElement>(null);
   const [desktop, setDesktop] = useState(false),
     [exited, setExited] = useState(false);
   const studyId = useRef(0);
@@ -217,6 +221,7 @@ function Reader() {
     setSelection(null);
     setStudy(null);
     setPdfDirty(false);
+    setFocused(false);
     setFingerprint(key);
     setSectionIndex(restored);
     setDoc(next);
@@ -443,6 +448,31 @@ function Reader() {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [pdfDirty]);
+  useEffect(() => {
+    if (!focused) return;
+    const leave = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        loading ||
+        settings ||
+        vocabOpen ||
+        pasteOpen ||
+        study
+      )
+        return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('input,textarea,select,[contenteditable],[role=dialog]')
+      )
+        return;
+      setFocused(false);
+      focusButton.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener('keydown', leave);
+    return () => window.removeEventListener('keydown', leave);
+  }, [focused, loading, settings, vocabOpen, pasteOpen, study]);
   const wordsForPdfPage = useCallback(
     (page: number) =>
       candidates.filter((w) => {
@@ -546,7 +576,7 @@ function Reader() {
       </div>
     );
   return (
-    <div className="reader-shell">
+    <div className={`reader-shell${focused ? ' is-focused' : ''}`}>
       <header className="reader-bar">
         <a className="brand" href="reader.html">
           <span className="brandmark">E</span>Easy Learn
@@ -564,6 +594,16 @@ function Reader() {
           <button className="quiet" onClick={() => setSettings(!settings)}>
             设置
           </button>
+          {doc && (
+            <button
+              ref={focusButton}
+              className="quiet reader-focus-toggle"
+              aria-pressed={focused}
+              onClick={() => setFocused(!focused)}
+            >
+              {focused ? '退出专注' : '专注阅读'}
+            </button>
+          )}
           {desktop && (
             <button className="quiet" onClick={() => void quitDesktop()}>
               退出软件
@@ -642,42 +682,12 @@ function Reader() {
         />
       )}
       {vocabOpen && (
-        <section className="reader-message card" aria-label="生词本">
-          <div className="row">
-            <h2>生词本</h2>
-            <button onClick={exportWords} disabled={!learning.length}>
-              导出到 Anki（TSV）
-            </button>
-          </div>
-          <p className="muted">
-            只保存你主动收集的单词和释义，已认识的词会在同语言阅读中隐藏。共{' '}
-            {Object.keys(records).length} 条；导出不含密钥和整篇原文。
-          </p>
-          {Object.entries(records).map(([key, r]) => (
-            <div className="learned row" key={key}>
-              <div>
-                <b>{r.word}</b>
-                <small>
-                  {' '}
-                  · {r.language} · {r.status === 'known' ? '已认识' : '学习中'}
-                </small>
-                <p>{r.meaning}</p>
-                {r.expansion && (
-                  <p className="reader-expansion" lang="en">
-                    {r.expansion}
-                  </p>
-                )}
-                {r.ambiguity && <p className="muted">{r.ambiguity}</p>}
-              </div>
-              <button className="quiet" onClick={() => removeWord(key)}>
-                移除
-              </button>
-            </div>
-          ))}
-          {!Object.keys(records).length && (
-            <p className="notice">在原文中点击一个标注的单词，就能收进生词本。</p>
-          )}
-        </section>
+        <ReaderVocabulary
+          records={records}
+          onRemove={removeWord}
+          onExport={exportWords}
+          onClose={() => setVocabOpen(false)}
+        />
       )}
       {!doc && !loading && (
         <main className="reader-welcome">
@@ -710,29 +720,39 @@ function Reader() {
       )}
       {doc && section && (
         <div className="reader-layout" inert={!!loading} aria-busy={!!loading}>
-          <aside className="reader-sidebar">
-            <div className="reader-document-meta">
-              <span className="tag">{doc.format}</span>
-              <h2>{doc.title}</h2>
-              <p className="muted">
-                {doc.sections.length} 个{doc.structure === 'fragments' ? '阅读片段' : '阅读章节'}
-                {doc.pageCount ? ` · ${doc.pageCount} 页` : null}
-              </p>
-            </div>
-            <nav aria-label="章节目录">
-              {doc.sections.map((s, i) => (
-                <button
-                  key={s.id}
-                  data-depth={s.depth ?? 0}
-                  aria-current={i === sectionIndex ? 'page' : undefined}
-                  onClick={() => navigate(i)}
-                >
-                  {s.title}
-                </button>
-              ))}
-            </nav>
-          </aside>
+          <ReaderDirectory
+            key={fingerprint}
+            document={doc}
+            current={sectionIndex}
+            onNavigate={navigate}
+          />
           <main className="reader-main">
+            <div className="reader-location" aria-label="阅读位置">
+              <div className="reader-location-label">
+                <span>
+                  第 {sectionIndex + 1} / {doc.sections.length}{' '}
+                  {doc.structure === 'fragments' ? '片段' : '章节'}
+                </span>
+                {focused && <small>Esc 退出专注</small>}
+                <div className="reader-location-actions">
+                  <button
+                    aria-label="前一章节"
+                    disabled={sectionIndex === 0}
+                    onClick={() => navigate(sectionIndex - 1)}
+                  >
+                    ←
+                  </button>
+                  <button
+                    aria-label="后一章节"
+                    disabled={sectionIndex === doc.sections.length - 1}
+                    onClick={() => navigate(sectionIndex + 1)}
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+              <progress aria-label="章节位置" max={doc.sections.length} value={sectionIndex + 1} />
+            </div>
             <div className="reader-toolbar">
               <label>
                 原文语言
@@ -821,7 +841,7 @@ function Reader() {
                 <span>提前准备整份文档</span>
               </label>
             </div>
-            {notice && <p className="reader-hint">{notice}</p>}
+            {notice && <p className="reader-hint reader-notice">{notice}</p>}
             {language !== 'en' && (
               <p className="reader-hint">
                 当前语言使用浏览器分词筛选候选，尚无对应词频等级表；候选不代表你一定不认识，可标记“已认识”。
@@ -845,7 +865,13 @@ function Reader() {
                     文字伴读
                   </button>
                 </div>
-                <p className="reader-hint">
+                <p
+                  className={
+                    doc.sections.some((s) => s.text.trim())
+                      ? 'reader-hint'
+                      : 'reader-hint reader-notice'
+                  }
+                >
                   {doc.structure === 'outline'
                     ? '目录来自 PDF 书签。'
                     : doc.structure === 'headings'
@@ -928,7 +954,10 @@ function Reader() {
               默认预读本节与接下来两节。下划线表示候选，释义准备好后显示浅色标记。悬停和点击都不请求模型。暂停后在途请求可能继续完成。
             </p>
           </main>
-          <aside className="reader-inspector" aria-label="词语释义">
+          <aside
+            className={`reader-inspector${selected ? ' has-selection' : ''}`}
+            aria-label="词语释义"
+          >
             {selected ? (
               <>
                 <div className="row">
