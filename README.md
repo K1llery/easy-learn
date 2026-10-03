@@ -8,7 +8,7 @@
 
 ## 安装与使用
 
-从 [GitHub Actions 打包页面](https://github.com/K1llery/easy-learn/actions/workflows/package.yml) 进入一次运行，在 **Artifacts** 下载对应 ZIP。
+从 [GitHub Releases](https://github.com/K1llery/easy-learn/releases) 的 **Assets** 下载对应 ZIP；尚未发布的试用包可在 [GitHub Actions 打包页面](https://github.com/K1llery/easy-learn/actions/workflows/package.yml) 的 **Artifacts** 下载。
 
 - **桌面版**：Windows 解压后运行 `Easy Learn.exe`；Mac 选择对应芯片版本，将 `Easy Learn.app` 拖入“应用程序”并打开。无需安装运行环境，详见[桌面使用说明](docs/desktop-start.md)。
 - **浏览器扩展**：解压扩展包，在 Chrome / Edge 的扩展管理页开启“开发者模式”，选择“加载已解压的扩展程序”。在设置中连接 AI 服务，打开文章后点击工具栏图标开启伴读。
@@ -27,4 +27,4 @@ pnpm workbench
 
 工作台地址为 `http://127.0.0.1:4178`；扩展构建位于 `dist/`，可在浏览器中加载。
 
-[模型连接](docs/model-providers.md) · [多语言翻译](docs/multilingual-translation.md) · [项目架构](docs/architecture-guide.md) · [开发与测试](docs/code-quality.md)
+[模型连接](docs/model-providers.md) · [多语言翻译](docs/multilingual-translation.md) · [项目架构](docs/architecture-guide.md) · [开发与测试](docs/code-quality.md) · [发布安装包](docs/releases.md)

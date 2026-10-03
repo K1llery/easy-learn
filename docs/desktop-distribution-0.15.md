@@ -35,7 +35,7 @@ pnpm package:extension
 
 产物位于忽略的 `artifacts/`。开发机可以跨编译，`pnpm test:desktop <target>` 必须在对应 OS / 架构运行。它启动真正的本机启动器，清空子进程 PATH、使用临时数据目录，并关闭自动浏览器弹出；验证后端和网页资源、重复启动、外站退出拒绝、合法退出、后端 PID 真正结束。测试不依赖用户密钥。
 
-[工作流](../.github/workflows/package.yml) 支持手动执行和推送 `v*` 标签。三个原生桌面 runner 各自打包并运行上述 smoke；Ubuntu job 构建插件和工作台并运行浏览器回归。工具版本及 Actions 提交固定，权限只读，产物保留 14 天，不自动建立 Release 或上传商店。Runner 标签来源：[GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。本次没有推送代码、触发远端工作流或发布产物。
+[工作流](../.github/workflows/package.yml) 支持手动执行和推送 `v*` 标签。三个原生桌面 runner 各自打包并运行上述 smoke；Ubuntu job 构建插件和工作台并运行浏览器回归。工具版本及 Actions 提交固定，打包 job 权限只读，产物保留 14 天。标签打包成功后自动将附件上传到 Release（新建时为草稿），也可手动复用已有成功产物，见[发布安装包](releases.md)。不自动上传商店。Runner 标签来源：[GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。本次没有推送代码、触发远端工作流或发布产物。
 
 Mac 原生构建在全部 app 内资源写完后，对 Node 与 app 做临时签名，最后 `codesign --verify --deep --strict`；签名之后不再改 app 内文件。参见 [Apple 签名说明](https://developer.apple.com/library/archive/technotes/tn2206/)与[公证说明](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)。临时签名不等于发行者签名或公证。面向大众正式分发还需 Windows 发行者签名、Apple Developer ID 与公证，以及 Chrome / Edge 商店审核；不应指导用户关闭系统安全保护。当前 Mac 最低声明系统为 13.5。
 

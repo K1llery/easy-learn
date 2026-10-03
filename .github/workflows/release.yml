@@ -1,0 +1,140 @@
+name: Release Easy Learn
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release 标签（如 v0.16.0）；新标签会指向打包时的提交'
+        required: true
+        type: string
+      run_id:
+        description: '打包运行 ID（Actions 运行网址末尾数字）；留空使用最近一次成功打包'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      PACKAGE_RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - name: 选择并核验打包运行
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" != v* ]] || ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+            echo '::error::请输入有效的 v 开头版本标签。'
+            exit 1
+          fi
+          run_id="$PACKAGE_RUN_ID"
+          if [[ -z "$run_id" ]]; then
+            run_id=$(gh run list --workflow package.yml --status success --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo '::error::找不到成功的打包运行，请填写 Actions 打包运行网址末尾的数字 ID。'
+            exit 1
+          fi
+          run=$(gh api "repos/$GH_REPO/actions/runs/$run_id")
+          if [[ $(jq -r '.path' <<< "$run") != '.github/workflows/package.yml' ]] || \
+             [[ $(jq -r '.event' <<< "$run") != 'push' && $(jq -r '.event' <<< "$run") != 'workflow_dispatch' ]]; then
+            echo '::error::只能使用当前仓库 Package Easy Learn 工作流的打包产物。'
+            exit 1
+          fi
+          # 标签打包在依赖 job 全部成功后调用，此时当前 run 尚未结束。
+          if [[ "$run_id" != "$GITHUB_RUN_ID" || "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+            if [[ $(jq -r '.conclusion' <<< "$run") != 'success' ]]; then
+              echo '::error::所选打包运行未成功完成，请先解决打包或测试失败。'
+              exit 1
+            fi
+          fi
+          sha=$(jq -r '.head_sha' <<< "$run")
+          # 区分不存在的标签与 API / 权限错误；同时支持附注标签。
+          tags=$(gh api --paginate "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG")
+          tag_ref=$(jq -r --arg ref "refs/tags/$RELEASE_TAG" '.[] | select(.ref == $ref) | .ref' <<< "$tags")
+          if [[ -n "$tag_ref" ]]; then
+            tag_sha=$(gh api "repos/$GH_REPO/commits/$tag_ref" --jq .sha)
+            if [[ "$tag_sha" != "$sha" ]]; then
+              echo '::error::Release 标签与打包提交不同。请使用对应提交的打包运行，或填写一个新标签。'
+              exit 1
+            fi
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: 下载四个平台的安装包并核对校验文件
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.package.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          version=''
+          for target in windows-x64 macos-arm64 macos-x64 extension; do
+            directory="$RUNNER_TEMP/release-assets/$target"
+            gh run download "$RUN_ID" --name "Easy-Learn-$target" --dir "$directory"
+            zips=("$directory"/*.zip)
+            checksums=("$directory"/*.sha256)
+            if [[ ${#zips[@]} != 1 || ${#checksums[@]} != 1 ]]; then
+              echo "::error::$target 必须包含一个安装 ZIP 和一个 SHA-256 文件。"
+              exit 1
+            fi
+            filename=$(basename "${zips[0]}")
+            if [[ ! "$filename" =~ ^Easy-Learn-([0-9]+\.[0-9]+\.[0-9]+)-$target\.zip$ ]]; then
+              echo "::error::$target 安装包名称不符合打包约定。"
+              exit 1
+            fi
+            current_version="${BASH_REMATCH[1]}"
+            version="${version:-$current_version}"
+            if [[ "$current_version" != "$version" || "${checksums[0]}" != "${zips[0]}.sha256" ]]; then
+              echo '::error::安装包版本或校验文件名称不一致。'
+              exit 1
+            fi
+            (cd "$directory" && sha256sum -- "$filename" | diff - "${filename}.sha256")
+          done
+      - name: 将安装包与校验文件附加到 Release
+        shell: bash
+        env:
+          PACKAGE_SHA: ${{ steps.package.outputs.sha }}
+          RUN_ID: ${{ steps.package.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          assets=("$RUNNER_TEMP"/release-assets/*/*.zip "$RUNNER_TEMP"/release-assets/*/*.sha256)
+          releases=$(gh api --paginate "repos/$GH_REPO/releases")
+          release=$(jq -c --arg tag "$RELEASE_TAG" '.[] | select(.tag_name == $tag)' <<< "$releases")
+          if [[ -z "$release" ]]; then
+            gh release create "$RELEASE_TAG" "${assets[@]}" --target "$PACKAGE_SHA" \
+              --draft --title "Easy Learn $RELEASE_TAG" --generate-notes
+          elif [[ $(jq -r '.draft' <<< "$release") == true ]]; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            # 已公开的附件不覆盖；重名或不可变 Release 会由 GitHub 拒绝并明确报错。
+            gh release upload "$RELEASE_TAG" "${assets[@]}"
+          fi
+          release_url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
+          {
+            echo "## Release 附件已上传"
+            echo "- [打开 Release]($release_url)"
+            echo "- [来源打包运行](https://github.com/$GH_REPO/actions/runs/$RUN_ID)"
+            echo "- 打包提交：$PACKAGE_SHA"
+            echo '- 已上传 4 个 ZIP 和 4 个 SHA-256 文件。新建 Release 为草稿，可编辑说明后点击 Publish release。'
+          } >> "$GITHUB_STEP_SUMMARY"
