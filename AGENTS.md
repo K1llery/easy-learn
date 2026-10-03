@@ -1,18 +1,40 @@
-# Easy Learn workspace
+# Repository Guidelines
 
-- Use Git for version control, as requested by the user. Record completed, verified changes in local commits. Do not publish or push without a request.
-- Before committing, review the actual staged diff and affected callers/tests against the requested behavior. Resolve confirmed defects and material validation gaps, rerun affected checks, and report the review outcome; this does not authorize pushing or unrelated changes. For significant architectural, persisted-data, shared-lifecycle or concurrency changes, use `$independent-change-review` with a fresh read-only reviewer before commit/handoff; disclose an unavailable or incomplete review.
-- Keep API keys, `.env*`, caches, dependencies, build output, test output and zip artifacts out of Git; see `.gitignore`.
-- Validate application changes with `pnpm test` and `pnpm build`; independent reader changes also require `pnpm build:workbench`. Documentation/skill-only changes use direct inspection and the skill validator instead of repeating application checks.
-- Browser regression uses public fixtures and a local mock API, never personal credentials. On WSL use `PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e` after confirming the existing Linux Chromium cache. On other hosts use a verified compatible browser/cache; do not reuse a macOS executable path on WSL.
-- Vocabulary fixture readers must tolerate LF and CRLF while retaining frequency order; generated `public/vocabulary/*.txt` stays LF through `.gitattributes`. CI Action runtimes are separate from the application's Node version; verify `runs.using` at the pinned official SHA when upgrading Actions.
-- Keep command explanations independent from the default-off code annotation switch. Tooltip content must be preloaded; do not start model requests on hover.
-- Before adding capabilities, inspect mature open-source libraries, comparable projects and user issues. Reuse compatible components and record source links, license boundaries and applicable requirements in docs; stars alone do not establish active user count.
-- For document import, vocabulary selection, PDF structure, figures or annotations, use [reading-workbench-maintenance](.agents/skills/reading-workbench-maintenance/SKILL.md). Preserve frequency ordering and scan the complete reading unit before applying candidate caps; distinguish physical pages from logical sections, and verify figures through rendering rather than text extraction alone.
-- PDF continuous reading, zoom and navigation reuse the installed PDF.js viewer and its matching legacy API/styles. Keep observed page updates separate from explicit destinations, retain selectable text alignment during zoom, and validate bounded overflow and lazy rendering in both workbench builds.
-- PDF editing reuses the native PDF.js annotation editor and `saveDocument`; keep its viewer mounted when switching to text view. Preserve selection DOM during explanation updates, guard unsaved replacement/close, and verify annotations after exporting and re-importing, including CJK compatibility limits. Selection learning reuses `rpc`, `useAction` and `QuickQuiz`; capture only document text and request models only on explicit actions.
-- Abbreviations use shared contextual detection and retain their kind, English `expansion`, and any `ambiguity` through analysis, display, vocabulary storage and export. Mark unresolved full names as uncertain; do not add a hover request to repair incomplete output.
-- Browser full-page translation reuses the shared extraction and explain/translate adapter. Preserve original DOM, ignore extension-owned insertions in both observers, and scope cancellation to the requesting document's translations. Use the reading maintenance skill for source/scroll preservation and model tuning for shared defaults and priority; details are in [browser translation evidence](docs/browser-translation-0.16.md).
-- For provider controls, reasoning, Fast, streaming or concurrency, use [model-request-tuning](.agents/skills/model-request-tuning/SKILL.md). Verify serialized requests, keep preset preferences isolated, and distinguish mocked responsiveness from measured upstream throughput.
-- For bundled desktop launchers, Windows/macOS archives or GitHub Actions packaging, use [desktop-browser-distribution](.agents/skills/desktop-browser-distribution/SKILL.md). Build with `pnpm package:desktop <target>` or `pnpm package:extension`; run `pnpm test:desktop <target>` on the matching native host. Preserve authenticated instance reuse, per-user settings and real backend shutdown. Sign Mac apps only after final resource writes; distinguish cross-compiled or temporary-signed test archives from verified publisher-signed releases.
-- After substantial completed work, consolidate confirmed reusable procedures into the applicable skills and keep only routing and durable constraints here. Keep dated investigation and test evidence in docs. Repository skill copies under `.agents/skills/` are canonical; synchronize their corresponding installed copies when updating them.
+## Project Structure & Module Organization
+
+- `src/core/`: shared types, model adapters, settings, caches, and learning.
+- `src/content/`: webpage extraction, annotations, and bilingual translation.
+- `src/ui/`: React screens and styles; `src/reader/`: document parsing and vocabulary selection.
+- `src/background.ts`: extension orchestration; `src/workbench/`: local backend.
+- `public/`: manifest, vocabulary, and licenses; `scripts/`: builds and packaging; `desktop/launcher/`: Go launchers.
+- `tests/`: unit tests, `tests/e2e/`: browser flows, `tests/fixtures/`: public fixtures; `docs/`: architecture and validation.
+
+## Build, Test, and Development Commands
+
+Use Node.js 22.12+ and pnpm pinned in `package.json`.
+
+- `pnpm install --frozen-lockfile`: install locked dependencies.
+- `pnpm check`: check strict TypeScript.
+- `pnpm build`: type-check and generate the extension in `dist/`.
+- `pnpm build:workbench && pnpm workbench`: build and serve the reader at `http://127.0.0.1:4178`.
+- `pnpm test` / `pnpm test:e2e`: run unit / browser tests.
+- `pnpm package:extension`: create an extension archive.
+- `pnpm package:desktop windows-x64`: bundle desktop; also supports `macos-x64` and `macos-arm64`. Run `pnpm test:desktop <target>` on the matching native host.
+
+## Coding Style & Naming Conventions
+
+Use strict TypeScript, ES modules, and React function components. For TypeScript/TSX, use two-space indentation, single quotes, and semicolons; match adjacent formatting. Use kebab-case filenames, PascalCase components/types, and camelCase functions/variables. Format Go with `gofmt`. No JavaScript formatter or linter is configured; avoid unrelated reformatting.
+
+## Testing Guidelines
+
+Vitest uses jsdom; Playwright uses Chromium. Use `*.test.ts` for unit tests and `*.spec.ts` for browser tests; describe behavior. No numeric coverage threshold is configured. Test changed behavior with public/synthetic fixtures and local model mocks, never personal credentials.
+
+Application changes require `pnpm test` and `pnpm build`; reader changes also require `pnpm build:workbench`. Run affected browser flows. On WSL, verify the Linux Chromium cache, then run `PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e`. Documentation-only changes require direct inspection.
+
+## Commit & Pull Request Guidelines
+
+Use imperative summaries; history also uses `feat:` and `fix:`. Prefer Simplified Chinese unless matching surrounding English conventions. Use `codex/<topic>` branches for fixes/features. Review staged changes before committing; significant architecture, persistence, lifecycle, or concurrency changes require independent read-only review. PRs explain behavior, link related issues, report validation/limitations, and include screenshots for UI changes. Preserve unrelated work; push only when authorized.
+
+## Security & Architecture Constraints
+
+Never commit credentials, `.env*`, caches, dependencies, builds, or archives. Preserve original document DOM, PDF viewer state, and unsaved-annotation guards. Reuse existing parsers, request adapters, and scheduling; tooltips must reveal preloaded explanations without model calls. Keep command explanations independent of default-off code annotations.
