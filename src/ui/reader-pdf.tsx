@@ -45,7 +45,7 @@ export function ReaderPdf(props:Props){
     frame.scrollTop+=box.top-frameBox.top-frame.clientHeight/3;
     if(box.left<frameBox.left||box.right>frameBox.right)frame.scrollLeft+=box.left-frameBox.left-24;
     for(const animation of animations.current)animation.cancel();
-    animations.current=hits.map(span=>span.animate([{backgroundColor:'rgba(255,204,0,.65)'},{backgroundColor:'rgba(255,204,0,0)'}],{duration:650,iterations:2}));
+    animations.current=window.matchMedia('(prefers-reduced-motion: reduce)').matches?[]:hits.map(span=>span.animate([{backgroundColor:'rgba(255,204,0,.65)'},{backgroundColor:'rgba(255,204,0,0)'}],{duration:650,iterations:2}));
     for(const span of hits)span.dataset.navigationTarget=target.title;
   }
   function changeTool(next:Tool){
