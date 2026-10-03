@@ -1,3 +1,9 @@
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  translationLanguages,
+  type TranslationLanguage,
+} from '../core/translation-languages';
 import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
 import { PageTranslation, translationStyle } from './page-translation';
 import {
@@ -79,6 +85,9 @@ else {
     commonWords: Set<string> | undefined,
     allCommonWords: string[] | undefined,
     vocabularyLoad: Promise<void> | undefined;
+  let targetLanguage: TranslationLanguage = defaultTranslationLanguage;
+  let savedTranslationLanguage: TranslationLanguage | undefined;
+  let targetSelect: HTMLSelectElement;
   let quizCount = 5,
     maxPerBlock = 6,
     batchSize = defaultBatchSize,
@@ -369,6 +378,7 @@ else {
         codeAnnotations?: boolean;
         localOnly?: boolean;
         annotationTypes?: AnnotationType[];
+        translationTargetLanguage?: TranslationLanguage;
         quizCount?: number;
         maxPerBlock?: number;
         batchSize?: number;
@@ -376,6 +386,14 @@ else {
         vocabularyBaseline?: number;
         vocabularyPerBlock?: number;
       }>('PUBLIC_SETTINGS');
+      const preferredLanguage = translationLanguageInfo(data.translationTargetLanguage).code;
+      // 注释偏好刷新时保留本页选择；首次加载或更改全局默认时才应用默认值。
+      if (savedTranslationLanguage !== preferredLanguage) {
+        savedTranslationLanguage = preferredLanguage;
+        targetLanguage = preferredLanguage;
+        translation?.setTargetLanguage(targetLanguage);
+      }
+      if (targetSelect) targetSelect.value = targetLanguage;
       vocabularyBaseline = data.vocabularyBaseline ?? 10000;
       vocabularyPerBlock = data.vocabularyPerBlock ?? 1;
       if (allCommonWords) commonWords = new Set(allCommonWords.slice(0, vocabularyBaseline));
@@ -400,6 +418,8 @@ else {
     } catch (e) {
       settingsError = (e as Error).message;
     }
+    targetSelect.disabled = false;
+    translationButton.disabled = false;
     status();
   }
   function refreshBlocks() {
@@ -909,7 +929,8 @@ else {
     };
     translationButton = node('button', '翻译全文') as HTMLButtonElement;
     translationButton.style.cssText = statusNode.style.cssText;
-    translationButton.title = '正文逐段翻译成中文，保留原文；使用已连接模型服务的额度。';
+    translationButton.disabled = true;
+    translationButton.title = '正文逐段翻译为所选语言，保留原文；使用已连接模型服务的额度。';
     translationPause = node('button', '暂停翻译') as HTMLButtonElement;
     translationPause.style.cssText = statusNode.style.cssText;
     translationPause.hidden = true;
@@ -917,12 +938,34 @@ else {
     translationProgress.setAttribute('role', 'status');
     translationProgress.style.cssText = progress.style.cssText;
     translationProgress.hidden = true;
+    const targetLabel = node('label', '译文语言 / Translate to');
+    targetLabel.style.cssText =
+      'pointer-events:auto;font-size:12px;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:12px;background:#fffffff2';
+    targetSelect = document.createElement('select');
+    targetSelect.style.cssText =
+      'font:inherit;border:1px solid #d2d2d7;border-radius:9px;padding:5px 8px;background:#fff;color:#1d1d1f;max-width:170px';
+    targetSelect.setAttribute('aria-label', '译文语言 / Translate to');
+    targetSelect.disabled = true;
+    for (const language of translationLanguages) {
+      const option = document.createElement('option');
+      option.value = language.code;
+      option.textContent = language.label;
+      option.lang = language.code;
+      targetSelect.append(option);
+    }
+    targetSelect.value = targetLanguage;
+    targetSelect.onchange = () => {
+      targetLanguage = translationLanguageInfo(targetSelect.value).code;
+      translation?.setTargetLanguage(targetLanguage);
+    };
+    targetLabel.append(targetSelect);
     translation = new PageTranslation({
+      targetLanguage,
       concurrency: () => concurrency,
-      request: async (context) => {
+      request: async (context, targetLanguage) => {
         const result = await rpc<{ translation: string }>('AI', {
           pageTranslation: true,
-          request: { operation: 'explain', mode: 'translate', context },
+          request: { operation: 'explain', mode: 'translate', context, targetLanguage },
         });
         return result.translation;
       },
@@ -940,6 +983,7 @@ else {
     translationPause.onclick = () => translation?.togglePause();
     dock.append(
       statusNode,
+      targetLabel,
       translationButton,
       translationPause,
       translationProgress,

@@ -2,12 +2,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { PageTranslation, type TranslationStatus } from '../src/content/page-translation';
 import { extractBlocks } from '../src/content/document';
 import type { TextContext } from '../src/core/types';
+import type { TranslationLanguage } from '../src/core/translation-languages';
 import { translatedRuns, translationParts } from '../src/content/translation-format';
 
 let translator: PageTranslation;
 afterEach(() => translator?.dispose());
 function create(
-  request: (context: TextContext) => Promise<string>,
+  request: (context: TextContext, language: TranslationLanguage) => Promise<string>,
   concurrency = 6,
   cancel = vi.fn(async (): Promise<unknown> => undefined),
 ) {
@@ -201,6 +202,7 @@ it('keeps translated emphasis attached to its text when Chinese word order chang
       text: '⟦EL:0⟧Read ⟦/EL:0⟧⟦EL:1⟧carefully⟦/EL:1⟧⟦EL:2⟧ today.⟦/EL:2⟧',
       translationMarker: 'EL',
     },
+    'zh-CN',
   ]);
 });
 
@@ -309,4 +311,44 @@ it('updates cached line breaks for CSS visibility changes, including hidden ance
     expect(document.querySelectorAll('[data-easy-learn="translation"] br')).toHaveLength(1),
   );
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('switches languages only on explicit continuation, discards old responses and preserves original nodes', async () => {
+  document.body.innerHTML =
+    '<article><p id="source">Keep the original <a href="/reference">link</a>.</p></article>';
+  const source = document.querySelector('#source')!,
+    link = document.querySelector('a');
+  const original = source.innerHTML;
+  const pending = deferred();
+  const request = vi.fn((_context: TextContext, language: TranslationLanguage) =>
+    language === 'zh-CN'
+      ? pending.promise
+      : Promise.resolve(language === 'fr' ? 'Gardez le lien original.' : 'احتفظ بالرابط الأصلي.'),
+  );
+  const state = create(request);
+  translator.start();
+  expect(request).toHaveBeenCalledTimes(1);
+  translator.setTargetLanguage('fr');
+  expect(state.status().paused).toBe(true);
+  pending.resolve('旧中文结果');
+  await vi.waitFor(() => expect(state.cancel).toHaveBeenCalled());
+  expect(document.querySelector('[data-easy-learn="translation"]')).toBeNull();
+  expect(request).toHaveBeenCalledTimes(1);
+  translator.resume();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  expect(document.querySelector('[data-easy-learn="translation"]')).toMatchObject({
+    lang: 'fr',
+    textContent: 'Gardez le lien original.',
+  });
+  translator.setTargetLanguage('ar');
+  expect(document.querySelector('[data-easy-learn="translation"]')).toBeNull();
+  translator.resume();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  const translated = document.querySelector<HTMLElement>('[data-easy-learn="translation"]')!;
+  expect(translated.lang).toBe('ar');
+  expect(translated.dir).toBe('rtl');
+  expect(translated.style.direction).toBe('rtl');
+  expect(source.innerHTML).toBe(original);
+  expect(document.querySelector('a')).toBe(link);
+  expect(request.mock.calls.map((call) => call[1])).toEqual(['zh-CN', 'fr', 'ar']);
 });

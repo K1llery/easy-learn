@@ -831,3 +831,18 @@ details.section-line[open] > summary {
     scroll-behavior: auto !important;
   }
 }
+
+.translation-language {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--secondary);
+}
+.translation-language select {
+  width: auto;
+  min-width: 160px;
+  max-width: 100%;
+}

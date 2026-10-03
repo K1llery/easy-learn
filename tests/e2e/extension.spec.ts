@@ -156,13 +156,19 @@ function output(request: AIRequest) {
         },
       ],
     };
+  const languagePrefix =
+    request.targetLanguage && request.targetLanguage !== 'zh-CN'
+      ? `${request.targetLanguage}：`
+      : '中文：';
   const translation = request.context?.translationMarker
     ? request.context.text.replace(
         /⟦(EL\d*):(\d+)⟧([\s\S]*?)⟦\/\1:\2⟧/g,
         (_: string, marker: string, id: string, text: string) =>
-          `⟦${marker}:${id}⟧中文：${text}⟦/${marker}:${id}⟧`,
+          `⟦${marker}:${id}⟧${languagePrefix}${text}⟦/${marker}:${id}⟧`,
       )
-    : '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。';
+    : request.targetLanguage && request.targetLanguage !== 'zh-CN'
+      ? `${languagePrefix}Use DR to recover from a regional failure.`
+      : '使用灾难恢复（DR）应对区域故障。不要关闭复制。至少保留 3 个副本。';
   return {
     meaning: request.concept?.meaning ?? '灾难恢复',
     expansion: request.concept?.expansion ?? 'Disaster Recovery',
@@ -430,7 +436,7 @@ test('complete reading, translation, followup and hiding flow in a real extensio
   await page.getByRole('button', { name: '深入理解 / 翻译' }).click();
   const panel = page.frameLocator('iframe[title="Easy Learn 学习面板"]');
   await expect(panel.getByRole('heading', { name: '灾难恢复', exact: true })).toBeVisible();
-  await panel.getByRole('button', { name: '翻译这一段', exact: true }).click();
+  await panel.getByRole('button', { name: '翻译这一段', exact: true }).press('Enter');
   await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
   await expect(panel.getByRole('button', { name: '检查理解' })).toHaveCount(0);
   await panel.getByLabel('还有哪里没弄明白？').fill('它和普通备份有什么区别？');
@@ -476,7 +482,7 @@ test('authenticated gateway envelopes work for saved connection tests and pasted
     .fill(
       'Use DR to recover from a regional failure. Do not disable replication. Keep at least 3 replicas.',
     );
-  await panel.getByRole('button', { name: '翻译成中文', exact: true }).click();
+  await panel.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
   await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
   await panel.close();
   await settings.close();
@@ -523,7 +529,7 @@ test('dynamic context invalidation, selection, pasted text, and recoverable mode
   responseStatus = 200;
   responseStyle = 'json';
   responseDelay = 0;
-  await panel.getByRole('button', { name: '重试', exact: true }).click();
+  await panel.getByRole('button', { name: '重试', exact: true }).press('Enter');
   await expect(panel.getByLabel('概念解释')).toBeVisible();
   await page.close();
 });
@@ -2114,4 +2120,75 @@ test('restoring and showing translations retains the current source paragraph in
     ),
   ).toBeLessThan(2);
   await page.close();
+});
+
+test('translation targets work in settings, full-page bilingual mode and selected-text panels', async () => {
+  responseStyle = 'json';
+  const settings = await context.newPage();
+  await settings.goto(`chrome-extension://${id}/options.html`);
+  const defaults = settings.getByRole('combobox', {
+    name: '默认译文语言 / Default translation language',
+  });
+  await defaults.selectOption('fr');
+  await expect(settings.getByText('学习偏好已保存，已开启的页面会立即更新。')).toBeVisible();
+  const page = await context.newPage();
+  await page.goto(`${base}/article?multilingual=1`);
+  const source = await page.locator('article').innerHTML();
+  await inject(page);
+  const select = page.getByRole('combobox', { name: '译文语言 / Translate to', exact: true });
+  await expect(select).toHaveValue('fr');
+  await expect(select.locator('option')).toHaveCount(16);
+  await select.click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  const translations = page.locator('[data-easy-learn="translation"]');
+  await expect(translations.first()).toHaveAttribute('lang', 'fr');
+  await expect(translations.first()).toContainText('fr：');
+  await expect(page.getByRole('button', { name: '暂停翻译', exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await select.selectOption('ja');
+  await page.getByRole('button', { name: '继续翻译', exact: true }).click();
+  await expect(translations.first()).toHaveAttribute('lang', 'ja');
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  const before = calls.length;
+  // 本页临时选择必须在无关的注释偏好刷新后保留。
+  await settings.evaluate(() =>
+    chrome.runtime.sendMessage({
+      type: 'SET_ANNOTATION_TYPES',
+      types: ['abbreviation', 'command'],
+    }),
+  );
+  await expect(select).toHaveValue('ja');
+  await expect(translations.first()).toHaveAttribute('lang', 'ja');
+  await expect(page.getByRole('button', { name: '暂停翻译', exact: true })).toBeVisible();
+  await select.selectOption('ar');
+  await expect(translations).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '继续翻译', exact: true })).toBeVisible();
+  expect(calls.slice(before).filter((call) => call.mode === 'translate')).toHaveLength(0);
+  await page.getByRole('button', { name: '继续翻译', exact: true }).click();
+  await expect(translations.first()).toHaveAttribute('lang', 'ar');
+  await expect(translations.first()).toHaveAttribute('dir', 'rtl');
+  await expect(translations.first()).toContainText('ar：');
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  const dockButton = page.getByRole('button', { name: '阅读注释', exact: true });
+  if ((await dockButton.getAttribute('aria-expanded')) === 'true') await dockButton.click();
+  await page.mouse.move(20, 20);
+  await expect(page.getByRole('dialog', { name: '伴读设置', exact: true })).toBeHidden();
+  await page.screenshot({ path: 'test-results/multilingual-translation.png', caret: 'initial' });
+  await page.getByRole('button', { name: '还原原文', exact: true }).click();
+  expect(await page.locator('article').innerHTML()).toBe(source);
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${id}/panel.html`);
+  await expect(panel.getByRole('combobox', { name: '译文语言 / Translate to' })).toHaveValue('fr');
+  await panel.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('ja');
+  await panel.getByLabel('粘贴想理解的内容').fill('Use DR to recover from a regional failure.');
+  await panel.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
+  await expect(panel.getByLabel('段落翻译')).toContainText('ja：');
+  await expect(panel.getByLabel('段落翻译').locator('p')).toHaveAttribute('lang', 'ja');
+  expect(calls.at(-1)!.targetLanguage).toBe('ja');
+  await defaults.selectOption('zh-CN');
+  await expect(settings.getByText('学习偏好已保存，已开启的页面会立即更新。')).toBeVisible();
+  await panel.close();
+  await page.close();
+  await settings.close();
 });

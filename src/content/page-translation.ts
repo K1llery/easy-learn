@@ -6,6 +6,11 @@ import {
   type Block,
 } from './document';
 import { readingPriority } from './reading-order';
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
 import type { TextContext } from '../core/types';
 import {
   applyTextStyle,
@@ -32,7 +37,8 @@ export type TranslationStatus = {
   error: string;
 };
 type Options = {
-  request: (context: TextContext) => Promise<string>;
+  request: (context: TextContext, targetLanguage: TranslationLanguage) => Promise<string>;
+  targetLanguage?: TranslationLanguage;
   cancel: () => Promise<unknown>;
   concurrency: () => number;
   changed: (status: TranslationStatus) => void;
@@ -41,6 +47,7 @@ export const translationStyle = `.easy-learn-translation{display:block!important
 
 /** 原文节点不替换；译文与请求状态只保留在当前页面。 */
 export class PageTranslation {
+  private targetLanguage: TranslationLanguage;
   private units = new Map<HTMLElement, Unit>();
   private visible = false;
   private paused = true;
@@ -54,6 +61,7 @@ export class PageTranslation {
   private onResize = () => this.schedule();
 
   constructor(private options: Options) {
+    this.targetLanguage = options.targetLanguage ?? defaultTranslationLanguage;
     this.observer = new MutationObserver((records) => {
       const displaced = [...this.units.values()].some((unit) => unit.node && !this.isPlaced(unit));
       if (!records.every(isExtensionMutation) || displaced) this.schedule();
@@ -66,6 +74,12 @@ export class PageTranslation {
       attributeFilter: ['hidden', 'aria-hidden', 'style', 'class'],
     });
     window.addEventListener('resize', this.onResize);
+  }
+
+  setTargetLanguage(language: TranslationLanguage) {
+    if (language === this.targetLanguage) return;
+    this.targetLanguage = language;
+    this.invalidate();
   }
 
   start() {
@@ -130,7 +144,7 @@ export class PageTranslation {
     this.pause();
     this.preservePosition(() => this.units.forEach((unit) => unit.node?.remove()));
     this.units.clear();
-    this.error = '连接或学习设置已改变，请点击继续翻译。';
+    this.error = '译文语言、连接或学习设置已改变，请点击继续翻译。';
     this.notify();
   }
 
@@ -189,7 +203,9 @@ export class PageTranslation {
     // 按原文顺序拼接，保留尚未完成的片段位置。
     if (!unit.parts.some((part) => part.translation?.trim())) return;
     const inline = /^(LI|TD)$/.test(unit.block.element.tagName);
+    const language = translationLanguageInfo(this.targetLanguage);
     const style = textStyle(unit.block.element);
+    style.direction = language.direction;
     // 列表/单元格内的译文已经处于原文背景和透明度之下，避免叠加两次。
     if (inline) {
       style.opacity = '1';
@@ -210,8 +226,9 @@ export class PageTranslation {
         unit.node = document.createElement(inline ? 'span' : 'div');
         unit.node.dataset.easyLearn = 'translation';
         unit.node.className = 'easy-learn-translation';
-        unit.node.lang = 'zh-CN';
-        unit.node.setAttribute('aria-label', '中文译文');
+        unit.node.lang = language.code;
+        unit.node.dir = language.direction;
+        unit.node.setAttribute('aria-label', `${language.label}译文`);
       }
       if (!this.isPlaced(unit)) {
         if (inline) unit.block.element.append(unit.node);
@@ -229,7 +246,7 @@ export class PageTranslation {
               content.append(document.createElement('br'));
             if (piece.style) {
               const span = document.createElement('span');
-              applyTextStyle(span, piece.style);
+              applyTextStyle(span, { ...piece.style, direction: language.direction });
               span.textContent = piece.text;
               content.append(span);
             } else content.append(document.createTextNode(piece.text));
@@ -351,14 +368,17 @@ export class PageTranslation {
     this.inflight++;
     const epoch = this.epoch;
     void this.options
-      .request({
-        title: document.title.slice(0, 500),
-        heading: unit.block.heading,
-        text: part.source,
-        before: '',
-        after: '',
-        ...(part.marker ? { translationMarker: part.marker } : {}),
-      })
+      .request(
+        {
+          title: document.title.slice(0, 500),
+          heading: unit.block.heading,
+          text: part.source,
+          before: '',
+          after: '',
+          ...(part.marker ? { translationMarker: part.marker } : {}),
+        },
+        this.targetLanguage,
+      )
       .then((translation) => {
         if (
           epoch !== this.epoch ||

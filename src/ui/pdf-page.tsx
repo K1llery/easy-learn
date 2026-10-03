@@ -1,3 +1,8 @@
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
 import React, { memo, useEffect, useRef, useState } from 'react';
 import type { Explanation, TextContext } from '../core/types';
 import type { PdfPageText } from '../core/pdf-document';
@@ -11,11 +16,17 @@ export const PdfPage = memo(function PdfPage({
   page,
   title,
   sourceUrl,
+  targetLanguage = defaultTranslationLanguage,
+  translationReady = true,
 }: {
   page: PdfPageText;
   title: string;
   sourceUrl: string;
+  targetLanguage?: TranslationLanguage;
+  translationReady?: boolean;
 }) {
+  const targetRef = useRef(targetLanguage);
+  targetRef.current = targetLanguage;
   const [mode, setMode] = useState<null | 'explain' | 'translate' | 'quiz' | 'check'>(null);
   const [explanation, setExplanation] = useState<Explanation | null>(null),
     [translation, setTranslation] = useState('');
@@ -51,6 +62,9 @@ export const PdfPage = memo(function PdfPage({
     setSelectedText(text.slice(0, 4000));
     setSelectionTruncated(text.length > 4000);
   }
+  useEffect(() => {
+    setTranslation('');
+  }, [targetLanguage]);
   function act(next: 'explain' | 'translate', excerpt?: string) {
     setMode(next);
     const focus = excerpt || context.text;
@@ -59,10 +73,16 @@ export const PdfPage = memo(function PdfPage({
       next === 'translate' ? '正在翻译文字…' : '正在结合上下文解释…',
       () =>
         rpc<Explanation>('AI', {
-          request: { operation: 'explain', mode: next, context: { ...context, text: focus } },
+          request: {
+            operation: 'explain',
+            mode: next,
+            context: { ...context, text: focus },
+            ...(next === 'translate' ? { targetLanguage } : {}),
+          },
         }),
       (data) => {
         if (next === 'translate') {
+          if (targetLanguage !== targetRef.current) return;
           setTranslation(data.translation || data.explanation);
           setExplanation(null);
         } else setExplanation(data);
@@ -119,7 +139,10 @@ export const PdfPage = memo(function PdfPage({
             <button disabled={!!busy} onClick={() => act('explain', selectedText)}>
               解释选中内容
             </button>
-            <button disabled={!!busy} onClick={() => act('translate', selectedText)}>
+            <button
+              disabled={!!busy || !translationReady}
+              onClick={() => act('translate', selectedText)}
+            >
               翻译选中内容
             </button>
             <button
@@ -140,7 +163,7 @@ export const PdfPage = memo(function PdfPage({
           <button disabled={!!busy} onClick={() => act('explain')}>
             解释这一页
           </button>
-          <button disabled={!!busy} onClick={() => act('translate')}>
+          <button disabled={!!busy || !translationReady} onClick={() => act('translate')}>
             翻译这一页
           </button>
           <button
@@ -194,9 +217,15 @@ export const PdfPage = memo(function PdfPage({
       )}
       {translation && mode === 'translate' && (
         <section className="card" aria-label={usedText ? '选段翻译' : '本页翻译'}>
-          <span className="tag">中文翻译</span>
+          <span className="tag">{translationLanguageInfo(targetLanguage).label}译文</span>
           {usedText && <p className="source">{usedText}</p>}
-          <p style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>{translation}</p>
+          <p
+            lang={targetLanguage}
+            dir={translationLanguageInfo(targetLanguage).direction}
+            style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}
+          >
+            {translation}
+          </p>
         </section>
       )}
     </section>

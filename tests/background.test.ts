@@ -212,6 +212,7 @@ it('caps selected PDF text to the existing context limit and records truncation'
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
   const result = await send('PUBLIC_SETTINGS', {}, pageSender);
   expect(result.data).toEqual({
+    translationTargetLanguage: 'zh-CN',
     profile: cfg.profile,
     mastered: [],
     codeAnnotations: false,
@@ -739,4 +740,30 @@ it('cancels a translation during asynchronous settings lookup before it can reac
   release({ reading: {} });
   expect((await pending).ok).toBe(false);
   expect(model).not.toHaveBeenCalled();
+});
+
+it('applies the saved translation language and isolates cached results by target language', async () => {
+  data.reading = { translationTargetLanguage: 'fr' };
+  const request = { operation: 'explain', mode: 'translate', context };
+  model.mockResolvedValue({ translation: 'Traduction française' });
+  expect((await send('AI', { request }, panelSender)).ok).toBe(true);
+  expect(model.mock.calls[0][1]).toMatchObject({ targetLanguage: 'fr', context });
+  expect(
+    (await send('AI', { request: { ...request, targetLanguage: 'fr' } }, panelSender)).ok,
+  ).toBe(true);
+  expect(model).toHaveBeenCalledTimes(1);
+  model.mockResolvedValue({ translation: '日本語訳' });
+  expect(
+    (await send('AI', { request: { ...request, targetLanguage: 'ja' } }, panelSender)).ok,
+  ).toBe(true);
+  expect(model).toHaveBeenCalledTimes(2);
+  expect(model.mock.calls[1][1]).toMatchObject({ targetLanguage: 'ja' });
+  expect((await send('SET_READING_PREFS', { prefs: { translationTargetLanguage: 'ko' } })).ok).toBe(
+    true,
+  );
+  expect(data.reading.translationTargetLanguage).toBe('ko');
+  expect(
+    (await send('SET_READING_PREFS', { prefs: { translationTargetLanguage: 'invented' } })).ok,
+  ).toBe(false);
+  expect(data.reading.translationTargetLanguage).toBe('ko');
 });

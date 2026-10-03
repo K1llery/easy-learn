@@ -1,3 +1,9 @@
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
+import { TranslationLanguageSelect } from './translation-language';
 import { defaultConcurrency, defaultBatchSize, concurrencyChoices } from '../core/reading-defaults';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -19,6 +25,7 @@ import './style.css';
 import { ModelControls } from './model-controls';
 type OAuthState = { signedIn: boolean; email?: string; expiresAt?: number };
 type Prefs = {
+  translationTargetLanguage: TranslationLanguage;
   quizCount: number;
   maxPerBlock: number;
   batchSize: number;
@@ -27,6 +34,7 @@ type Prefs = {
   vocabularyPerBlock: number;
 };
 const defaultPrefs: Prefs = {
+  translationTargetLanguage: defaultTranslationLanguage,
   quizCount: 5,
   maxPerBlock: 6,
   batchSize: defaultBatchSize,
@@ -79,6 +87,8 @@ function Options() {
     }
     providerDrafts.current = data.providerSettings?.drafts ?? {};
     setPrefs({
+      translationTargetLanguage: translationLanguageInfo(data.reading?.translationTargetLanguage)
+        .code,
       quizCount: data.reading?.quizCount ?? 5,
       maxPerBlock: data.reading?.maxPerBlock ?? 6,
       batchSize: data.reading?.batchSize ?? defaultBatchSize,
@@ -312,6 +322,13 @@ function Options() {
             </label>
           </div>
           <h2 style={{ marginTop: 18 }}>注释密度与节奏</h2>
+          <TranslationLanguageSelect
+            label="默认译文语言 / Default translation language"
+            value={prefs.translationTargetLanguage}
+            onChange={(translationTargetLanguage) =>
+              void changePrefs({ translationTargetLanguage })
+            }
+          />
           <div className="prefs-grid">
             <label htmlFor="concurrency">同时请求数</label>
             <select

@@ -1,3 +1,4 @@
+import { translationLanguageInfo } from '../core/translation-languages';
 import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
@@ -67,8 +68,15 @@ export function createWorkbench(
     return settings.config;
   }
   async function ai(raw: unknown, signal?: AbortSignal, progress?: (p: AnalysisProgress) => void) {
-    const request = aiRequestSchema.parse(raw),
-      config = requireConfig();
+    let request = aiRequestSchema.parse(raw);
+    const config = requireConfig();
+    if (request.operation === 'explain' && request.mode === 'translate')
+      request = {
+        ...request,
+        targetLanguage:
+          request.targetLanguage ??
+          translationLanguageInfo(settings.reading?.translationTargetLanguage).code,
+      };
     queue.setLimit(settings.reading?.concurrency ?? defaultConcurrency);
     const generation = epoch,
       key = cacheKey(
@@ -184,6 +192,9 @@ export function createWorkbench(
         if (msg.type === 'GET_SETTINGS') data = { ...settings, desktop: !!desktop };
         else if (msg.type === 'PUBLIC_SETTINGS')
           data = {
+            translationTargetLanguage: translationLanguageInfo(
+              settings.reading?.translationTargetLanguage,
+            ).code,
             profile: settings.config?.profile ?? defaultProfile,
             mastered: [],
             batchSize: settings.reading?.batchSize ?? defaultBatchSize,

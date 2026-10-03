@@ -1,3 +1,9 @@
+import {
+  defaultTranslationLanguage,
+  translationLanguageInfo,
+  type TranslationLanguage,
+} from '../core/translation-languages';
+import { TranslationLanguageSelect } from './translation-language';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Explanation, TextContext } from '../core/types';
 import { QuickQuiz } from './quick-quiz';
@@ -9,17 +15,28 @@ export function ReaderStudy({
   context,
   mode,
   onClose,
+  initialTargetLanguage = defaultTranslationLanguage,
 }: {
   context: TextContext;
   mode: ReadingAction;
   onClose: () => void;
+  initialTargetLanguage?: TranslationLanguage;
 }) {
+  const [targetLanguage, setTargetLanguage] = useState(initialTargetLanguage);
   const [result, setResult] = useState<Explanation | null>(null);
   const { busy, error, run } = useAction();
   function request() {
     void run(
       mode === 'translate' ? '正在翻译选段…' : '正在解释选段…',
-      () => rpc<Explanation>('AI', { request: { operation: 'explain', mode, context } }),
+      () =>
+        rpc<Explanation>('AI', {
+          request: {
+            operation: 'explain',
+            mode,
+            context,
+            ...(mode === 'translate' ? { targetLanguage } : {}),
+          },
+        }),
       setResult,
     );
   }
@@ -36,6 +53,21 @@ export function ReaderStudy({
           ×
         </button>
       </div>
+      {mode === 'translate' && (
+        <>
+          <TranslationLanguageSelect
+            value={targetLanguage}
+            disabled={!!busy}
+            onChange={(language) => {
+              setTargetLanguage(language);
+              setResult(null);
+            }}
+          />
+          <button disabled={!!busy} onClick={request}>
+            翻译 / Translate
+          </button>
+        </>
+      )}
       {mode === 'quiz' ? (
         <QuickQuiz context={context} active />
       ) : (
@@ -53,7 +85,13 @@ export function ReaderStudy({
           )}
           {result &&
             (mode === 'translate' ? (
-              <p className="reader-study-result">{result.translation || result.explanation}</p>
+              <p
+                className="reader-study-result"
+                lang={targetLanguage}
+                dir={translationLanguageInfo(targetLanguage).direction}
+              >
+                {result.translation || result.explanation}
+              </p>
             ) : (
               <>
                 <h3>{result.meaning}</h3>
