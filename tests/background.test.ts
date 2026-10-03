@@ -75,7 +75,7 @@ it('caps selected PDF text to the existing context limit and records truncation'
   expect(sessionData['pdfSelection:4'].truncated).toBe(true);
 });
 it('keeps credentials out of public settings and rejects untrusted privileged messages', async () => {
-  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false,quizCount:5,maxPerBlock:6,batchSize:4,concurrency:2,vocabularyBaseline:10000,vocabularyPerBlock:1});
+  const result = await send('PUBLIC_SETTINGS',{},pageSender); expect(result.data).toEqual({profile:cfg.profile,mastered:[],codeAnnotations:false,annotationTypes:['abbreviation','term','command'],localOnly:false,quizCount:5,maxPerBlock:6,batchSize:8,concurrency:6,vocabularyBaseline:10000,vocabularyPerBlock:1});
   expect(JSON.stringify(result)).not.toContain('secret');
   expect((await send('GET_SETTINGS',{},pageSender)).ok).toBe(false);
   expect((await send('GET_SETTINGS',{}, {...optionSender,url:extensionUrl+'panel.html-forged'})).ok).toBe(false);
@@ -271,4 +271,54 @@ it('retains existing records when storage fails, allowing an explicit save retry
   const draft=learningDraft();api.storage.local.set.mockRejectedValueOnce(new Error('Storage quota exceeded'));
   expect((await send('LEARNING_SAVE',{draft})).ok).toBe(false);expect(data.learningCardsV1).toBeUndefined();
   expect((await send('LEARNING_SAVE',{draft})).ok).toBe(true);expect(data.learningCardsV1).toHaveLength(1);
+});
+
+it('allows only explicit paragraph translation from content scripts and respects offline mode', async () => {
+  model.mockResolvedValue({translation: '中文段落'});
+  const request = {operation: 'explain', mode: 'translate', context};
+  expect((await send('AI', {request}, pageSender)).ok).toBe(false);
+  expect((await send('AI', {pageTranslation: true, request: {...request, mode: 'followup'}}, pageSender)).ok).toBe(false);
+  expect((await send('AI', {pageTranslation: true, request: {...request, concept}}, pageSender)).ok).toBe(false);
+  expect(model).not.toHaveBeenCalled();
+  expect(await send('AI', {pageTranslation: true, request}, pageSender)).toMatchObject({ok: true, data: {translation: '中文段落'}});
+  await send('SET_LOCAL_ONLY', {enabled: true});
+  expect((await send('AI', {pageTranslation: true, request}, pageSender)).ok).toBe(false);
+  expect(model).toHaveBeenCalledTimes(1);
+});
+
+it('cancels only the requesting document translations while preserving analysis and other tabs', async () => {
+  const resolvers: ((value: any) => void)[] = [];
+  model.mockImplementation(() => new Promise(resolve => resolvers.push(resolve)));
+  const request = {operation: 'explain', mode: 'translate', context};
+  const local = send('AI', {pageTranslation: true, request}, pageSender);
+  const analysis = send('AI', {request: {operation: 'analyze', context}}, pageSender);
+  const other = send('AI', {pageTranslation: true, request}, {...pageSender, tab: {id: 4}, documentId: 'article-4'});
+  await vi.waitFor(() => expect(model).toHaveBeenCalledTimes(3));
+  await send('CANCEL_TRANSLATION', {}, pageSender);
+  const signals = model.mock.calls.map(call => call[2] as AbortSignal);
+  expect(signals.map(signal => signal.aborted)).toEqual([true, false, false]);
+  resolvers.forEach(resolve => resolve({translation: '中文段落', concepts: [concept]}));
+  expect((await local).ok).toBe(false);
+  expect((await analysis).ok).toBe(true);
+  expect((await other).ok).toBe(true);
+});
+
+it('retains saved request limits, accepts twelve concurrent requests and rejects larger values', async () => {
+  data.reading = {concurrency: 2, batchSize: 4};
+  expect((await send('PUBLIC_SETTINGS', {}, pageSender)).data).toMatchObject({concurrency: 2, batchSize: 4});
+  expect((await send('SET_READING_PREFS', {prefs: {concurrency: 12, batchSize: 8}})).ok).toBe(true);
+  expect((await send('PUBLIC_SETTINGS', {}, pageSender)).data).toMatchObject({concurrency: 12, batchSize: 8});
+  expect((await send('SET_READING_PREFS', {prefs: {concurrency: 13}})).ok).toBe(false);
+  expect(data.reading.concurrency).toBe(12);
+});
+
+it('cancels a translation during asynchronous settings lookup before it can reach the model', async () => {
+  let release!: (value: any) => void;
+  api.storage.local.get.mockImplementationOnce(() => new Promise(resolve => {release = resolve;}));
+  const pending = send('AI', {pageTranslation: true, request: {operation: 'explain', mode: 'translate', context}}, pageSender);
+  await vi.waitFor(() => expect(release).toBeDefined());
+  expect((await send('CANCEL_TRANSLATION', {}, pageSender)).ok).toBe(true);
+  release({reading: {}});
+  expect((await pending).ok).toBe(false);
+  expect(model).not.toHaveBeenCalled();
 });

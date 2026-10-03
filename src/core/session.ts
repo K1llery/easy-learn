@@ -1,3 +1,4 @@
+import { defaultConcurrency, maxConcurrency } from './reading-defaults';
 // Memory only: no article or conversation is written to storage.
 export class SessionCache<T> {
   private values = new Map<string, T>();
@@ -12,10 +13,10 @@ export class SessionCache<T> {
 export function cacheKey(request: unknown, profile: unknown, model: string, baseUrl: string) { return JSON.stringify([request, profile, model, baseUrl]); }
 export class Queue {
   private active = 0;
-  private limit = 2;
+  private limit = defaultConcurrency;
   private waiting: {resolve:()=>void;priority:number}[] = [];
   setLimit(limit: number) {
-    if (!Number.isInteger(limit) || limit < 1 || limit > 6) throw new Error('并发数必须在 1 到 6 之间。');
+    if (!Number.isInteger(limit) || limit < 1 || limit > maxConcurrency) throw new Error(`并发数必须在 1 到 ${maxConcurrency} 之间。`);
     this.limit = limit; this.drain();
   }
   private drain() {

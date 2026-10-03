@@ -30,3 +30,9 @@ For application changes run `pnpm test` and `pnpm build`; independent reader cha
 `docs/reading-workbench-0.14.md` records researched provider behavior, request preferences, limits, upstream issues, and mock validation. `docs/model-providers.md` and `docs/free-providers.md` provide existing provider context. Their dates matter: reverify current contracts when changing implementation.
 
 Do not turn a past model list, token budget, account assumption, benchmark count, or upstream star count into a permanent rule. Keep new dated findings and actual measurements in docs, and record completed verified changes in a local commit without pushing.
+
+## Full-page translation and defaults
+
+Use `src/core/reading-defaults.ts` for unsaved defaults across extension and workbench; preserve explicitly stored values. Confirm the actual queue, schemas, both settings UIs, and caller batch limits accept the same range. Priority tests should set their intended slot count explicitly rather than assuming a historical default.
+
+Browser bulk translation uses the existing explain/translate contract and shares the total queue. Its scoped cancellation must leave annotations and other documents active. Register cancellation controllers before asynchronous settings/permission preparation and recheck cancellation immediately before model dispatch. Serialize pause/resume cancellation before issuing replacement requests; reject old epochs and changed-source results. `tests/page-translation.test.ts` and background/browser regressions cover this boundary. Research, root causes and validation are in `docs/browser-translation-0.16.md`.

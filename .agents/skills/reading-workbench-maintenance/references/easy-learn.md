@@ -1,9 +1,10 @@
 # Easy Learn integration map
 
-Use this map when the workspace contains `src/reader` and the Easy Learn workbench. It reflects 0.14.3, not a guarantee that future file names or dependencies are unchanged.
+Use this map when the workspace contains `src/reader` and the Easy Learn workbench. It includes integration through 0.16.0, not a guarantee that future file names or dependencies are unchanged.
 
 | Concern | Existing integration |
 | --- | --- |
+| Browser paragraph translation, extraction and owned mutations | `src/content/page-translation.ts`, `src/content/document.ts`, `src/content/index.ts` |
 | Document imports and text limits | `src/ui/reader-source.ts`, `src/reader/document.ts` |
 | PDF hierarchy and page/text mappings | `src/reader/pdf-structure.ts`, `src/core/pdf-navigation.ts` |
 | PDF loading, compatibility worker, fonts and decoder paths | `src/ui/pdf-source.ts` |
@@ -24,3 +25,5 @@ The 0.14.3 original reader uses the installed legacy `PDFViewer`, loaded after `
 For application changes, run `pnpm test` and `pnpm build`; workbench changes also require `pnpm build:workbench`. On this WSL workspace, the installed Linux Chromium cache is selected with `PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/ms-playwright" pnpm test:e2e`. Confirm the cache exists; do not hard-code the historical macOS Chromium path on WSL. Use monotonic timing for elapsed-time measurements. Documentation-only or skill-only changes can use direct inspection and skill validation instead of repeating application checks.
 
 Historical evidence and integration decisions are in `docs/pdf-reading-0.14.1.md`, `docs/pdf-controls-0.14.2.md`, `docs/pdf-interaction-0.14.3.md`, and `docs/reading-workbench-0.14.md`. Read them when relevant, and keep future run-specific results in project docs rather than turning old counts, star numbers, or model names into permanent rules.
+
+`docs/browser-translation-0.16.md` records full-page bilingual source preservation, computed-style visibility, owned DOM observer filtering, nested scroll anchors and upstream issue references. Browser translation shares the existing model adapter and total queue; its cancel operation is document-scoped and excludes annotation requests.

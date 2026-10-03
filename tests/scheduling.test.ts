@@ -2,7 +2,7 @@ import {it,expect} from 'vitest';
 import { Queue } from '../src/core/session';
 import { readingPriority } from '../src/content/reading-order';
 it('starts an interactive request before queued background work without exceeding two slots',async()=>{
- const queue=new Queue(),order:string[]=[];let a!:()=>void,b!:()=>void;
+ const queue=new Queue(),order:string[]=[];queue.setLimit(2);let a!:()=>void,b!:()=>void;
  const first=queue.run(()=>new Promise<void>(r=>{a=r;})),second=queue.run(()=>new Promise<void>(r=>{b=r;}));
  const background=queue.run(async()=>{order.push('background');});
  const interactive=queue.run(async()=>{order.push('interactive');},100);

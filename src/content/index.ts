@@ -1,5 +1,7 @@
+import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
+import {PageTranslation,translationStyle} from './page-translation';
 import { annotationTypeValues, conceptKey, defaultAnnotationTypes, type AnnotationType, type Concept, type Mastered, type Profile, type TextContext } from '../core/types';
-import { contextFor, extractBlocks, locateText, matchesSnapshot, quizText, type Block } from './document';
+import { contextFor, extractBlocks, isExtensionMutation, locateText, matchesSnapshot, quizText, type Block } from './document';
 import { localExplanation } from './glossary';
 import { explainCommand } from './commands';
 import { findCandidates, candidateKey, packCandidates, candidateEnvironment } from './candidates';
@@ -24,7 +26,7 @@ else {
   let profile: Profile={domain:'软件开发',level:'入门'}, mastered: Mastered[]=[];
   let settingsError='', networkPaused=false, codeAnnotations=false,localOnly=false,vocabularyError='';
   let annotationTypes:AnnotationType[]=[...defaultAnnotationTypes],commonWords:Set<string>|undefined,allCommonWords:string[]|undefined,vocabularyLoad:Promise<void>|undefined;
-  let quizCount=5,maxPerBlock=6,batchSize=4,concurrency=2,vocabularyBaseline=10000,vocabularyPerBlock=1;
+  let quizCount=5,maxPerBlock=6,batchSize=defaultBatchSize,concurrency=defaultConcurrency,vocabularyBaseline=10000,vocabularyPerBlock=1;
   let codeToggle:HTMLInputElement, domainInput:HTMLInputElement, levelSelect:HTMLSelectElement;let typeToggles=new Map<AnnotationType,HTMLInputElement>();
   type Work = {candidate:Candidate;state:'pending'|'loading'|'ready'|'skipped'|'failed';concept?:Concept;error?:string};
   type Target = {block:Block;work:Work;offset:number};
@@ -33,12 +35,14 @@ else {
   const pendingProgress=new Map<string,(data:AnalysisProgress)=>void>();
   let lastTiming:ModelTiming|undefined,cacheHits=0,nextRequest=0;
   let progress:HTMLSpanElement;const observedNodes=new Set<HTMLElement>();
+  let translation:PageTranslation|undefined,translationButton:HTMLButtonElement,translationPause:HTMLButtonElement,translationProgress:HTMLSpanElement;
 
   const highlightName=`easy-learn-${chrome.runtime.id}-primary`,repeatHighlightName=`easy-learn-${chrome.runtime.id}-repeat`;
   const highlights=(CSS as unknown as {highlights?:Map<string,unknown>}).highlights;
   const HighlightClass=(globalThis as any).Highlight;
   const style=document.createElement('style');style.dataset.easyLearn='';
   style.textContent=`::highlight(${highlightName}){background-color:#0071e31a;color:inherit;text-decoration:underline solid #0071e366 1px;text-underline-offset:3px}::highlight(${repeatHighlightName}){background-color:transparent;color:inherit;text-decoration:underline dotted #8e8e93 1px;text-underline-offset:3px}`;
+  style.textContent+=translationStyle;
   function status() {
     if(!active)return;
     const works=[...new Set(targets.map(t=>t.work))];
@@ -121,7 +125,7 @@ else {
     vocabularyLoad??=(async()=>{const response=await fetch(chrome.runtime.getURL('vocabulary/common-words-10k.txt'));if(!response.ok)throw new Error('无法读取本地常用词表。');const content=await response.text();allCommonWords=content.split(/\s+/).map(word=>word.trim().toLowerCase()).filter(Boolean);commonWords=new Set(allCommonWords.slice(0,vocabularyBaseline));})();
     try{await vocabularyLoad;vocabularyError='';}catch{vocabularyLoad=undefined;vocabularyError='本地词汇表暂不可用，扩展词汇候选未加入。';}
   }
-  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[];quizCount?:number;maxPerBlock?:number;batchSize?:number;concurrency?:number;vocabularyBaseline?:number;vocabularyPerBlock?:number}>('PUBLIC_SETTINGS');vocabularyBaseline=data.vocabularyBaseline??10000;vocabularyPerBlock=data.vocabularyPerBlock??1;if(allCommonWords)commonWords=new Set(allCommonWords.slice(0,vocabularyBaseline));batchSize=data.batchSize??4;concurrency=data.concurrency??2;localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];if(typeof data.quizCount==='number'&&data.quizCount>=2&&data.quizCount<=8)quizCount=data.quizCount;if(data.maxPerBlock===2||data.maxPerBlock===4||data.maxPerBlock===6)maxPerBlock=data.maxPerBlock;for(const [type,input] of typeToggles)input.checked=annotationTypes.includes(type);if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
+  async function settings(){try{const data=await rpc<{profile:Profile;mastered:Mastered[];codeAnnotations?:boolean;localOnly?:boolean;annotationTypes?:AnnotationType[];quizCount?:number;maxPerBlock?:number;batchSize?:number;concurrency?:number;vocabularyBaseline?:number;vocabularyPerBlock?:number}>('PUBLIC_SETTINGS');vocabularyBaseline=data.vocabularyBaseline??10000;vocabularyPerBlock=data.vocabularyPerBlock??1;if(allCommonWords)commonWords=new Set(allCommonWords.slice(0,vocabularyBaseline));batchSize=data.batchSize??defaultBatchSize;concurrency=data.concurrency??defaultConcurrency;localOnly=data.localOnly===true;profile=data.profile;mastered=data.mastered;codeAnnotations=data.codeAnnotations===true;annotationTypes=data.annotationTypes??[...defaultAnnotationTypes];if(typeof data.quizCount==='number'&&data.quizCount>=2&&data.quizCount<=8)quizCount=data.quizCount;if(data.maxPerBlock===2||data.maxPerBlock===4||data.maxPerBlock===6)maxPerBlock=data.maxPerBlock;for(const [type,input] of typeToggles)input.checked=annotationTypes.includes(type);if(annotationTypes.includes('vocabulary'))await loadCommonWords();else vocabularyError='';if(codeToggle)codeToggle.checked=codeAnnotations;if(domainInput)domainInput.value=profile.domain;if(levelSelect)levelSelect.value=profile.level;settingsError='';}catch(e){settingsError=(e as Error).message;}status();}
   function refreshBlocks(){
     blocks=extractBlocks(document,true);const next:Target[]=[];
     const environment=candidateEnvironment(blocks,document.title);
@@ -196,7 +200,7 @@ else {
     }finally{running=false;status();if(active&&(current!==generation||rescan))schedule();}
   }
   function schedule(){if(!active)return;if(scheduled)return;scheduled=window.setTimeout(()=>{scheduled=0;void scan();},200);}
-  function onScroll(){hideTip();selectionButton.hidden=true;schedule();}
+  function onScroll(){hideTip();selectionButton.hidden=true;schedule();translation?.reprioritize();}
   function selection(){
     const sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.rangeCount){selectionButton.hidden=true;return;}
     const range=sel.getRangeAt(0);const parent=range.commonAncestorContainer.nodeType===Node.ELEMENT_NODE?range.commonAncestorContainer as Element:range.commonAncestorContainer.parentElement;
@@ -248,7 +252,38 @@ else {
     dock.addEventListener('mouseenter',()=>{clearTimeout(dockCloseTimer);clearTimeout(dockOpenTimer);dockOpenTimer=window.setTimeout(showTools,450);});
     dock.addEventListener('mouseleave',hideTools);dock.addEventListener('focusin',showTools);dock.addEventListener('focusout',event=>{if(!dock.contains(event.relatedTarget as Node|null))hideTools();});
     statusNode.onclick=()=>{if(tools.hidden)showTools();else{tools.hidden=true;statusNode.setAttribute('aria-expanded','false');}};
-    dock.append(statusNode,quizNode,progress,tools);
+    translationButton = node('button', '翻译全文') as HTMLButtonElement;
+    translationButton.style.cssText = statusNode.style.cssText;
+    translationButton.title = '正文逐段翻译成中文，保留原文；使用已连接模型服务的额度。';
+    translationPause = node('button', '暂停翻译') as HTMLButtonElement;
+    translationPause.style.cssText = statusNode.style.cssText;
+    translationPause.hidden = true;
+    translationProgress = node('span', '') as HTMLSpanElement;
+    translationProgress.setAttribute('role', 'status');
+    translationProgress.style.cssText = progress.style.cssText;
+    translationProgress.hidden = true;
+    translation = new PageTranslation({
+      concurrency: () => concurrency,
+      request: async context => {
+        const result = await rpc<{translation: string}>('AI', {
+          pageTranslation: true,
+          request: {operation: 'explain', mode: 'translate', context},
+        });
+        return result.translation;
+      },
+      cancel: () => rpc('CANCEL_TRANSLATION'),
+      changed: state => {
+        translationButton.textContent = state.visible ? '还原原文' : '翻译全文';
+        translationButton.setAttribute('aria-pressed', String(state.visible));
+        translationPause.hidden = !state.visible;
+        translationPause.textContent = state.paused ? '继续翻译' : '暂停翻译';
+        translationProgress.hidden = !state.visible;
+        translationProgress.textContent = `全文翻译 ${state.ready}/${state.total} 段${state.paused ? ' · 已暂停' : ''}${state.error ? ' · ' + state.error : ''}`;
+      },
+    });
+    translationButton.onclick = () => translation?.toggle();
+    translationPause.onclick = () => translation?.togglePause();
+    dock.append(statusNode, translationButton, translationPause, translationProgress, quizNode, progress, tools);
     shadow.append(css,tip,selectionButton,dock);document.documentElement.append(host,style);
   }
   function keyboard(event:KeyboardEvent){if(event.key==='Escape')hideTip();else selection();}
@@ -258,17 +293,18 @@ else {
       if(msg.type==='AI_PROGRESS')pendingProgress.get(msg.requestId)?.({concepts:msg.concepts??[],skipped:msg.skipped??[]});
       if(msg.type==='PANEL_READY')sendContext();
       if(msg.type==='CLOSE'){frame?.remove();frame=undefined;}
-      if(msg.type==='REFRESH'){if(msg.invalidate!==false){generation++;pendingProgress.clear();workByKey.clear();networkPaused=false;}void settings().then(()=>{if(active){refreshBlocks();schedule();}});}
+      if(msg.type==='REFRESH'){if(msg.invalidate!==false){generation++;pendingProgress.clear();workByKey.clear();networkPaused=false;translation?.invalidate();}void settings().then(()=>{if(active){refreshBlocks();schedule();translation?.reprioritize();}});}
     });
-    connection.port.onDisconnect.addListener(()=>{if(active){settingsError='扩展连接已中断，请刷新页面后重新开启伴读。';networkPaused=true;status();}});
+    connection.port.onDisconnect.addListener(()=>{if(active){settingsError='扩展连接已中断，请刷新页面后重新开启伴读。';networkPaused=true;translation?.pause();status();}});
     document.addEventListener('mousemove',hovered);document.addEventListener('mouseup',selection);document.addEventListener('keyup',keyboard);
     window.addEventListener('scroll',onScroll,{passive:true,capture:true});window.addEventListener('resize',onScroll);
 
-    observer=new MutationObserver(records=>{if(records.every(r=>(r.target instanceof Element?r.target:r.target.parentElement)?.closest('[data-easy-learn]')))return;dirty=true;hideTip();schedule();});
+    observer=new MutationObserver(records=>{if(records.every(isExtensionMutation))return;dirty=true;hideTip();schedule();});
     observer.observe(document.body,{childList:true,characterData:true,subtree:true});
     await settings();if(active){refreshBlocks();void scan();}
   }
   function stop(){
+    translation?.dispose();translation=undefined;
     active=false;generation++;clearTimeout(scheduled);clearTimeout(hoverTimer);clearTimeout(dockOpenTimer);clearTimeout(dockCloseTimer);observer?.disconnect();observed?.disconnect();observed=undefined;observedNodes.clear();
     try{connection?.port.postMessage({type:'STOP'});}catch{/* closed */}connection?.disconnect();connection=undefined;
     host?.remove();typeToggles.clear();style.remove();frame?.remove();frame=undefined;payload=undefined;selected=undefined;shown=undefined;highlights?.delete(highlightName);highlights?.delete(repeatHighlightName);pendingProgress.clear();workByKey.clear();lastTiming=undefined;cacheHits=0;targets=[];annotations=[];blocks=[];scheduled=0;batchCount=0;tokenCount=0;usageKnown=false;userPaused=false;networkPaused=false;settingsError='';

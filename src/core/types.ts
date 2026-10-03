@@ -1,3 +1,4 @@
+import { maxConcurrency } from './reading-defaults';
 import { z } from 'zod';
 export const profileSchema = z.object({ domain: z.string().trim().min(1).max(80), level: z.enum(['入门', '熟悉', '进阶']) });
 export const apiKinds = ['openai', 'anthropic', 'codex', 'claude-oauth'] as const;
@@ -21,10 +22,10 @@ export const configSchema = z.object({ baseUrl: z.string().max(500), model: z.st
 export const readingPrefsSchema = z.object({
   vocabularyBaseline: z.union([z.literal(2000),z.literal(5000),z.literal(10000)]).optional(),
   vocabularyPerBlock: z.number().int().min(1).max(6).optional(),
-  concurrency: z.number().int().min(1).max(6).optional(),
+  concurrency: z.number().int().min(1).max(maxConcurrency).optional(),
   quizCount: z.number().int().min(2).max(8).optional(),
   maxPerBlock: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),
-  batchSize: z.union([z.literal(2), z.literal(4), z.literal(6)]).optional(),
+  batchSize: z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8)]).optional(),
 });
 export type ReadingPrefs = z.infer<typeof readingPrefsSchema>;
 export type Profile = z.infer<typeof profileSchema>;

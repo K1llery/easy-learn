@@ -189,7 +189,7 @@ test('preloads the entire document without scrolling or stopping after eight bat
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Whole page</h1>'+Array.from({length:80},(_,i)=>`<p style="margin:150px 0">The DR connects applications in scenario number ${i}.</p>`).join('')+'</article>';});
  const start=calls.length;await inject(page);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(20);
+ expect(calls.slice(start).filter(c=>c.operation==='analyze')).toHaveLength(10);
  expect(await page.evaluate(()=>window.scrollY)).toBe(0);
  expect(calls.slice(start).flatMap(c=>c.candidates??[]).some(c=>c.context.includes('number 79'))).toBe(true);
  await page.close();
@@ -207,7 +207,7 @@ test('shows ongoing progress and accepts numbered plain text without a paid repa
  const page=await context.newPage();await page.goto(`${base}/numbered`);const start=calls.length;await inject(page);
  await expect(page.getByRole('status')).toContainText('正在生成解释');
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(calls.slice(start)).toHaveLength(2);
+ expect(calls.slice(start)).toHaveLength(1);
  await page.locator('#dr').hover();await expect(page.getByRole('dialog',{name:'阅读注释'})).toContainText('为这个技术概念预载的中文解释。');
  await page.screenshot({path:'test-results/preloaded-hover.png'});await page.close();
 });
@@ -248,7 +248,7 @@ test('500 paragraphs get instant local marks with zero API requests',async()=>{
  await page.close();
 });
 
-test('two remote batches run concurrently and local marks appear before either returns',async()=>{
+test('six remote batches run concurrently and local marks appear before either returns',async()=>{
  responseDelay=300;peakInFlight=0;const initialCompleted=completed;
  const page=await context.newPage();await page.goto(`${base}/parallel-speed`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Concurrent benchmark</h1><p>The API exchanges JSON data with independent services.</p>'+Array.from({length:48},(_,i)=>`<p>DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
@@ -257,10 +257,10 @@ test('two remote batches run concurrently and local marks appear before either r
  await expect(page.getByRole('button',{name:'阅读注释',exact:true})).toHaveAttribute('title',/已准备 2 /);
  expect(completed).toBe(initialCompleted);
  await expect(page.getByRole('status')).toContainText('当前内容已处理');
- expect(peakInFlight).toBe(2);expect(calls.length-count).toBe(12);
+ expect(peakInFlight).toBe(6);expect(calls.length-count).toBe(6);
  await writeFile('test-results/status-timeline.json',JSON.stringify(await page.evaluate(()=>(window as any).__statusTrace)));
- const elapsedMs=performance.now()-start;expect(elapsedMs).toBeGreaterThanOrEqual(900);
- await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:12,delayPerBatchMs:300,elapsedMs,peakInFlight,serialDelayAloneMs:3600}));
+ const elapsedMs=performance.now()-start;expect(elapsedMs).toBeGreaterThanOrEqual(300);
+ await writeFile('test-results/parallel-speed.json',JSON.stringify({batches:6,delayPerBatchMs:300,elapsedMs,peakInFlight,serialDelayAloneMs:1800}));
  await page.close();
 });
 
@@ -378,6 +378,11 @@ test('a streamed annotation is readable before its batch finishes and a reload r
 });
 
 test('jumping ahead prioritizes the new reading position in the next available batch',async()=>{
+ const settings = await context.newPage();
+ await settings.goto(`chrome-extension://${id}/options.html`);
+ const saved = await settings.evaluate(() => chrome.runtime.sendMessage({type: 'SET_READING_PREFS', prefs: {concurrency: 2, batchSize: 4}}));
+ expect(saved.ok).toBe(true);
+ await settings.close();
  responseDelay=600;const page=await context.newPage();await page.goto(`${base}/jump-reading`);
  await page.evaluate(()=>{document.body.innerHTML='<article><h1>Chapter jump</h1>'+Array.from({length:30},(_,i)=>`<p id="chapter-${i}" style="height:200px">DR means the recovery strategy in scenario number ${i}.</p>`).join('')+'</article>';});
  const start=calls.length;await inject(page);
@@ -771,4 +776,90 @@ test('extension workbench preserves selected PDF text for learning and exports n
  const line=page.locator('.page[data-page-number="1"] .textLayer span[role="presentation"]').filter({hasText:'The ephemeral assumption'}).first();await line.scrollIntoViewIfNeeded();const box=await line.boundingBox();await page.mouse.move(box!.x+1,box!.y+box!.height/2);await page.mouse.down();await page.mouse.move(box!.x+box!.width-1,box!.y+box!.height/2,{steps:12});await page.mouse.up();
  await page.getByRole('button',{name:'解释',exact:true}).click();await expect(page.getByRole('region',{name:'选段学习'})).toContainText('灾难恢复');const input=calls.at(-1);expect(input.context.text).toContain('ephemeral assumption');await page.getByRole('button',{name:'关闭选段学习'}).click();const before=calls.length;
  await page.getByRole('button',{name:'文字批注',exact:true}).click();await page.locator('.page[data-page-number="1"] .annotationEditorLayer').click({position:{x:120,y:320}});await page.locator('.freeTextEditor [contenteditable="true"]').fill('Extension note');const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const bytes=await readFile((await (await waiting).path())!);expect(bytes.toString()).toContain('/Contents (Extension note)');expect(calls.length).toBe(before);expect(failures).toEqual([]);await page.close();
+});
+
+test('full-page bilingual translation preserves source, reacts to new prose, and restores cached results', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?full-translation=1`);
+  const original = await page.locator('article').innerHTML();
+  const started = calls.length;
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  expect(calls.slice(started).filter(c => c.mode === 'translate')).toHaveLength(0);
+  await page.getByRole('button', {name: '翻译全文', exact: true}).click();
+  const translations = page.locator('[data-easy-learn="translation"]');
+  await expect(translations).toHaveCount(8);
+  await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('8/8 段');
+  expect(await page.locator('article').evaluate(el => {
+    const copy = el.cloneNode(true) as Element;
+    copy.querySelectorAll('[data-easy-learn]').forEach(node => node.remove());
+    return copy.innerHTML;
+  })).toBe(original);
+  await expect(page.locator('pre')).toHaveText('DO NOT ANALYZE THIS CODE BLOCK');
+  expect(calls.slice(started).filter(c => c.mode === 'translate').every(c => !c.context.text.includes('Private editable'))).toBe(true);
+  await page.locator('article').evaluate(el => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'A dynamically loaded research paragraph.';
+    el.append(paragraph);
+  });
+  await expect(translations).toHaveCount(9);
+  await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('9/9 段');
+  const translatedCalls = calls.filter(c => c.mode === 'translate').length;
+  await page.getByRole('button', {name: '还原原文', exact: true}).click();
+  await expect(translations).toHaveCount(0);
+  await page.getByRole('button', {name: '翻译全文', exact: true}).click();
+  await expect(translations).toHaveCount(9);
+  expect(calls.filter(c => c.mode === 'translate')).toHaveLength(translatedCalls);
+  await page.locator('a').click();
+  expect(page.url()).toContain('#next');
+  await page.close();
+});
+
+test('translation pauses on rate limits and resumes only after the reader requests it', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?translation-rate-limit=1`);
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  responseStatus = 429;
+  await page.getByRole('button', {name: '翻译全文', exact: true}).click();
+  await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('限流');
+  await expect(page.getByRole('button', {name: '继续翻译', exact: true})).toBeVisible();
+  const stopped = calls.length;
+  responseStatus = 200;
+  await page.getByRole('button', {name: '继续翻译', exact: true}).hover();
+  expect(calls).toHaveLength(stopped);
+  await page.getByRole('button', {name: '继续翻译', exact: true}).click();
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(8);
+  await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('8/8 段');
+  await page.close();
+});
+
+test('restoring and showing translations retains the current source paragraph in a scrolling reader', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?translation-position=1`);
+  await page.evaluate(() => {
+    document.body.innerHTML = '<article><div id="reader" style="height:500px;overflow-y:auto;overflow-anchor:none"></div></article>';
+    const reader = document.querySelector('#reader')!;
+    for (let i = 0; i < 20; i++) {
+      const paragraph = document.createElement('p');
+      paragraph.id = `source-${i}`;
+      paragraph.style.marginBottom = '80px';
+      paragraph.textContent = `Research paragraph number ${i} explores regional recovery methods.`;
+      reader.append(paragraph);
+    }
+  });
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', {name: '翻译全文', exact: true}).click();
+  await expect(page.getByRole('status').filter({hasText: '全文翻译'})).toContainText('20/20 段');
+  await page.locator('#reader').evaluate(el => {
+    const anchor = document.querySelector('#source-10') as HTMLElement;
+    el.scrollTop += anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - 30;
+  });
+  const top = await page.locator('#source-10').evaluate(el => el.getBoundingClientRect().top);
+  await page.getByRole('button', {name: '还原原文', exact: true}).click();
+  expect(Math.abs(await page.locator('#source-10').evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThan(2);
+  await page.getByRole('button', {name: '翻译全文', exact: true}).click();
+  expect(Math.abs(await page.locator('#source-10').evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThan(2);
+  await page.close();
 });

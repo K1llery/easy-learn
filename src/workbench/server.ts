@@ -1,3 +1,4 @@
+import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
 import {createServer,type IncomingMessage} from 'node:http';
 import {readFile,mkdir,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
@@ -19,7 +20,7 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
   async function readBody(req:IncomingMessage){let size=0;const chunks:Buffer[]=[];for await(const chunk of req){size+=chunk.length;if(size>150000)throw new Error('请求内容过大。');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
   function requireConfig(){if(!settings.config)throw new Error('请在设置中连接模型服务，再开启伴读。');return settings.config;}
   async function ai(raw:unknown,signal?:AbortSignal,progress?:(p:AnalysisProgress)=>void) {
-    const request=aiRequestSchema.parse(raw),config=requireConfig();queue.setLimit(settings.reading?.concurrency??2);
+    const request=aiRequestSchema.parse(raw),config=requireConfig();queue.setLimit(settings.reading?.concurrency??defaultConcurrency);
     const generation=epoch,key=cacheKey(request,{profile:config.profile,tuning:config.tuning,style:config.style},config.model,config.baseUrl);
     const cached=session.get(key);if(cached){if('concepts' in cached)progress?.(cached);return {...cached,__cached:true};}
     const keys=request.candidates?await Promise.all(request.candidates.map(c=>annotations.key(config,request.context.title,c))):[];
@@ -57,7 +58,7 @@ export function createWorkbench(root=process.cwd(), dataDir=path.join(root,'.cac
         if(url.pathname!=='/api/rpc')throw new Error('未知接口。');
         let data:unknown;
         if(msg.type==='GET_SETTINGS')data={...settings,desktop:!!desktop};
-        else if(msg.type==='PUBLIC_SETTINGS')data={profile:settings.config?.profile??defaultProfile,mastered:[],batchSize:settings.reading?.batchSize??4,concurrency:settings.reading?.concurrency??2,maxPerBlock:settings.reading?.maxPerBlock??6};
+        else if(msg.type==='PUBLIC_SETTINGS')data={profile:settings.config?.profile??defaultProfile,mastered:[],batchSize:settings.reading?.batchSize??defaultBatchSize,concurrency:settings.reading?.concurrency??defaultConcurrency,maxPerBlock:settings.reading?.maxPerBlock??6};
         else if(msg.type==='SAVE_SETTINGS'||msg.type==='SET_READING_PREFS') {
           const change=mutations.then(async()=>{
             let next:typeof settings;

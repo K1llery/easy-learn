@@ -1,3 +1,4 @@
+import { defaultConcurrency, defaultBatchSize, concurrencyChoices, batchSizeChoices } from '../core/reading-defaults';
 import React, {useEffect,useRef,useState} from 'react';
 import { providers,providerFor } from '../core/providers';
 import {configSchema,defaultProfile,type Config} from '../core/types';
@@ -6,11 +7,11 @@ import {ModelControls} from './model-controls';
 import {inExtension} from './reader-rpc';
 export function ReaderSettings({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
   const [config,setConfig]=useState<Config>({baseUrl:'https://api.deepseek.com',model:'deepseek-flash',apiKey:'',api:'openai',profile:{...defaultProfile,domain:'外语阅读'},style:'concise'});
-  const [prefs,setPrefs]=useState({batchSize:4,concurrency:2,maxPerBlock:6});
+  const [prefs,setPrefs]=useState({batchSize:defaultBatchSize,concurrency:defaultConcurrency,maxPerBlock:6});
   const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const [preset,setPreset]=useState('deepseek'),[advanced,setAdvanced]=useState(false);
   const drafts=useRef<Record<string,Config>>({});const selected=providers.find(p=>p.id===preset);
-  useEffect(()=>{void rpc('GET_SETTINGS').then(data=>{if(data.config){setConfig(data.config);const id=providerFor(data.config.baseUrl,data.config.model)?.id??'custom';setPreset(id);setAdvanced(id==='custom');}setPrefs({batchSize:data.reading?.batchSize??4,concurrency:data.reading?.concurrency??2,maxPerBlock:data.reading?.maxPerBlock??6});}).catch(e=>setError(e.message));},[]);
+  useEffect(()=>{void rpc('GET_SETTINGS').then(data=>{if(data.config){setConfig(data.config);const id=providerFor(data.config.baseUrl,data.config.model)?.id??'custom';setPreset(id);setAdvanced(id==='custom');}setPrefs({batchSize:data.reading?.batchSize??defaultBatchSize,concurrency:data.reading?.concurrency??defaultConcurrency,maxPerBlock:data.reading?.maxPerBlock??6});}).catch(e=>setError(e.message));},[]);
   function choose(id:string){drafts.current[preset]=config;setPreset(id);const provider=providers.find(p=>p.id===id);setConfig(drafts.current[id]??(provider?{...config,baseUrl:provider.baseUrl,model:provider.model,api:provider.api,apiKey:'',tuning:undefined}:{...config,baseUrl:'',model:'',api:'openai',apiKey:'',tuning:undefined}));setAdvanced(id==='custom'||!!provider?.requiresWorkspaceId);setMessage('');setError('');}
   async function save(e:React.FormEvent) {
     e.preventDefault();setBusy(true);setError('');setMessage('');
@@ -26,7 +27,7 @@ export function ReaderSettings({onClose,onSaved}:{onClose:()=>void;onSaved:()=>v
       <details open={advanced} onToggle={e=>setAdvanced(e.currentTarget.open)}><summary>高级连接与速度设置</summary>
       <label htmlFor="reader-base">API Base URL</label><input id="reader-base" type="url" required value={config.baseUrl} onChange={e=>setConfig({...config,baseUrl:e.target.value})}/>
       <label htmlFor="reader-model">模型名称</label><input id="reader-model" required value={config.model} onChange={e=>setConfig({...config,model:e.target.value})}/>
-      <div className="prefs-grid" style={{marginTop:20}}><label htmlFor="reader-concurrency">同时请求数</label><select id="reader-concurrency" value={prefs.concurrency} onChange={e=>setPrefs({...prefs,concurrency:Number(e.target.value)})}>{[1,2,3,4,6].map(n=><option key={n} value={n}>{n} 路</option>)}</select><label htmlFor="reader-batch">每批候选数</label><select id="reader-batch" value={prefs.batchSize} onChange={e=>setPrefs({...prefs,batchSize:Number(e.target.value)})}>{[2,4,6].map(n=><option key={n} value={n}>{n} 个</option>)}</select></div>
+      <div className="prefs-grid" style={{marginTop:20}}><label htmlFor="reader-concurrency">同时请求数</label><select id="reader-concurrency" value={prefs.concurrency} onChange={e=>setPrefs({...prefs,concurrency:Number(e.target.value)})}>{concurrencyChoices.map(n=><option key={n} value={n}>{n} 路</option>)}</select><label htmlFor="reader-batch">每批候选数</label><select id="reader-batch" value={prefs.batchSize} onChange={e=>setPrefs({...prefs,batchSize:Number(e.target.value)})}>{batchSizeChoices.map(n=><option key={n} value={n}>{n} 个</option>)}</select></div>
       <ModelControls config={config} onChange={tuning=>setConfig({...config,tuning})}/>
       </details>
       <p className="form-help">连接信息只存放在本机。开启伴读发送候选词的短语境；解释、翻译和测验使用你主动选择的文字。AI 调用使用该服务的额度。</p>

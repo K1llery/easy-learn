@@ -2,12 +2,18 @@ import type { TextContext } from '../core/types';
 const EXCLUDE = 'nav,header,footer,aside,script,style,noscript,textarea,input,select,button,[contenteditable]:not([contenteditable="false"]),[role="navigation"],[role="banner"],[role="complementary"],[aria-hidden="true"],[hidden],[data-ad],[data-ad-slot],.advertisement,.ads,[data-easy-learn]';
 export type Block = { element: HTMLElement; text: string; heading: string; sectionId: number; kind?: 'prose' | 'command' | 'code'; offset?: number; sourceText?: string };
 function textNodes(element: Element) {
+  const visibility = new Map<Element, boolean>();
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, { acceptNode(node) {
     const parent = node.parentElement;
     if (!parent || parent.closest(EXCLUDE)) return NodeFilter.FILTER_REJECT;
     for (let el: Element | null = parent; el; el = el.parentElement) {
-      if (el instanceof HTMLElement && (el.style.display === 'none' || el.style.visibility === 'hidden')) return NodeFilter.FILTER_REJECT;
-      if (el === element) break;
+      let hidden = visibility.get(el);
+      if (hidden === undefined) {
+        const style = getComputedStyle(el);
+        hidden = style.display === 'none' || style.visibility === 'hidden';
+        visibility.set(el, hidden);
+      }
+      if (hidden) return NodeFilter.FILTER_REJECT;
     }
     return NodeFilter.FILTER_ACCEPT;
   } });
@@ -27,14 +33,24 @@ function commandLine(line: string): { text: string; offset: number; prompted: bo
 }
 function hasShellPrompt(line: string) { return SHELL_PROMPT.test(line) || /^\s*\$\s+/.test(line); }
 export function isCommand(text: string) { return COMMAND.test(text.trim()); }
-export function extractBlocks(root: ParentNode = document, includeHeadings = false): Block[] {
+export function extractBlocks(root: ParentNode = document, includeHeadings: boolean | 'translation' = false): Block[] {
   const main = root.querySelector('article') ?? root.querySelector('main') ?? root.querySelector('[role="main"]') ?? root;
-  const nodes = [...main.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,li,td,blockquote,pre,[data-ty="input"]')];
+  const translation = includeHeadings === 'translation';
+  const selectors = 'h1,h2,h3,h4,h5,h6,p,li,td,blockquote,pre,[data-ty="input"]';
+  const nodes = [...main.querySelectorAll<HTMLElement>(translation ? selectors + ',div,[role="heading"],[role="listitem"]' : selectors)];
   let heading = '', sectionId = 0;
   const blocks: Block[] = [];
   for (const element of nodes) {
     if (element.closest(EXCLUDE)) continue;
-    if (/^H[1-6]$/.test(element.tagName)) { heading = readableText(element).slice(0, 500); sectionId++; if(includeHeadings&&element.tagName!=='H1'&&heading.length>=2&&heading.length<=160)blocks.push({element,text:heading,heading,sectionId,kind:'prose'}); continue; }
+    if (/^H[1-6]$/.test(element.tagName)) {
+      const text = readableText(element);
+      heading = text.slice(0, 500);
+      sectionId++;
+      if (includeHeadings && (element.tagName !== 'H1' || translation) && text.length >= 2 && (translation || text.length <= 160)) {
+        blocks.push({ element, text, heading, sectionId, kind: 'prose' });
+      }
+      continue;
+    }
     if (element.matches('[data-ty="input"]')) {
       const text = readableText(element);
       if (text && text.length <= 4000) blocks.push({element,text,heading,sectionId,kind:'command'});
@@ -67,9 +83,9 @@ export function extractBlocks(root: ParentNode = document, includeHeadings = fal
       }
       continue;
     }
-    if (element.closest('pre') || element.querySelector('p,li,td,blockquote')) continue;
+    if (element.closest('pre') || element.querySelector(translation ? 'p,li,td,blockquote,div,pre,h1,h2,h3,h4,h5,h6,[role="heading"],[role="listitem"]' : 'p,li,td,blockquote')) continue;
     const text = readableText(element);
-    if (text.length >= 2 && text.length <= 16000) blocks.push({ element, text, heading, sectionId, kind:'prose' });
+    if (text.length >= 2 && (text.length <= 16000 || translation)) blocks.push({ element, text, heading, sectionId, kind:'prose' });
   }
   return blocks;
 }
@@ -93,6 +109,12 @@ export function locateText(element: HTMLElement, anchor: string, offset = 0): Ra
   return null;
 }
 export function matchesSnapshot(block: Block) { return block.element.isConnected && readableText(block.element) === (block.sourceText ?? block.text); }
+export function isExtensionMutation(record: MutationRecord) {
+  const target = record.target instanceof Element ? record.target : record.target.parentElement;
+  if (target?.closest('[data-easy-learn]')) return true;
+  const nodes = [...record.addedNodes, ...record.removedNodes];
+  return record.type === 'childList' && nodes.length > 0 && nodes.every(node => node instanceof Element && node.matches('[data-easy-learn]'));
+}
 // Whole-page quiz corpus: prose and headings only; long pages are evenly sampled.
 export function quizText(blocks: Block[], cap = 15000): string {
   const parts = blocks.filter(block => !block.kind || block.kind === 'prose').map(block => block.text);

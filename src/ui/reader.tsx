@@ -1,3 +1,4 @@
+import { defaultConcurrency, defaultBatchSize } from '../core/reading-defaults';
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import type {Concept,TextContext} from '../core/types';
@@ -29,7 +30,7 @@ function Reader() {
   const [loading,setLoading]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const [reading,setReading]=useState(false),[wholeBook,setWholeBook]=useState(false);
   const [concepts,setConcepts]=useState<Record<string,Concept>>({}),[completed,setCompleted]=useState<Set<string>>(new Set());
-  const [busy,setBusy]=useState(0),[batchSize,setBatchSize]=useState(4),[concurrency,setConcurrency]=useState(2),[density,setDensity]=useState(6);
+  const [busy,setBusy]=useState(0),[batchSize,setBatchSize]=useState(defaultBatchSize),[concurrency,setConcurrency]=useState(defaultConcurrency),[density,setDensity]=useState(6);
   const [selected,setSelected]=useState<ReadingWord|null>(null);
   const [selection,setSelection]=useState<TextContext|null>(null),[study,setStudy]=useState<{context:TextContext;mode:ReadingAction;id:number}|null>(null);
   const [pdfDirty,setPdfDirty]=useState(false);
@@ -43,7 +44,7 @@ function Reader() {
   const indices=useRef(new Map<string,number>());
   indices.current=useMemo(()=>new Map(doc?.sections.map((s,i)=>[s.id,i])??[]),[doc]);
   currentIndex.current=sectionIndex;active.current=reading;scopeAll.current=wholeBook;book.current=doc;prefs.current={batchSize,concurrency};
-  async function refreshSettings(){try{const data=await rpc('PUBLIC_SETTINGS');setBatchSize(data.batchSize??4);setConcurrency(data.concurrency??2);setDensity(data.maxPerBlock??6);}catch(e){setError((e as Error).message);}}
+  async function refreshSettings(){try{const data=await rpc('PUBLIC_SETTINGS');setBatchSize(data.batchSize??defaultBatchSize);setConcurrency(data.concurrency??defaultConcurrency);setDensity(data.maxPerBlock??6);}catch(e){setError((e as Error).message);}}
   useEffect(()=>{
     if(inExtension){port.current=connectSurface('reader');port.current.port.onMessage.addListener(msg=>{if(msg.type==='REFRESH'){setRecords(storedWords());setReading(false);active.current=false;resetAnalysis();void refreshSettings();setNotice('阅读设置已更新，点击开启伴读继续。');}});}
     void refreshSettings();

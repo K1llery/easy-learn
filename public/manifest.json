@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Easy Learn · 读懂，再学会",
   "description": "英文技术文章与 PDF 伴读；选段解释、整页选择题测验、订阅账户直连、主动练习与本地复习。",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",

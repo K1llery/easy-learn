@@ -1,3 +1,4 @@
+import { defaultConcurrency, defaultBatchSize } from './core/reading-defaults';
 import { aiRequestSchema, configSchema, conceptSchema, conceptKey, defaultProfile, normalizeAnnotationTypes, profileSchema, endpoint, requestTarget, apiKindOf, readingPrefsSchema, explanationStyles, type Config, type Mastered } from './core/types';
 import { callModel, type AnalysisProgress } from './core/ai';
 import { PROVIDER_SETTINGS_KEY, providerDraftSchema, providerId, readProviderSettings } from './core/provider-settings';
@@ -14,6 +15,7 @@ const annotationCache=new AnnotationCache(chrome.storage.local);
 let cacheEpoch=0;
 const caches = new Map<string, SessionCache<unknown>>();
 const controllers = new Map<string, Set<AbortController>>();
+const translationControllers = new Map<string, Set<AbortController>>();
 const contentPorts = new Map<number, chrome.runtime.Port>();
 const panelPorts = new Map<number, chrome.runtime.Port>();
 const extensionRoot = chrome.runtime.getURL('');
@@ -66,6 +68,7 @@ function clearScope(scope: string) {
   caches.delete(scope);
   for (const controller of controllers.get(scope) ?? []) controller.abort();
   controllers.delete(scope);
+  translationControllers.delete(scope);
   for (const [tab, scopes] of tabScopes) {
     scopes.delete(scope); if (!scopes.size) tabScopes.delete(tab);
   }
@@ -155,24 +158,28 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
     await chrome.storage.session.remove(key);
     return selection;
   }
+  if (msg.type === 'CANCEL_TRANSLATION') {
+    for (const controller of translationControllers.get(scopeFor(sender)) ?? []) controller.abort();
+    return null;
+  }
   if (msg.type === 'PUBLIC_SETTINGS') {
     const data = await chrome.storage.local.get(['config', 'mastered', 'reading']);
-    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [], quizCount: Number.isInteger(data.reading?.quizCount) ? data.reading.quizCount : 5, vocabularyBaseline: data.reading?.vocabularyBaseline ?? 10000, vocabularyPerBlock: data.reading?.vocabularyPerBlock ?? 1, batchSize: data.reading?.batchSize ?? 4, concurrency: data.reading?.concurrency ?? 2, maxPerBlock: Number.isInteger(data.reading?.maxPerBlock) ? data.reading.maxPerBlock : 6 };
+    return { localOnly:data.reading?.localOnly===true, codeAnnotations: data.reading?.codeAnnotations === true, annotationTypes:normalizeAnnotationTypes(data.reading?.annotationTypes), profile: data.config?.profile ?? defaultProfile, mastered: data.mastered ?? [], quizCount: Number.isInteger(data.reading?.quizCount) ? data.reading.quizCount : 5, vocabularyBaseline: data.reading?.vocabularyBaseline ?? 10000, vocabularyPerBlock: data.reading?.vocabularyPerBlock ?? 1, batchSize: data.reading?.batchSize ?? defaultBatchSize, concurrency: data.reading?.concurrency ?? defaultConcurrency, maxPerBlock: Number.isInteger(data.reading?.maxPerBlock) ? data.reading.maxPerBlock : 6 };
   }
-  if ((msg.type === 'AI'||msg.type === 'TEST')&&(await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
+  if (msg.type === 'TEST'&&(await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
   if (msg.type === 'AI') {
     const request = aiRequestSchema.parse(msg.request);
-    if (!isTrusted && request.operation !== 'analyze' && request.operation !== 'pageQuiz') throw new Error('当前页面只能发起正文难点分析和整页测验。');
-    const cfg = await config();
-    await assertModelAccess(cfg);
-    const subscription = oauthKindOf(cfg);
-    const auth = subscription ? {getAccessToken: () => getAccessToken(subscription)} : undefined;
+    const pageTranslation = msg.pageTranslation === true && request.operation === 'explain' && request.mode === 'translate'
+      && !request.concept && !request.history && !request.question && !request.answer && !request.goal;
+    if (!isTrusted && request.operation !== 'analyze' && request.operation !== 'pageQuiz' && !pageTranslation) throw new Error('当前页面只能发起正文难点分析、整页测验和全文翻译。');
     const scope = scopeFor(sender);
-    const key = cacheKey(request, {profile:cfg.profile,style:cfg.style,tuning:cfg.tuning}, cfg.model, cfg.baseUrl);
-    const cache = caches.get(scope) ?? new SessionCache(); caches.set(scope, cache);
-    const cached = cache.get(key); if (cached) return {...cached as object,__cached:true};
     const controller = new AbortController();
     const group = controllers.get(scope) ?? new Set(); group.add(controller); controllers.set(scope, group);
+    const translationGroup = translationControllers.get(scope) ?? new Set<AbortController>();
+    if (pageTranslation) {
+      translationGroup.add(controller);
+      translationControllers.set(scope, translationGroup);
+    }
     const epoch=cacheEpoch;
     const started=performance.now();
     const requestId=typeof msg.requestId==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(msg.requestId)?msg.requestId:undefined;
@@ -180,8 +187,17 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
       if(requestId&&!controller.signal.aborted&&epoch===cacheEpoch)safePost(documentPorts.get(scope),{type:'AI_PROGRESS',requestId,...partial});
     };
     try {
+      if ((await chrome.storage.local.get('reading')).reading?.localOnly) throw new Error('当前为离线模式。需要 AI 时，请在设置中关闭离线模式。');
+      const cfg = await config();
+      await assertModelAccess(cfg);
+      if (controller.signal.aborted) throw new Error('请求已取消。');
+      const subscription = oauthKindOf(cfg);
+      const auth = subscription ? {getAccessToken: () => getAccessToken(subscription)} : undefined;
+      const key = cacheKey(request, {profile:cfg.profile,style:cfg.style,tuning:cfg.tuning}, cfg.model, cfg.baseUrl);
+      const cache = caches.get(scope) ?? new SessionCache(); caches.set(scope, cache);
+      const cached = cache.get(key); if (cached) return {...cached as object,__cached:true};
       const settings=await chrome.storage.local.get('reading');
-      queue.setLimit(settings.reading?.concurrency ?? 2);
+      queue.setLimit(settings.reading?.concurrency ?? defaultConcurrency);
       const remember=settings.reading?.rememberAnnotations!==false;
       const candidates=request.operation==='analyze'?request.candidates:undefined;
       const keys=remember&&candidates?await Promise.all(candidates.map(c=>annotationCache.key(cfg,request.context.title,c))):[];
@@ -194,10 +210,11 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
       const result = await queue.run(async () => {
         if (controller.signal.aborted) throw new Error('请求已取消。');
         if((await chrome.storage.local.get('reading')).reading?.localOnly)throw new Error('当前为离线模式。');
+        if (controller.signal.aborted) throw new Error('请求已取消。');
         const queueMs=performance.now()-started;
         const value=await callModel(cfg, missing?{...request,candidates:missing}:request, controller.signal,progress,auth);
         return {...value,__timing:{...value.__timing,queueMs}};
-      },request.operation==='analyze'?0:100);
+      }, request.operation === 'analyze' ? 0 : pageTranslation ? 10 : 100);
       if (controller.signal.aborted) throw new Error('请求已取消。');
       if(remember&&candidates&&'concepts' in result){
         const entries=(result.concepts as typeof hits).flatMap(concept=>{const index=candidates.findIndex(c=>c.id===concept.id);const key=keys[index];return key?[{key,concept}]:[];});
@@ -207,7 +224,10 @@ async function handle(msg: any, sender: chrome.runtime.MessageSender) {
       // An incomplete batch must remain retryable; completed terms have their own cache.
       if(!('missing' in merged)||!merged.missing?.length)cache.set(key, merged);
       return merged;
-    } finally { group.delete(controller); }
+    } finally {
+      group.delete(controller);
+      translationGroup.delete(controller);
+    }
   }
   if (msg.type === 'SET_CODE_ANNOTATIONS'||msg.type === 'SET_LOCAL_ONLY') {
     if (typeof msg.enabled !== 'boolean') throw new Error('开关值无效。');

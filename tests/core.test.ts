@@ -41,10 +41,10 @@ describe('concept identity and session cache', () => {
     const cache = new SessionCache<number>(2); cache.set('a',1); cache.set('b',2); cache.set('c',3);
     expect(cache.get('a')).toBeUndefined(); cache.clear(); expect(cache.get('c')).toBeUndefined();
   });
-  it('never runs more than two jobs concurrently and releases failed jobs', async () => {
+  it('never exceeds the six-job default concurrently and releases failed jobs', async () => {
     const queue = new Queue(); let concurrent=0, max=0;
     const jobs = Array.from({length:8},(_,i) => queue.run(async () => {concurrent++; max=Math.max(max,concurrent); await new Promise(r=>setTimeout(r,2)); concurrent--; if(i===2) throw new Error('test'); return i;}));
-    const results = await Promise.allSettled(jobs); expect(max).toBe(2); expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(7);
+    const results = await Promise.allSettled(jobs); expect(max).toBe(6); expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(7);
   });
 });
 describe('input boundary', () => {
@@ -57,4 +57,27 @@ describe('input boundary', () => {
   it('rejects oversized context before network activity', () => {
     expect(aiRequestSchema.safeParse({operation:'analyze',context:{title:'',heading:'',text:'x'.repeat(16001),before:'',after:''}}).success).toBe(false);
   });
+});
+
+it('enforces the twelve-job upper limit and gives interactive work priority over bulk translation', async () => {
+  const queue = new Queue();
+  expect(() => queue.setLimit(13)).toThrow();
+  queue.setLimit(12);
+  let resolve!: () => void;
+  const held = new Promise<void>(r => {resolve = r;});
+  let active = 0, peak = 0;
+  const jobs = Array.from({length: 13}, () => queue.run(async () => {
+    active++; peak = Math.max(peak, active);
+    await held; active--;
+  }));
+  expect(peak).toBe(12);
+  resolve(); await Promise.all(jobs);
+  queue.setLimit(1);
+  const order: string[] = [];
+  let release!: () => void;
+  const first = queue.run(() => new Promise<void>(r => {release = r;}));
+  const bulk = queue.run(async () => {order.push('translation');}, 10);
+  const interaction = queue.run(async () => {order.push('explain');}, 100);
+  release(); await Promise.all([first, bulk, interaction]);
+  expect(order).toEqual(['explain', 'translation']);
 });
