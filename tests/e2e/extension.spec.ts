@@ -319,6 +319,12 @@ test.beforeAll(async () => {
   });
   worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   id = new URL(worker.url()).host;
+  // Wait for first-install onboarding before tests navigate to the options page.
+  const optionsUrl = `chrome-extension://${id}/options.html`;
+  await expect.poll(() => context.pages().some((page) => page.url() === optionsUrl)).toBe(true);
+  const welcome = context.pages().find((page) => page.url() === optionsUrl)!;
+  await expect(welcome.getByLabel('服务方案')).toBeVisible();
+  await welcome.close();
 });
 test.beforeEach(async () => {
   responseStatus = 200;

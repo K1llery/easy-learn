@@ -61,6 +61,10 @@ Hook 修复保留现有触发条件：初始 PDF 地址、弹窗启动和选段�
 
 `.github/workflows/quality.yml` 在分支推送、PR 和手动触发时执行 JS/TS lint、全部格式检查、类型检查、单元测试、双构建与 Chromium 浏览器测试；Go、Python 在独立 job 中检查。既有打包 workflow 也加入 JS/TS lint 与 Prettier 检查，桌面包另外检查 Go。
 
+浏览器回归统一调用 `.github/workflows/browser-tests.yml`，使用 Playwright 官方 `v1.56.1-noble` 镜像中已安装的 Chromium 和系统依赖，不再运行 `playwright install --with-deps`。镜像版本必须与 `package.json` 中的 `@playwright/test` 一致；升级依赖时同步修改镜像和版本检查。扩展使用完整 Chromium 的无头模式加载，不能改用 runner 预装的 Chrome / Edge 替代。
+
+扩展打包 job 在生成 ZIP 与 SHA-256 后直接上传产物，再由独立 job 执行浏览器回归。回归失败仍会使整个工作流失败，并上传 `test-results/` 中的诊断文件，但不会阻止下载已生成的试用包；正式分发前应确认浏览器回归通过。Windows 与 Mac 的原生打包流程不变。
+
 提交前先运行 lint，审查改动，再用 formatter 统一格式，最后运行对应格式检查及测试。涉及生命周期、持久化、架构或并发的实质变更需独立只读审查。应用改动至少运行 `pnpm verify`；阅读器或 UI 改动还需运行受影响的浏览器流程。在 WSL 使用仓库内的 Chromium 缓存：
 
 ```sh

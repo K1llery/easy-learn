@@ -57,9 +57,6 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm package:extension
-      - run: pnpm build:workbench
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6; node24
         with:
           name: Easy-Learn-extension
@@ -68,3 +65,6 @@ jobs:
             artifacts/*.sha256
           if-no-files-found: error
           retention-days: 14
+  browser-tests:
+    needs: extension
+    uses: ./.github/workflows/browser-tests.yml
