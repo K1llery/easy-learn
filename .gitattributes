@@ -1,2 +1,4 @@
+* text=auto eol=lf
+
 # Ranked vocabulary is generated as LF; preserve its bytes on Windows checkout.
 public/vocabulary/*.txt text eol=lf

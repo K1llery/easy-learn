@@ -226,6 +226,7 @@ it.each([
   expect(request).toHaveBeenCalledTimes(1);
 });
 
+// Keep the full dense-node fixture; slower native CI runners need extra jsdom time.
 it('bounds rich text requests including marker overhead without losing any text or splitting surrogate pairs', () => {
   document.body.innerHTML = `<article><p>${Array.from({ length: 2000 }, (_, i) => `<strong>${i % 2 ? '😀' : 'x'}</strong>`).join('')}</p></article>`;
   const block = extractBlocks(document, 'translation')[0];
@@ -238,7 +239,7 @@ it('bounds rich text requests including marker overhead without losing any text 
     expect(text).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/);
     expect(translatedRuns({ ...part, translation: part.source }).valid).toBe(true);
   }
-});
+}, 15_000);
 
 it('does not interpret marker-like source text as format metadata', () => {
   document.body.innerHTML = '<article><p>Literal ⟦EL:0⟧ <b>source</b></p></article>';
