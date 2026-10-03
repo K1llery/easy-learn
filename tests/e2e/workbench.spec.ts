@@ -51,6 +51,65 @@ test('first-run connection needs only a provider and key, preserves session draf
  }finally{await context.close();await new Promise<void>(r=>fresh.close(()=>r()));}
 });
 async function importText(page:Page){await page.locator('#reader-file').setInputFiles({name:'public.txt',mimeType:'text/plain',buffer:Buffer.from(original)});await expect(page.getByTestId('reader-prose')).toHaveText(original);}
+test('directory search retains original indices and locates the active chapter only on request',async()=>{
+ const {context,page}=await open();const before=calls.length;
+ const chapters=Array.from({length:30},(_,i)=>`## Section ${String(i+1).padStart(2,'0')}\n\nOriginal passage ${i+1}.`).join('\n\n');
+ const file={name:'navigation.md',mimeType:'text/markdown',buffer:Buffer.from(chapters)};
+ await page.locator('#reader-file').setInputFiles(file);
+ const search=page.getByRole('searchbox',{name:'搜索章节标题'}),nav=page.getByRole('navigation',{name:'章节目录'});
+ await expect(page.getByRole('button',{name:'前一章节',exact:true})).toBeDisabled();
+ await search.fill('  SECTION 20  ');await expect(nav.getByRole('button')).toHaveCount(1);
+ await nav.getByRole('button',{name:'Section 20',exact:true}).click();await expect(page.getByTestId('reader-prose')).toContainText('Original passage 20.');
+ await expect(page.getByRole('progressbar',{name:'章节位置'})).toHaveAttribute('value','20');
+ await search.fill('absent');await expect(nav.getByRole('button')).toHaveCount(0);await expect(page.getByTestId('reader-prose')).toContainText('Original passage 20.');
+ await page.getByRole('button',{name:'定位当前章节',exact:true}).click();await expect(search).toHaveValue('');await expect(nav.getByRole('button',{name:'Section 20',exact:true})).toBeFocused();
+ await page.getByRole('button',{name:'后一章节',exact:true}).click();await expect(page.getByTestId('reader-prose')).toContainText('Original passage 21.');
+ await page.reload();await page.locator('#reader-file').setInputFiles(file);await expect(page.getByTestId('reader-prose')).toContainText('Original passage 21.');
+ await search.fill('Section 30');await nav.getByRole('button',{name:'Section 30',exact:true}).click();await expect(page.getByRole('button',{name:'后一章节',exact:true})).toBeDisabled();
+ await page.locator('#reader-file').setInputFiles({name:'replacement.md',mimeType:'text/markdown',buffer:Buffer.from('## New title\n\nNew passage.')});await expect(search).toHaveValue('');await expect(nav.getByRole('button',{name:'New title',exact:true})).toBeVisible();
+ expect(calls.length).toBe(before);await context.close();
+});
+test('focus mode keeps source nodes and learning controls, respects panels and exits with keyboard focus',async()=>{
+ const {context,page}=await open();await importText(page);const before=calls.length;
+ const prose=page.getByTestId('reader-prose');await prose.evaluate(el=>{(window as any).readingNode=el;});
+ await page.getByRole('button',{name:'专注阅读',exact:true}).click();await expect(page.getByRole('button',{name:'退出专注',exact:true})).toHaveAttribute('aria-pressed','true');
+ await expect(page.getByRole('navigation',{name:'章节目录'})).not.toBeVisible();await expect(page.getByRole('combobox',{name:'阅读字号'})).not.toBeVisible();await expect(page.getByRole('button',{name:'开启伴读',exact:true})).toBeVisible();await expect(prose).toHaveText(original);
+ expect(await prose.evaluate(el=>el===(window as any).readingNode)).toBe(true);
+ await page.locator('.reader-word').first().focus();await expect(page.getByRole('complementary',{name:'词语释义'})).toBeVisible();
+ await page.getByRole('button',{name:'粘贴文本',exact:true}).click();await page.getByRole('textbox',{name:'粘贴要读的外语原文'}).fill('Keep this draft');await page.keyboard.press('Escape');await expect(page.getByRole('button',{name:'退出专注',exact:true})).toBeVisible();await page.getByRole('button',{name:'取消',exact:true}).click();
+ await prose.click({position:{x:2,y:2}});await page.keyboard.press('Escape');await expect(page.getByRole('button',{name:'专注阅读',exact:true})).toBeFocused();await expect(page.getByRole('navigation',{name:'章节目录'})).toBeVisible();expect(calls.length).toBe(before);
+ await page.getByRole('button',{name:'专注阅读',exact:true}).click();await page.locator('#reader-file').setInputFiles({name:'next.txt',mimeType:'text/plain',buffer:Buffer.from('A new reading session.')});await expect(page.getByRole('button',{name:'专注阅读',exact:true})).toHaveAttribute('aria-pressed','false');await context.close();
+});
+test('vocabulary search combines language and status filters and exports all learning words',async()=>{
+ const {context,page}=await open();const before=calls.length;
+ await page.evaluate(()=>localStorage.setItem('easy-learn-reader-words-v1',JSON.stringify({
+  'en:ephemeral':{word:'ephemeral',language:'en',status:'learning',meaning:'短暂的',summary:'A fleeting glow'},
+  'en:llm':{word:'LLM',language:'en',status:'known',meaning:'语言模型',expansion:'Large Language Model'},
+  'fr:lumière':{word:'lumière',language:'fr',status:'learning',meaning:'光线'}
+ })));await page.reload();await page.getByRole('button',{name:'生词本 · 2',exact:true}).click();
+ const vocabulary=page.getByRole('region',{name:'生词本'}),search=page.getByRole('searchbox',{name:'搜索生词和释义'});
+ await expect(vocabulary.locator('.learned')).toHaveCount(3);await search.fill('  LARGE LANGUAGE  ');await expect(vocabulary.locator('.learned')).toHaveCount(1);await expect(vocabulary.locator('.learned')).toContainText('LLM');
+ await vocabulary.getByRole('button',{name:'学习中 · 2',exact:true}).click();await expect(vocabulary.locator('.learned')).toHaveCount(0);await expect(vocabulary.getByText('没有匹配的词汇。')).toBeVisible();await vocabulary.getByRole('button',{name:'清除筛选',exact:true}).click();
+ await page.getByRole('combobox',{name:'筛选词汇语言'}).selectOption('fr');await expect(vocabulary.locator('.learned')).toHaveCount(1);await search.fill('光线');await expect(vocabulary.locator('.learned')).toContainText('lumière');
+ const waiting=page.waitForEvent('download');await vocabulary.getByRole('button',{name:'导出到 Anki（TSV）',exact:true}).click();const exported=await readFile((await (await waiting).path())!,'utf8');expect(exported).toContain('ephemeral');expect(exported).toContain('lumière');expect(exported).not.toContain('LLM');
+ await vocabulary.getByRole('button',{name:'移除 lumière',exact:true}).click();await expect(vocabulary.locator('.learned')).toHaveCount(0);await expect(page.getByRole('combobox',{name:'筛选词汇语言'})).toHaveValue('fr');
+ await vocabulary.getByRole('button',{name:'清除筛选',exact:true}).click();await search.fill('短暂');await expect(vocabulary.locator('.learned')).toContainText('ephemeral');await vocabulary.getByRole('button',{name:'移除 ephemeral',exact:true}).click();await vocabulary.getByRole('button',{name:'清除筛选',exact:true}).click();await page.getByRole('combobox',{name:'筛选词汇语言'}).selectOption('en');await vocabulary.getByRole('button',{name:'已认识 · 1',exact:true}).click();await search.fill('model');await vocabulary.getByRole('button',{name:'移除 LLM',exact:true}).click();await expect(vocabulary.getByText('在原文中点击一个标注的单词，就能收进生词本。')).toBeVisible();await vocabulary.getByRole('button',{name:'清除筛选',exact:true}).click();await expect(search).toHaveValue('');await expect(page.getByRole('combobox',{name:'筛选词汇语言'})).toHaveValue('all');await expect(vocabulary.getByRole('button',{name:'全部 · 0',exact:true})).toHaveAttribute('aria-pressed','true');await vocabulary.getByRole('button',{name:'关闭生词本',exact:true}).click();await expect(vocabulary).toHaveCount(0);expect(calls.length).toBe(before);await context.close();
+});
+test('focus mode preserves native PDF notes, viewer identity and page position through resizing',async()=>{
+ const {context,page}=await open();const before=calls.length;await page.locator('#reader-file').setInputFiles({name:'focus.pdf',mimeType:'application/pdf',buffer:paperPdf()});
+ await page.getByRole('button',{name:'文字批注',exact:true}).click();const layer=page.locator('.page[data-page-number="1"] .annotationEditorLayer');await layer.click({position:{x:110,y:330}});await page.locator('.freeTextEditor [contenteditable="true"]').fill('Preserve focus note');await page.getByRole('button',{name:'选择文字',exact:true}).click();
+ const input=page.getByRole('textbox',{name:'跳转页码'});await input.fill('2');await input.press('Enter');await expect(input).toHaveValue('2');
+ const viewer=page.locator('.pdfViewer');await viewer.evaluate(el=>{(window as any).originalViewer=el;});
+ await page.getByRole('button',{name:'专注阅读',exact:true}).click();await expect(input).toHaveValue('2');expect(await viewer.evaluate(el=>el===(window as any).originalViewer)).toBe(true);
+ await page.getByRole('button',{name:'退出专注',exact:true}).click();await input.fill('1');await input.press('Enter');await page.getByRole('button',{name:'文字批注',exact:true}).click();await expect(page.locator('.freeTextEditor')).toContainText('Preserve focus note');
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const bytes=await readFile((await (await download).path())!);expect(bytes.toString()).toContain('/Contents (Preserve focus note)');expect(calls.length).toBe(before);await context.close();
+});
+test('reading tools fit narrow dark screens and disable motion when requested',async()=>{
+ const context=await browser.newContext({viewport:{width:390,height:844},colorScheme:'dark',reducedMotion:'reduce'}),page=await context.newPage();await page.goto(base);
+ expect(await page.locator('.reader-welcome').evaluate(el=>getComputedStyle(el).animationName)).toBe('none');await importText(page);await page.getByRole('button',{name:'专注阅读',exact:true}).click();await expect(page.getByRole('button',{name:'退出专注',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ await page.getByRole('button',{name:'生词本',exact:true}).click();await expect(page.getByRole('searchbox',{name:'搜索生词和释义'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'.cache/reader-tools-mobile.png',fullPage:true});await page.getByRole('button',{name:'关闭生词本',exact:true}).click();
+ await page.locator('#reader-file').setInputFiles({name:'motion.pdf',mimeType:'application/pdf',buffer:paperPdf()});await page.getByRole('navigation',{name:'章节目录'}).getByRole('button',{name:'1.1 Threat Model',exact:true}).click();const heading=page.locator('[data-navigation-target="1.1 Threat Model"]').first();await expect(heading).toHaveCount(1);expect(await heading.evaluate(el=>el.getAnimations().length)).toBe(0);await context.close();
+});
 test('imports text, streams meanings, preserves source and makes hover free; exports Anki and hides known words',async()=>{
  const {context,page}=await open();await importText(page);const before=calls.length;await expect(page.locator('.reader-word')).not.toHaveCount(0);expect(calls.length).toBe(before);
  await page.getByRole('button',{name:'开启伴读',exact:true}).click();const word=page.locator('.reader-word').filter({hasText:'ephemeral'}).first();await expect(word).toHaveClass(/is-ready/);await word.hover();await expect(page.getByRole('heading',{name:'短暂的'})).toBeVisible();await expect(page.getByTestId('reader-prose')).toHaveText(original);
@@ -181,7 +240,7 @@ test('native PDF highlights, arbitrary notes and ink export into a reopenable PD
  await page.getByRole('button',{name:'高亮文字',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();await selectPdfLine(page,'The ephemeral assumption');await expect(page.locator('.highlightEditor')).toHaveCount(1);
  await page.getByRole('button',{name:'撤销',exact:true}).click();await expect(page.locator('.highlightEditor')).toHaveCount(0);await page.getByRole('button',{name:'重做',exact:true}).click();await expect(page.locator('.highlightEditor')).toHaveCount(1);
  await page.getByRole('button',{name:'文字批注',exact:true}).click();const layer=page.locator('.page[data-page-number="1"] .annotationEditorLayer');await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();await layer.click({position:{x:100,y:350}});const note=page.locator('.freeTextEditor [contenteditable="true"]');await expect(note).toBeVisible();await note.fill('复核笔记 Review note');
- await page.getByRole('button',{name:'画笔标记',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();const box=await layer.boundingBox();await page.mouse.move(box!.x+200,box!.y+380);await page.mouse.down();await page.mouse.move(box!.x+240,box!.y+390,{steps:8});await page.mouse.up();await page.getByRole('button',{name:'选择文字',exact:true}).click();await expect(page.locator('.inkEditor')).toHaveCount(1);
+ await page.getByRole('button',{name:'画笔标记',exact:true}).click();await expect(page.getByRole('button',{name:'选择文字',exact:true})).toBeEnabled();await page.getByTestId('pdf-scroll-container').scrollIntoViewIfNeeded();const box=await layer.boundingBox();await page.mouse.move(box!.x+200,box!.y+380);await page.mouse.down();await page.mouse.move(box!.x+240,box!.y+390,{steps:8});await page.mouse.up();await page.getByRole('button',{name:'选择文字',exact:true}).click();await expect(page.locator('.inkEditor')).toHaveCount(1);
  await page.getByRole('button',{name:'文字伴读',exact:true}).click();await page.getByRole('button',{name:'原版（含图表）',exact:true}).click();await expect(page.locator('.freeTextEditor')).toContainText('Review note');await expect(page.locator('.highlightEditor')).toHaveCount(1);
  const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'导出含批注 PDF',exact:true}).click();const download=await waiting;expect(download.suggestedFilename()).toBe('edit-批注.pdf');const bytes=await readFile((await download.path())!);expect(bytes.subarray(0,5).toString()).toBe('%PDF-');
  await page.locator('#reader-file').setInputFiles({name:'saved.pdf',mimeType:'application/pdf',buffer:bytes});await expect(page.getByRole('heading',{name:'saved.pdf',exact:true})).toBeVisible();await expect(page.getByTestId('pdf-canvas').first()).toBeVisible();
