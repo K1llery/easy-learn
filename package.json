@@ -16,7 +16,6 @@
     "test:desktop": "node scripts/smoke-desktop.mjs",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
-    "lint:prune": "eslint . --prune-suppressions --max-warnings 0",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "lint:go": "node scripts/go-quality.mjs lint",

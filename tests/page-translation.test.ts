@@ -7,7 +7,7 @@ import { translatedRuns, translationParts } from '../src/content/translation-for
 let translator: PageTranslation;
 afterEach(() => translator?.dispose());
 function create(
-  request: (context: any) => Promise<string>,
+  request: (context: TextContext) => Promise<string>,
   concurrency = 6,
   cancel = vi.fn(async (): Promise<unknown> => undefined),
 ) {

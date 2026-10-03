@@ -68,8 +68,10 @@ it('expires old entries and bounds cache size', async () => {
   const { cache, values } = setup();
   await cache.put(Array.from({ length: 510 }, (_, i) => ({ key: String(i), concept })));
   expect(await cache.get(['0'])).toEqual([undefined]);
-  expect((values.annotationCacheV1 as any[]).length).toBe(500);
-  (values.annotationCacheV1 as any[]).forEach((e) => (e.at = Date.now() - 31 * 86400000));
+  expect((values.annotationCacheV1 as { at: number }[]).length).toBe(500);
+  (values.annotationCacheV1 as { at: number }[]).forEach(
+    (e) => (e.at = Date.now() - 31 * 86400000),
+  );
   expect(await cache.get(['509'])).toEqual([undefined]);
 });
 it('refreshes old abbreviation results without invalidating ordinary word explanations', async () => {

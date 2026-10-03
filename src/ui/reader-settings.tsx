@@ -7,7 +7,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import { providers, providerFor } from '../core/providers';
 import { configSchema, defaultProfile, type Config } from '../core/types';
-import { rpc } from './rpc';
+import { rpc, type SettingsResponse } from './rpc';
 import { ModelControls } from './model-controls';
 import { inExtension } from './reader-rpc';
 export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -32,7 +32,7 @@ export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSa
   const drafts = useRef<Record<string, Config>>({});
   const selected = providers.find((p) => p.id === preset);
   useEffect(() => {
-    void rpc('GET_SETTINGS')
+    void rpc<SettingsResponse>('GET_SETTINGS')
       .then((data) => {
         if (data.config) {
           setConfig(data.config);
@@ -197,7 +197,7 @@ export function ReaderSettings({ onClose, onSaved }: { onClose: () => void; onSa
               onClick={() => {
                 setBusy(true);
                 setError('');
-                void rpc('TEST')
+                void rpc<string>('TEST')
                   .then(setMessage)
                   .catch((e) => setError(e.message))
                   .finally(() => setBusy(false));

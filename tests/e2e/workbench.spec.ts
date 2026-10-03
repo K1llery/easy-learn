@@ -1,3 +1,5 @@
+import type { AddressInfo } from 'node:net';
+import type { AIRequest } from '../../src/core/types';
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -6,7 +8,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { createWorkbench } from '../../src/workbench/server';
 import { paperPdf, pagedPdf } from './pdf-fixture';
 let server: Server, model: Server, browser: Browser, base: string, modelBase: string, temp: string;
-const calls: any[] = [];
+const calls: { messages: { content: string }[]; [key: string]: unknown }[] = [];
 let mode = 'stream';
 const original =
   'The ephemeral lantern reveals a serendipitous discovery. The ephemeral glow fades.';
@@ -37,7 +39,7 @@ test.beforeAll(async () => {
       res.end('{}');
       return;
     }
-    const input = JSON.parse(payload.messages[1].content);
+    const input = JSON.parse(payload.messages[1].content) as AIRequest;
     if (input.operation !== 'analyze') {
       const output =
         input.operation === 'choice'
@@ -69,7 +71,7 @@ test.beforeAll(async () => {
       res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }));
       return;
     }
-    const items = input.candidates.map((c: any) =>
+    const items = input.candidates!.map((c) =>
       mode === 'skip' && c.anchor.toLowerCase() === 'attestation'
         ? { id: c.id, skip: true }
         : {
@@ -95,7 +97,7 @@ test.beforeAll(async () => {
       event(
         items
           .slice(1)
-          .map((c: any) => ',' + JSON.stringify(c))
+          .map((c) => ',' + JSON.stringify(c))
           .join('') + ']}',
       );
       res.end('data: [DONE]\n\n');
@@ -105,10 +107,10 @@ test.beforeAll(async () => {
     }
   });
   await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
-  modelBase = `http://127.0.0.1:${(model.address() as any).port}`;
+  modelBase = `http://127.0.0.1:${(model.address() as AddressInfo).port}`;
   server = createWorkbench(process.cwd(), temp);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${(server.address() as any).port}`;
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const response = await fetch(base + '/api/rpc', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -164,7 +166,7 @@ test('desktop exit guards unsaved PDF annotations and releases the reading inter
     },
   });
   await new Promise<void>((r) => fresh.listen(0, '127.0.0.1', r));
-  const address = `http://127.0.0.1:${(fresh.address() as any).port}`;
+  const address = `http://127.0.0.1:${(fresh.address() as AddressInfo).port}`;
   const context = await browser.newContext(),
     page = await context.newPage();
   try {
@@ -203,7 +205,7 @@ test('first-run connection needs only a provider and key, preserves session draf
   const data = await mkdtemp(path.join(temp, 'first-run-')),
     fresh = createWorkbench(process.cwd(), data);
   await new Promise<void>((r) => fresh.listen(0, '127.0.0.1', r));
-  const address = `http://127.0.0.1:${(fresh.address() as any).port}`;
+  const address = `http://127.0.0.1:${(fresh.address() as AddressInfo).port}`;
   const context = await browser.newContext(),
     page = await context.newPage();
   const before = calls.length;
@@ -1017,7 +1019,7 @@ test('PDF selected text reuses explanation, translation and quiz without sending
   await page.getByRole('button', { name: '解释', exact: true }).click();
   const study = page.getByRole('region', { name: '选段学习' });
   await expect(study).toContainText('这是结合所选原文的解释。');
-  const input = JSON.parse(calls.at(-1).messages[1].content);
+  const input = JSON.parse(calls.at(-1)!.messages[1].content);
   expect(input.context.text).toContain('ephemeral assumption');
   expect(input.context.text).not.toContain('Cryptographic');
   expect(input.mode).toBe('explain');
@@ -1030,7 +1032,7 @@ test('PDF selected text reuses explanation, translation and quiz without sending
   await expect(study.getByText('正确答案 · A')).toHaveCount(0);
   await study.getByRole('radio').first().check();
   await expect(study).toContainText('答对了');
-  expect(JSON.parse(calls.at(-1).messages[1].content).operation).toBe('choice');
+  expect(JSON.parse(calls.at(-1)!.messages[1].content).operation).toBe('choice');
   await context.close();
 });
 test('native PDF highlights, arbitrary notes and ink export into a reopenable PDF and survive view changes', async () => {
@@ -1200,7 +1202,7 @@ test('PDF prevents old-document edits during delayed replacement import', async 
     File.prototype.arrayBuffer = async function () {
       if (this.name === 'delayed.pdf')
         await new Promise<void>((resolve) => {
-          (window as any).finishImport = resolve;
+          (window as typeof window & { finishImport: () => void }).finishImport = resolve;
         });
       return read.call(this);
     };
@@ -1215,7 +1217,9 @@ test('PDF prevents old-document edits during delayed replacement import', async 
   await page.keyboard.press('Control+z');
   await expect(page.locator('.freeTextEditor')).toHaveCount(1);
   await expect(page.locator('.freeTextEditor')).toContainText('Saved before import');
-  await page.evaluate(() => (window as any).finishImport());
+  await page.evaluate(() =>
+    (window as typeof window & { finishImport: () => void }).finishImport(),
+  );
   await expect(page.getByRole('heading', { name: 'delayed.pdf', exact: true })).toBeVisible();
   await context.close();
 });

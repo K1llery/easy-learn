@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Ignore late responses after switching to another exercise or closing the panel.
 export function useAction() {
@@ -12,7 +12,11 @@ export function useAction() {
     },
     [],
   );
-  async function run<T>(label: string, work: () => Promise<T>, accept: (data: T) => void) {
+  const run = useCallback(async function run<T>(
+    label: string,
+    work: () => Promise<T>,
+    accept: (data: T) => void,
+  ) {
     if (running.current) return;
     running.current = true;
     const current = ++epoch.current;
@@ -28,6 +32,6 @@ export function useAction() {
       running.current = false;
       if (epoch.current === current) setBusy('');
     }
-  }
+  }, []);
   return { busy, error, run };
 }

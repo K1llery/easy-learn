@@ -14,7 +14,7 @@ import {
 import { providers, providerFor } from '../core/providers';
 import type { ProviderSettings } from '../core/provider-settings';
 import { LOGIN_ORIGINS, KIND_LABELS, startOAuth, type OAuthKind } from '../core/oauth';
-import { rpc } from './rpc';
+import { rpc, type SettingsResponse } from './rpc';
 import './style.css';
 import { ModelControls } from './model-controls';
 type OAuthState = { signedIn: boolean; email?: string; expiresAt?: number };
@@ -62,7 +62,7 @@ function Options() {
     [busy, setBusy] = useState(false);
   const subscriptionKind: OAuthKind | null = selected?.oauth ?? null;
   async function load() {
-    const data = await rpc('GET_SETTINGS');
+    const data = await rpc<SettingsResponse>('GET_SETTINGS');
     if (data.config) {
       setHasConfig(true);
       setForm(data.config);
@@ -215,7 +215,7 @@ function Options() {
     setError('');
     setMessage('');
     try {
-      setMessage(await rpc('TEST'));
+      setMessage(await rpc<string>('TEST'));
     } catch (e) {
       setError((e as Error).message);
     } finally {

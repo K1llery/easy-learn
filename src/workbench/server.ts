@@ -9,6 +9,7 @@ import {
   endpoint,
   defaultProfile,
   type Config,
+  type ReadingPrefs,
 } from '../core/types';
 import { callModel, type AnalysisProgress } from '../core/ai';
 import { Queue, SessionCache, cacheKey } from '../core/session';
@@ -21,8 +22,8 @@ export function createWorkbench(
   desktop?: DesktopControl,
 ) {
   const queue = new Queue(),
-    session = new SessionCache<any>();
-  let settings: { config?: Config; reading?: Record<string, any> } = {},
+    session = new SessionCache<Awaited<ReturnType<typeof callModel>>>();
+  let settings: { config?: Config; reading?: ReadingPrefs } = {},
     epoch = 0;
   const persisted: Record<string, unknown> = {};
   let mutations: Promise<unknown> = Promise.resolve();
@@ -78,7 +79,7 @@ export function createWorkbench(
       );
     const cached = session.get(key);
     if (cached) {
-      if ('concepts' in cached) progress?.(cached);
+      if ('concepts' in cached) progress?.(cached as AnalysisProgress);
       return { ...cached, __cached: true };
     }
     const keys = request.candidates
@@ -95,7 +96,7 @@ export function createWorkbench(
     const missing = request.candidates?.filter((c) => !hits.some((h) => h.id === c.id));
     if (missing && !missing.length)
       return { concepts: hits, skipped: [], missing: [], __usage: 0, __cached: true };
-    const result: any = await queue.run(
+    const result = await queue.run(
       async () => {
         if (signal?.aborted) throw new Error('请求已取消。');
         return callModel(
@@ -109,15 +110,16 @@ export function createWorkbench(
     );
     if ('concepts' in result) {
       await annotations.put(
-        result.concepts.flatMap((concept: any) => {
+        result.concepts!.flatMap((concept) => {
           const index = request.candidates?.findIndex((c) => c.id === concept.id) ?? -1;
           return keys[index] ? [{ key: keys[index]!, concept }] : [];
         }),
         () => epoch === generation && !signal?.aborted,
       );
-      result.concepts = [...hits, ...result.concepts];
+      result.concepts = [...hits, ...result.concepts!];
     }
-    if (!result.missing?.length && generation === epoch) session.set(key, result);
+    if ((!('missing' in result) || !result.missing?.length) && generation === epoch)
+      session.set(key, result);
     return result;
   }
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {

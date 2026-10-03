@@ -26,7 +26,7 @@ const concept = {
 beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
-  request = vi.fn(async (msg: any) =>
+  request = vi.fn(async (msg: { type: string }) =>
     msg.type === 'PUBLIC_SETTINGS'
       ? { ok: true, data: { profile: { domain: '软件开发', level: '入门' }, mastered: [] } }
       : { ok: true, data: { concepts: [concept] } },
@@ -67,8 +67,10 @@ beforeEach(() => {
   window.getSelection()?.removeAllRanges();
 });
 afterEach(() => {
-  (globalThis as any).__easyLearn?.toggle();
-  delete (globalThis as any).__easyLearn;
+  (
+    globalThis as typeof globalThis & { __easyLearn?: { toggle: () => void } }
+  ).__easyLearn?.toggle();
+  delete (globalThis as typeof globalThis & { __easyLearn?: { toggle: () => void } }).__easyLearn;
   document.body.replaceChildren();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -142,7 +144,7 @@ it('preloads code-line fragments and serves them on hover without another reques
       return [{ ...rect, left: 20 + this.startOffset * 7, right: 20 + this.endOffset * 7 }];
     },
   });
-  request.mockImplementation(async (msg: any) =>
+  request.mockImplementation(async (msg: { type: string }) =>
     msg.type === 'PUBLIC_SETTINGS'
       ? {
           ok: true,
@@ -205,7 +207,7 @@ it('emphasizes only the first repeated occurrence and keeps later occurrences qu
     '<article><h1>HTTP API guide</h1><p>An API links one service to another API.</p></article>';
   await import('../src/content/index');
   await vi.advanceTimersByTimeAsync(300);
-  const registry = (globalThis.CSS as any).highlights as Map<string, { ranges: Range[] }>;
+  const registry = (CSS as unknown as { highlights: Map<string, { ranges: Range[] }> }).highlights;
   const primary = registry.get('easy-learn-test-primary'),
     repeat = registry.get('easy-learn-test-repeat');
   expect(primary?.ranges.map((range) => range.toString())).toEqual(['API']);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { startCurrentPage } from './start-reading';
 import './style.css';
@@ -39,8 +39,9 @@ function Popup() {
     window.close();
   }
 
+  const initialStart = useRef(start);
   useEffect(() => {
-    void start();
+    void initialStart.current();
   }, []);
 
   return (

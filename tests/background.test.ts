@@ -1,13 +1,39 @@
 // @vitest-environment node
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-import type { Config } from '../src/core/types';
+import type { Config, Mastered, ReadingPrefs, AnnotationType } from '../src/core/types';
+import type { LearningCard } from '../src/core/learning';
+import type { ProviderSettings } from '../src/core/provider-settings';
+import type { SettingsResponse, PublicSettings } from '../src/ui/rpc';
+type TestSender = Omit<chrome.runtime.MessageSender, 'tab'> & { tab?: Partial<chrome.tabs.Tab> };
+type PdfSelection = { id: string; mode: string; text: string; title: string; truncated: boolean };
+type TestStorage = Record<string, unknown> & {
+  config: Config;
+  reading: ReadingPrefs & { localOnly?: boolean; codeAnnotations?: boolean };
+  mastered: Mastered[];
+  providerSettingsV1: ProviderSettings;
+  learningCardsV1: LearningCard[];
+};
+type ReplyData<T extends string> = T extends 'GET_SETTINGS'
+  ? SettingsResponse
+  : T extends 'PUBLIC_SETTINGS'
+    ? PublicSettings & {
+        codeAnnotations: boolean;
+        annotationTypes: AnnotationType[];
+        learningCardsV1?: never;
+      }
+    : unknown;
+type MockStorage = {
+  get: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  [key: string]: ReturnType<typeof vi.fn>;
+};
 const model = vi.hoisted(() => vi.fn());
 vi.mock('../src/core/ai', () => ({ callModel: model }));
 function event() {
-  const listeners: ((...args: any[]) => any)[] = [];
+  const listeners: ((...args: unknown[]) => unknown)[] = [];
   return {
-    addListener: (listener: (...args: any[]) => any) => listeners.push(listener),
-    emit: (...args: any[]) => listeners.forEach((listener) => listener(...args)),
+    addListener: (listener: (...args: unknown[]) => unknown) => listeners.push(listener),
+    emit: (...args: unknown[]) => listeners.forEach((listener) => listener(...args)),
     listeners,
   };
 }
@@ -46,51 +72,21 @@ const concept = {
   evidence: 'regional failure',
   ambiguity: '',
 };
-let api: any, data: Record<string, any>, sessionData: Record<string, any>;
-async function send(type: string, fields: any = {}, sender: any = optionSender): Promise<any> {
+let api: ReturnType<typeof makeApi>, data: TestStorage, sessionData: Record<string, PdfSelection>;
+async function send<T extends string>(
+  type: T,
+  fields: Record<string, unknown> = {},
+  sender: TestSender = optionSender,
+): Promise<{ ok: boolean; data: ReplyData<T>; error?: string }> {
   return new Promise((resolve) =>
     api.runtime.onMessage.listeners[0]({ type, ...fields }, sender, resolve),
   );
 }
-function port(sender: any, name: string) {
+function port(sender: TestSender, name: string) {
   return { sender, name, onMessage: event(), onDisconnect: event(), postMessage: vi.fn() };
 }
-beforeEach(async () => {
-  vi.resetModules();
-  model.mockReset().mockResolvedValue({ concepts: [concept] });
-  data = { config: structuredClone(cfg) };
-  sessionData = {};
-  const storage = {
-    setAccessLevel: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn(async (keys: string | string[]) =>
-      Object.fromEntries(
-        (Array.isArray(keys) ? keys : [keys]).map((k) => [k, structuredClone(data[k])]),
-      ),
-    ),
-    set: vi.fn(async (next: any) => {
-      await Promise.resolve();
-      Object.assign(data, structuredClone(next));
-    }),
-    clear: vi.fn(async () => {
-      data = {};
-    }),
-  };
-  const sessionStorage = {
-    setAccessLevel: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn(async (keys: string | string[]) =>
-      Object.fromEntries(
-        (Array.isArray(keys) ? keys : [keys]).map((k) => [k, structuredClone(sessionData[k])]),
-      ),
-    ),
-    set: vi.fn(async (next: any) => {
-      await Promise.resolve();
-      Object.assign(sessionData, structuredClone(next));
-    }),
-    remove: vi.fn(async (keys: string | string[]) => {
-      for (const key of Array.isArray(keys) ? keys : [keys]) delete sessionData[key];
-    }),
-  };
-  api = {
+function makeApi(storage: MockStorage, sessionStorage: MockStorage) {
+  return {
     storage: { local: storage, session: sessionStorage },
     permissions: { contains: vi.fn().mockResolvedValue(true) },
     runtime: {
@@ -110,6 +106,43 @@ beforeEach(async () => {
     },
     sidePanel: { open: vi.fn().mockResolvedValue(undefined) },
   };
+}
+beforeEach(async () => {
+  vi.resetModules();
+  model.mockReset().mockResolvedValue({ concepts: [concept] });
+  data = { config: structuredClone(cfg) } as TestStorage;
+  sessionData = {};
+  const storage = {
+    setAccessLevel: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn(async (keys: string | string[]) =>
+      Object.fromEntries(
+        (Array.isArray(keys) ? keys : [keys]).map((k) => [k, structuredClone(data[k])]),
+      ),
+    ),
+    set: vi.fn(async (next: Record<string, unknown>) => {
+      await Promise.resolve();
+      Object.assign(data, structuredClone(next));
+    }),
+    clear: vi.fn(async () => {
+      data = {} as TestStorage;
+    }),
+  };
+  const sessionStorage = {
+    setAccessLevel: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn(async (keys: string | string[]) =>
+      Object.fromEntries(
+        (Array.isArray(keys) ? keys : [keys]).map((k) => [k, structuredClone(sessionData[k])]),
+      ),
+    ),
+    set: vi.fn(async (next: Record<string, unknown>) => {
+      await Promise.resolve();
+      Object.assign(sessionData, structuredClone(next));
+    }),
+    remove: vi.fn(async (keys: string | string[]) => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete sessionData[key];
+    }),
+  };
+  api = makeApi(storage, sessionStorage);
   vi.stubGlobal('chrome', api);
   await import('../src/background');
 });
@@ -313,7 +346,7 @@ it('serializes simultaneous mastery updates and retains distinct meanings', asyn
   expect(results.every((r) => r.ok)).toBe(true);
   expect(data.mastered).toHaveLength(2);
   await send('UNMASTER', { key: data.mastered[0].key });
-  expect(data.mastered.map((x: any) => x.meaning)).toEqual(['每日运行']);
+  expect(data.mastered.map((x) => x.meaning)).toEqual(['每日运行']);
 });
 it('caches per document and clears standalone panel data when its port closes', async () => {
   const sender = { ...panelSender, tab: undefined, documentId: 'standalone-1' };
@@ -472,7 +505,7 @@ it('routes incremental results only to the requesting document and ignores obsol
     p = port(panelSender, 'panel');
   api.runtime.onConnect.emit(c);
   api.runtime.onConnect.emit(p);
-  let resolve!: (v: any) => void;
+  let resolve!: (v: unknown) => void;
   model.mockImplementationOnce(
     () =>
       new Promise((r) => {
@@ -555,7 +588,7 @@ const learningDraft = () => ({
 });
 it('keeps saved learning private and supports offline records without model configuration', async () => {
   const draft = learningDraft();
-  delete data.config;
+  delete (data as Partial<TestStorage>).config;
   data.reading = { localOnly: true };
   for (const type of [
     'LEARNING_LIST',
@@ -611,7 +644,7 @@ it('serializes concurrent learning saves and rejects stale review updates', asyn
   ).toBe(true);
   expect(data.learningCardsV1[0]).toMatchObject({ revision: 2, actionNote: '画了流程图。' });
   await send('LEARNING_DELETE', { id: first.id });
-  expect(data.learningCardsV1.map((card: any) => card.id)).toEqual([second.id]);
+  expect(data.learningCardsV1.map((card) => card.id)).toEqual([second.id]);
   await send('CLEAR_SETTINGS');
   expect((await send('LEARNING_LIST')).data).toEqual([]);
 });
@@ -651,7 +684,7 @@ it('allows only explicit paragraph translation from content scripts and respects
 });
 
 it('cancels only the requesting document translations while preserving analysis and other tabs', async () => {
-  const resolvers: ((value: any) => void)[] = [];
+  const resolvers: ((value: unknown) => void)[] = [];
   model.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
   const request = { operation: 'explain', mode: 'translate', context };
   const local = send('AI', { pageTranslation: true, request }, pageSender);
@@ -689,7 +722,7 @@ it('retains saved request limits, accepts twelve concurrent requests and rejects
 });
 
 it('cancels a translation during asynchronous settings lookup before it can reach the model', async () => {
-  let release!: (value: any) => void;
+  let release!: (value: unknown) => void;
   api.storage.local.get.mockImplementationOnce(
     () =>
       new Promise((resolve) => {

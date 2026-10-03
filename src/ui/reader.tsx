@@ -20,7 +20,7 @@ import { ReaderDirectory } from './reader-directory';
 import { ReaderVocabulary } from './reader-vocabulary';
 import { ReaderPdf, type PdfDestination } from './reader-pdf';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { rpc } from './rpc';
+import { rpc, type SettingsResponse, type PublicSettings } from './rpc';
 import './style.css';
 import './reader.css';
 const WORD_STORE = 'easy-learn-reader-words-v1';
@@ -48,6 +48,7 @@ function storedWords(): Record<string, WordRecord> {
     return {};
   }
 }
+const keyFor = (w: ReadingWord) => JSON.stringify([w.sectionId, w.key, w.context]);
 function Reader() {
   const [doc, setDoc] = useState<ReadingDocument | null>(null),
     [sectionIndex, setSectionIndex] = useState(0),
@@ -110,7 +111,7 @@ function Reader() {
   prefs.current = { batchSize, concurrency };
   async function refreshSettings() {
     try {
-      const data = await rpc('PUBLIC_SETTINGS');
+      const data = await rpc<PublicSettings>('PUBLIC_SETTINGS');
       setBatchSize(data.batchSize ?? defaultBatchSize);
       setConcurrency(data.concurrency ?? defaultConcurrency);
       setDensity(data.maxPerBlock ?? 6);
@@ -119,6 +120,9 @@ function Reader() {
     }
   }
   useEffect(() => {
+    const invalidateRequests = () => {
+      epoch.current++;
+    };
     if (inExtension) {
       port.current = connectSurface('reader');
       port.current.port.onMessage.addListener((msg) => {
@@ -133,7 +137,7 @@ function Reader() {
       });
     }
     void refreshSettings();
-    void rpc('GET_SETTINGS')
+    void rpc<SettingsResponse>('GET_SETTINGS')
       .then((data) => {
         setDesktop(data.desktop === true);
         if (!data.config) setSettings(true);
@@ -151,7 +155,7 @@ function Reader() {
       .then((s) => setWordsFile(s.split(/\s+/).filter(Boolean)))
       .catch((e) => setError(e.message));
     return () => {
-      epoch.current++;
+      invalidateRequests();
       active.current = false;
       port.current?.disconnect();
     };
@@ -189,7 +193,6 @@ function Reader() {
         .map((w, i) => ({ ...w, id: `c${i}` })) ?? [],
     [doc, language, common, known, density, frequency],
   );
-  const keyFor = (w: ReadingWord) => JSON.stringify([w.sectionId, w.key, w.context]);
   work.current = candidates;
   function resetAnalysis() {
     epoch.current++;
@@ -328,7 +331,7 @@ function Reader() {
     active.current = true;
     pump();
   }
-  function pump() {
+  const pump = useCallback(function pump() {
     const generation = epoch.current;
     while (active.current && inflight.current < prefs.current.concurrency && book.current) {
       const eligible = work.current
@@ -412,10 +415,10 @@ function Reader() {
           else if (active.current && inflight.current === 0) pump();
         });
     }
-  }
+  }, []);
   useEffect(() => {
     if (reading && wordsFile.length) pump();
-  }, [reading, sectionIndex, wholeBook, candidates, batchSize, concurrency, wordsFile]);
+  }, [reading, sectionIndex, wholeBook, candidates, batchSize, concurrency, wordsFile, pump]);
   const section = doc?.sections[sectionIndex];
   function captureSelection(event: React.SyntheticEvent<HTMLElement>) {
     const selected = window.getSelection();

@@ -246,7 +246,14 @@ chrome.tabs.onRemoved.addListener((id) => {
 });
 // Navigation/scroll tracking may report loading without replacing the document.
 // Content-port disconnection and tab closure own cancellation, not tab status.
-async function handle(msg: any, sender: chrome.runtime.MessageSender) {
+async function handle(
+  msg: Record<string, unknown> & {
+    type: string;
+    tabId: number;
+    style: (typeof explanationStyles)[number];
+  },
+  sender: chrome.runtime.MessageSender,
+) {
   await initialized;
   if (sender.id !== chrome.runtime.id) throw new Error('不允许的消息来源。');
   const isTrusted = trusted(sender);

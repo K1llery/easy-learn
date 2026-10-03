@@ -1,6 +1,7 @@
 import type { AIRequest } from '../core/types';
 import type { AnalysisProgress } from '../core/ai';
 import { rpc } from './rpc';
+type ReadingResult = AnalysisProgress & { missing?: string[]; __warning?: string };
 export const inExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.id;
 export async function analyzeReading(
   request: AIRequest,
@@ -10,13 +11,13 @@ export async function analyzeReading(
 ) {
   if (inExtension) {
     const requestId = crypto.randomUUID();
-    const listener = (msg: any) => {
+    const listener = (msg: AnalysisProgress & { type?: string; requestId?: string }) => {
       if (msg.type === 'AI_PROGRESS' && msg.requestId === requestId && !signal.aborted)
         onProgress(msg);
     };
     port?.onMessage.addListener(listener);
     try {
-      const result = await rpc('AI', { request, requestId });
+      const result = await rpc<ReadingResult>('AI', { request, requestId });
       if (signal.aborted) throw new Error('请求已取消。');
       return result;
     } finally {
@@ -33,7 +34,7 @@ export async function analyzeReading(
   const reader = response.body.getReader(),
     decoder = new TextDecoder();
   let buffer = '',
-    result: any;
+    result: ReadingResult | undefined;
   try {
     while (true) {
       const chunk = await reader.read();

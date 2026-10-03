@@ -25,7 +25,9 @@ function PdfApp() {
   const [error, setError] = useState(''),
     [quizOpen, setQuizOpen] = useState(false),
     [quizCount, setQuizCount] = useState(5);
+  const initialExtraction = useRef({ url, extractFromUrl });
   useEffect(() => {
+    const { url, extractFromUrl } = initialExtraction.current;
     void rpc<{ quizCount?: number }>('PUBLIC_SETTINGS')
       .then((s) => {
         if (typeof s.quizCount === 'number' && s.quizCount >= 2 && s.quizCount <= 8)
