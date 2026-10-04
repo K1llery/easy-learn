@@ -1504,6 +1504,42 @@ test('whole-page quiz scans the page, grades choices in place and reports the sc
   await page.close();
 });
 
+test('whole-page quiz retries wrong and open-book answers without another model request', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article`);
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', { name: '整页测验', exact: true }).click();
+  const dialog = page.getByRole('region', { name: '整页测验' });
+  await expect(dialog.getByText('灾难恢复的主要目的是什么？')).toBeVisible();
+  await dialog.getByRole('radio', { name: '提高写入速度', exact: true }).check();
+  await dialog.getByRole('button', { name: '下一题', exact: true }).click();
+  await dialog.getByText('查看出题原文（本题将记为开卷）', { exact: true }).click();
+  await dialog
+    .getByRole('radio', { name: '单一区域故障时本地副本可能一起不可用', exact: true })
+    .check();
+  await dialog.getByRole('button', { name: '查看成绩', exact: true }).click();
+  const before = calls.length;
+  await dialog.getByRole('button', { name: '重练错题与开卷题 · 2', exact: true }).click();
+  await expect(dialog.getByText('第 1 / 2 题', { exact: true })).toBeVisible();
+  await expect(dialog.locator('.elq-result')).toHaveCount(0);
+  await dialog.getByRole('radio', { name: '在区域故障后从其他区域恢复服务', exact: true }).check();
+  await dialog.getByRole('button', { name: '下一题', exact: true }).click();
+  await dialog
+    .getByRole('radio', { name: '单一区域故障时本地副本可能一起不可用', exact: true })
+    .check();
+  await dialog.getByRole('button', { name: '查看成绩', exact: true }).click();
+  await expect(dialog.locator('.elq-score')).toContainText('2 / 2');
+  await expect(
+    dialog.getByText('首次作答：1 / 2 答对，其中 0 题未查看原文。', { exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /重练错题与开卷题/ })).toHaveCount(0);
+  expect(calls.length).toBe(before);
+  await page.screenshot({ path: 'test-results/quiz-retry.png' });
+  await dialog.getByRole('button', { name: '完成', exact: true }).click();
+  await page.close();
+});
+
 test('PDF companion extracts text, quizzes the whole document and quizzes a single page', async () => {
   const page = await context.newPage();
   await page.goto(

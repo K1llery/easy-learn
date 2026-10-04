@@ -3,7 +3,8 @@
 外语阅读辅助工具，提供 Chrome / Edge 扩展和 Windows / macOS 阅读工作台。保留原文，帮助理解内容、积累生词并练习所学。
 
 - **网页伴读**：生词、术语与命令释义，全文双语翻译，选段解释和测验。
-- **文件阅读**：支持 PDF、EPUB、TXT、Markdown，提供目录导航、PDF 批注和生词本，可导出到 Anki。
+- **文件阅读**：支持 PDF、EPUB、TXT、Markdown，提供目录导航、PDF 批注和生词本；生词可离线回忆、安排复习，并导出到 Anki。
+- **针对薄弱处重练**：整页与 PDF 测验可直接重练错题和开卷题，无需重新请求 AI。
 - **自选 AI 服务**：连接自己的模型 API 或本机模型；导入和阅读文件无需连接 AI。
 
 ## 安装与使用
@@ -28,3 +29,5 @@ pnpm workbench
 工作台地址为 `http://127.0.0.1:4178`；扩展构建位于 `dist/`，可在浏览器中加载。
 
 [模型连接](docs/model-providers.md) · [多语言翻译](docs/multilingual-translation.md) · [项目架构](docs/architecture-guide.md) · [开发与测试](docs/code-quality.md) · [发布安装包](docs/releases.md)
+
+[常见 AI 学习软件对比与改进记录](docs/ai-learning-comparison-2026-10.md)

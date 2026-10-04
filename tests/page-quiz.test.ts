@@ -87,6 +87,27 @@ it('runs a page quiz end to end: request carries count, feedback after answering
   expect(container.querySelector('.elq-miss')?.textContent).toContain('Disaster Recovery');
   await act(async () => {
     [...container.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('重练错题与开卷题'))!
+      .click();
+  });
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('.elq-question')?.textContent).toBe(questions[1].question);
+  expect(container.querySelector('.elq-result')).toBeNull();
+  expect(container.querySelector('.elq-count')?.textContent).toBe('第 1 / 1 题');
+  await act(async () => container.querySelector<HTMLInputElement>('input[value=B]')!.click());
+  await act(async () =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent === '查看成绩')!.click(),
+  );
+  expect(container.querySelector('.elq-score')?.textContent).toContain('1 / 1');
+  expect(container.textContent).toContain('首次作答：1 / 2 答对，其中 1 题未查看原文');
+  expect(container.textContent).toContain('本轮结果不能算作首次独立作答');
+  expect(
+    [...container.querySelectorAll('button')].some((b) =>
+      b.textContent?.includes('重练错题与开卷题'),
+    ),
+  ).toBe(false);
+  await act(async () => {
+    [...container.querySelectorAll('button')]
       .find((b) => b.textContent?.includes('再考一轮'))!
       .click();
   });
@@ -116,6 +137,25 @@ it('counts a correct answer after opening the source as open book', async () => 
     [...container.querySelectorAll('button')].find((b) => b.textContent === '查看成绩')!.click(),
   );
   expect(container.textContent).toContain('0 题独立答对，1 题查看原文后答对');
+  await act(async () =>
+    [...container.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('重练错题与开卷题'))!
+      .click(),
+  );
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('details')?.open).toBe(false);
+  expect(container.querySelector<HTMLInputElement>('input[type=radio]')?.checked).toBe(false);
+  await act(async () => container.querySelector<HTMLInputElement>('input[value=B]')!.click());
+  await act(async () =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent === '查看成绩')!.click(),
+  );
+  await act(async () =>
+    [...container.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('重练错题与开卷题'))!
+      .click(),
+  );
+  expect(container.querySelector('.elq-count')?.textContent).toBe('第 1 / 1 题');
+  expect(rpc).toHaveBeenCalledTimes(1);
   await act(async () => root.unmount());
 });
 

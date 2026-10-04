@@ -417,6 +417,212 @@ test('vocabulary search combines language and status filters and exports all lea
   expect(calls.length).toBe(before);
   await context.close();
 });
+test('vocabulary recall filters due words, hides references, persists progress and retries forgotten words offline', async () => {
+  const { context, page } = await open();
+  const before = calls.length;
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'easy-learn-reader-words-v1',
+      JSON.stringify({
+        'en:ephemeral': {
+          word: 'ephemeral',
+          language: 'en',
+          status: 'learning',
+          meaning: '短暂的',
+          context: 'The ephemeral glow fades.',
+        },
+        'en:provenance': {
+          word: 'provenance',
+          language: 'en',
+          status: 'learning',
+          meaning: '来源',
+          review: { dueAt: Date.now() + 86400000, step: 1, count: 2, lastReviewedAt: Date.now() },
+        },
+        'en:missing': { word: 'missing', language: 'en', status: 'learning' },
+        'en:llm': { word: 'LLM', language: 'en', status: 'known', meaning: '大语言模型' },
+        'fr:lumière': { word: 'lumière', language: 'fr', status: 'learning', meaning: '光线' },
+      }),
+    ),
+  );
+  await page.reload();
+  await page.getByRole('button', { name: '生词本 · 4', exact: true }).click();
+  const vocabulary = page.getByRole('region', { name: '生词本' });
+  await vocabulary.getByRole('combobox', { name: '筛选词汇语言' }).selectOption('en');
+  await expect(
+    vocabulary.getByRole('button', { name: '练习当前筛选 · 2', exact: true }),
+  ).toBeEnabled();
+  await expect(
+    vocabulary.getByText('1 个学习中的词尚无释义，请先编辑补充，再开始回忆。'),
+  ).toBeVisible();
+  await vocabulary.getByRole('button', { name: '回忆到期生词 · 1', exact: true }).click();
+  const review = vocabulary.getByRole('region', { name: '生词回忆' });
+  await expect(review.getByRole('heading', { name: 'ephemeral', exact: true })).toBeVisible();
+  await expect(review.getByText('短暂的', { exact: true })).toHaveCount(0);
+  await expect(review.getByText('The ephemeral glow fades.', { exact: true })).toHaveCount(0);
+  await review.getByRole('button', { name: '显示释义', exact: true }).click();
+  await expect(review.getByText('短暂的', { exact: true })).toBeVisible();
+  await expect(review.getByText('The ephemeral glow fades.', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/vocabulary-review.png' });
+  await review.getByRole('button', { name: '还没想起 · 1 天后', exact: true }).click();
+  await expect(review.getByText('已记录 1 次回忆，1 个词还需练习。')).toBeVisible();
+  await review.getByRole('button', { name: '重练未想起的词 · 1', exact: true }).click();
+  await expect(review.getByText('短暂的', { exact: true })).toHaveCount(0);
+  await review.getByRole('button', { name: '显示释义', exact: true }).click();
+  await review.getByRole('button', { name: '能回忆 · 3 天后', exact: true }).click();
+  await review.getByRole('button', { name: '返回生词本', exact: true }).click();
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 0', exact: true }),
+  ).toBeDisabled();
+  await page.reload();
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('easy-learn-reader-words-v1')!)['en:ephemeral'],
+  );
+  expect(saved.review.count).toBe(2);
+  expect(saved.review.step).toBe(1);
+  expect(saved.review.dueAt - saved.review.lastReviewedAt).toBe(3 * 86400000);
+  expect(saved.status).toBe('learning');
+  expect(saved.context).toBe('The ephemeral glow fades.');
+  expect(calls.length).toBe(before);
+  await context.close();
+});
+
+test('vocabulary meaning and knowledge status can be corrected without AI', async () => {
+  const { context, page } = await open();
+  const before = calls.length;
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'easy-learn-reader-words-v1',
+      JSON.stringify({
+        'en:ephemeral': { word: 'ephemeral', language: 'en', status: 'learning' },
+      }),
+    ),
+  );
+  await page.reload();
+  await page.getByRole('button', { name: '生词本 · 1', exact: true }).click();
+  const vocabulary = page.getByRole('region', { name: '生词本' });
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 0', exact: true }),
+  ).toBeDisabled();
+  await vocabulary.getByRole('button', { name: '编辑 ephemeral 的释义', exact: true }).click();
+  await vocabulary.getByRole('textbox', { name: 'ephemeral 的释义', exact: true }).fill('短暂的');
+  await vocabulary.getByRole('button', { name: '保存释义', exact: true }).click();
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 1', exact: true }),
+  ).toBeEnabled();
+  await vocabulary.getByRole('button', { name: '标为已认识 ephemeral', exact: true }).click();
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 0', exact: true }),
+  ).toBeDisabled();
+  await vocabulary.getByRole('button', { name: '重新学习 ephemeral', exact: true }).click();
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 1', exact: true }),
+  ).toBeEnabled();
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('easy-learn-reader-words-v1')!)['en:ephemeral'],
+  );
+  expect(saved.meaning).toBe('短暂的');
+  expect(saved.status).toBe('learning');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    vocabulary.getByRole('button', { name: '回忆到期生词 · 1', exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/vocabulary-mobile.png' });
+  expect(calls.length).toBe(before);
+  await context.close();
+});
+
+test('vocabulary review skips records changed in another tab and keeps failed saves retryable', async () => {
+  const { context, page } = await open();
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'easy-learn-reader-words-v1',
+      JSON.stringify({
+        'en:ephemeral': {
+          word: 'ephemeral',
+          language: 'en',
+          status: 'learning',
+          meaning: '短暂的',
+        },
+      }),
+    ),
+  );
+  await page.reload();
+  await page.getByRole('button', { name: '生词本 · 1', exact: true }).click();
+  await page.getByRole('button', { name: '回忆到期生词 · 1', exact: true }).click();
+  const review = page.getByRole('region', { name: '生词回忆' });
+  await review.getByRole('button', { name: '显示释义', exact: true }).click();
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'easy-learn-reader-words-v1') throw new Error('模拟存储空间不足');
+      return originalSetItem.call(this, key, value);
+    };
+  });
+  await review.getByRole('button', { name: '能回忆 · 1 天后', exact: true }).click();
+  await expect(review.getByRole('alert')).toContainText('模拟存储空间不足');
+  await expect(review.getByRole('button', { name: '能回忆 · 1 天后', exact: true })).toBeEnabled();
+  const other = await context.newPage();
+  await other.goto(base);
+  await other.evaluate(() => localStorage.setItem('easy-learn-reader-words-v1', '{}'));
+  await expect(review.getByText('这条词汇已更新或移除，本次跳过。')).toBeVisible();
+  await review.getByRole('button', { name: '跳过此词', exact: true }).click();
+  await expect(review.getByText('已记录 0 次回忆，0 个词还需练习。')).toBeVisible();
+  await context.close();
+});
+
+test('recollecting a reviewed legacy word preserves progress without false update conflicts', async () => {
+  const { context, page } = await open();
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'easy-learn-reader-words-v1',
+      JSON.stringify({
+        'en:ephemeral': {
+          word: 'ephemeral',
+          language: 'en',
+          status: 'learning',
+          meaning: '短暂的',
+          review: { dueAt: 0, step: 1, count: 2, lastReviewedAt: 0 },
+        },
+      }),
+    ),
+  );
+  await page.reload();
+  await page
+    .locator('#reader-file')
+    .setInputFiles({ name: 'legacy.txt', mimeType: 'text/plain', buffer: Buffer.from(original) });
+  await page.getByRole('button', { name: '开启伴读', exact: true }).click();
+  const token = page
+    .locator('.reader-word.is-ready')
+    .filter({ hasText: /^ephemeral$/ })
+    .first();
+  await expect(token).toBeVisible();
+  await token.click();
+  await page.getByRole('button', { name: '加入生词本', exact: true }).click();
+  await page.getByRole('button', { name: '生词本 · 1', exact: true }).click();
+  const vocabulary = page.getByRole('region', { name: '生词本' });
+  await vocabulary.getByRole('button', { name: '编辑 ephemeral 的释义', exact: true }).click();
+  await vocabulary
+    .getByRole('textbox', { name: 'ephemeral 的释义', exact: true })
+    .fill('稍纵即逝的');
+  await vocabulary.getByRole('button', { name: '保存释义', exact: true }).click();
+  await expect(vocabulary.getByRole('alert')).toHaveCount(0);
+  await vocabulary.getByRole('button', { name: '回忆到期生词 · 1', exact: true }).click();
+  const review = vocabulary.getByRole('region', { name: '生词回忆' });
+  await review.getByRole('button', { name: '显示释义', exact: true }).click();
+  await review.getByRole('button', { name: '能回忆 · 7 天后', exact: true }).click();
+  await expect(review.getByText('已记录 1 次回忆，0 个词还需练习。')).toBeVisible();
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('easy-learn-reader-words-v1')!)['en:ephemeral'],
+  );
+  expect(saved.review.count).toBe(3);
+  expect(saved.meaning).toBe('稍纵即逝的');
+  expect(saved.context).toContain('ephemeral');
+  await context.close();
+});
+
 test('focus mode preserves native PDF notes, viewer identity and page position through resizing', async () => {
   const { context, page } = await open();
   const before = calls.length;

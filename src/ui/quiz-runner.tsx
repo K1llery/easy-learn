@@ -65,6 +65,13 @@ export function QuizRunner({
     [finished, setFinished] = useState(false);
   const [sourceOpened, setSourceOpened] = useState(false),
     [assistedCorrect, setAssistedCorrect] = useState(0);
+  const [practiceQuestions, setPracticeQuestions] = useState<PageQuiz['questions']>([]);
+  const [retryRound, setRetryRound] = useState(false);
+  const [firstResult, setFirstResult] = useState<{
+    correct: number;
+    total: number;
+    independent: number;
+  } | null>(null);
   const { busy, error, run } = useAction();
   const started = useRef(false);
   const generate = useCallback(() => {
@@ -76,6 +83,9 @@ export function QuizRunner({
     setFinished(false);
     setSourceOpened(false);
     setAssistedCorrect(0);
+    setPracticeQuestions([]);
+    setRetryRound(false);
+    setFirstResult(null);
     void run(
       '正在扫描正文并出题…',
       () =>
@@ -108,6 +118,27 @@ export function QuizRunner({
     if (id !== quiz.questions[index].correctOption)
       setMisses((prev) => [...prev, quiz.questions[index]]);
     else if (sourceOpened) setAssistedCorrect((n) => n + 1);
+    if (id !== quiz.questions[index].correctOption || sourceOpened)
+      setPracticeQuestions((prev) => [...prev, quiz.questions[index]]);
+  }
+  function retryPractice() {
+    if (!quiz || !practiceQuestions.length) return;
+    if (!retryRound)
+      setFirstResult({
+        correct: quiz.questions.length - misses.length,
+        total: quiz.questions.length,
+        independent: quiz.questions.length - misses.length - assistedCorrect,
+      });
+    setQuiz({ questions: practiceQuestions });
+    setRetryRound(true);
+    setPracticeQuestions([]);
+    setIndex(0);
+    setPicked('');
+    setRevealed(false);
+    setMisses([]);
+    setFinished(false);
+    setSourceOpened(false);
+    setAssistedCorrect(0);
   }
   function next() {
     if (!quiz) return;
@@ -132,10 +163,23 @@ export function QuizRunner({
           {quiz ? (finished ? '已完成' : `第 ${index + 1} / ${quiz.questions.length} 题`) : ''}
         </span>
       </div>
-      <h2 className="elq-title">{finished ? '测验完成' : '检验一下理解'}</h2>
+      <h2 className="elq-title">
+        {retryRound
+          ? finished
+            ? '重练完成'
+            : '再练未独立答对的题'
+          : finished
+            ? '测验完成'
+            : '检验一下理解'}
+      </h2>
       <p className="elq-hint">
         {hint ?? '先凭记忆作答；答题后再核对原文。题目由 AI 生成，请检查依据。'}
       </p>
+      {retryRound && (
+        <p className="elq-hint">
+          使用已有题目重练，不调用 AI。你已看过答案，本轮结果不能算作首次独立作答。
+        </p>
+      )}
       {onClose && !finished && (
         <div className="elq-actions" style={{ marginTop: '-8px', marginBottom: '4px' }}>
           <button className="elq-button" onClick={onClose}>
@@ -237,8 +281,17 @@ export function QuizRunner({
           </p>
           <p>
             其中 {quiz.questions.length - misses.length - assistedCorrect} 题独立答对，
-            {assistedCorrect} 题查看原文后答对。选择题成绩只能提示哪些地方值得再练。
+            {assistedCorrect} 题查看原文后答对。
+            {retryRound
+              ? '这里的“独立”只表示本轮未打开原文。'
+              : '选择题成绩只能提示哪些地方值得再练。'}
           </p>
+          {firstResult && (
+            <p>
+              首次作答：{firstResult.correct} / {firstResult.total} 答对，其中{' '}
+              {firstResult.independent} 题未查看原文。
+            </p>
+          )}
           {misses.length === 0 ? (
             <p>可以试着不用选项，自己解释一个关键概念。</p>
           ) : (
@@ -274,8 +327,13 @@ export function QuizRunner({
             </>
           )}
           <div className="elq-actions">
+            {practiceQuestions.length > 0 && (
+              <button className="elq-button primary" onClick={retryPractice}>
+                重练错题与开卷题 · {practiceQuestions.length}
+              </button>
+            )}
             <button className="elq-button" onClick={generate}>
-              再考一轮 ↻
+              再考一轮 ↻（AI 重新出题）
             </button>
             {onClose && (
               <button className="elq-button primary" onClick={onClose}>

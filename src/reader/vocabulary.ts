@@ -1,5 +1,7 @@
 import type { Candidate, Concept } from '../core/types';
 import type { ReadingSection } from './document';
+import { z } from 'zod';
+import { REVIEW_DAYS } from '../core/learning';
 import {
   findAbbreviations,
   isOutsideCommonVocabulary,
@@ -14,7 +16,88 @@ export type WordRecord = {
   summary?: string;
   expansion?: string;
   ambiguity?: string;
+  context?: string;
+  review?: { dueAt: number; step: number; count: number; lastReviewedAt: number };
 };
+export const WORD_STORE = 'easy-learn-reader-words-v1';
+const reviewTimestamp = z.number().int().nonnegative().max(8_640_000_000_000_000);
+const wordRecordSchema = z.object({
+  word: z.string().min(1).max(60),
+  language: z.string().min(1).max(100),
+  status: z.enum(['learning', 'known']),
+  meaning: z.string().max(300).optional(),
+  summary: z.string().max(1200).optional(),
+  expansion: z.string().max(300).optional(),
+  ambiguity: z.string().max(1500).optional(),
+  context: z.string().max(420).optional(),
+});
+const wordReviewSchema = z.object({
+  dueAt: reviewTimestamp,
+  step: z
+    .number()
+    .int()
+    .min(0)
+    .max(REVIEW_DAYS.length - 1),
+  count: z.number().int().nonnegative(),
+  lastReviewedAt: reviewTimestamp,
+});
+export function readVocabularyRecords(value: unknown): Record<string, WordRecord> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .flatMap(([key, input]) => {
+        const parsed = wordRecordSchema.safeParse(input);
+        if (key.length >= 100 || !parsed.success) return [];
+        const review = wordReviewSchema.safeParse((input as WordRecord).review);
+        return [[key, { ...parsed.data, ...(review.success ? { review: review.data } : {}) }]];
+      })
+      .slice(0, 5000),
+  );
+}
+export function hasWordReference(word: WordRecord) {
+  return !![word.meaning, word.summary, word.expansion].some((value) => value?.trim());
+}
+export function vocabularyDueAt(word: WordRecord) {
+  return word.review?.dueAt ?? 0;
+}
+export function sameVocabularyRecord(left: WordRecord | undefined, right: WordRecord | undefined) {
+  if (!left || !right) return left === right;
+  const fields = [
+    'word',
+    'language',
+    'status',
+    'meaning',
+    'summary',
+    'expansion',
+    'ambiguity',
+    'context',
+  ] as const;
+  const reviewFields = ['dueAt', 'step', 'count', 'lastReviewedAt'] as const;
+  return (
+    fields.every((field) => left[field] === right[field]) &&
+    !!left.review === !!right.review &&
+    reviewFields.every((field) => left.review?.[field] === right.review?.[field])
+  );
+}
+export function reviewVocabularyWord(
+  word: WordRecord,
+  rating: 'again' | 'remembered',
+  now = Date.now(),
+): WordRecord {
+  if (word.status !== 'learning' || !hasWordReference(word))
+    throw new Error('请先补充释义，并将词汇设为学习中。');
+  const step =
+    rating === 'again' ? 0 : Math.min((word.review?.step ?? -1) + 1, REVIEW_DAYS.length - 1);
+  return {
+    ...word,
+    review: {
+      dueAt: now + REVIEW_DAYS[step] * 86400000,
+      step,
+      count: (word.review?.count ?? 0) + 1,
+      lastReviewedAt: now,
+    },
+  };
+}
 export type ReadingWord = Candidate & {
   start: number;
   end: number;
@@ -121,14 +204,17 @@ export function recordWord(
   language: string,
   status: WordStatus,
   concept?: Concept,
+  previous?: WordRecord,
 ): WordRecord {
   return {
+    ...previous,
     word: word.anchor,
     language,
     status,
-    meaning: concept?.meaning,
-    summary: concept?.summary,
-    expansion: concept?.expansion,
-    ambiguity: concept?.ambiguity,
+    meaning: concept?.meaning ?? previous?.meaning,
+    summary: concept?.summary ?? previous?.summary,
+    expansion: concept?.expansion ?? previous?.expansion,
+    ambiguity: concept?.ambiguity ?? previous?.ambiguity,
+    context: word.context,
   };
 }

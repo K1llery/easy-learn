@@ -12,9 +12,12 @@ import { connectSurface } from '../core/connection';
 import { textDocument, type ReadingDocument } from '../reader/document';
 import {
   exportVocabulary,
+  readVocabularyRecords,
   recordWord,
+  sameVocabularyRecord,
   scanVocabulary,
   wordOccurrences,
+  WORD_STORE,
   type ReadingWord,
   type WordRecord,
 } from '../reader/vocabulary';
@@ -28,27 +31,9 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { rpc, type SettingsResponse, type PublicSettings } from './rpc';
 import './style.css';
 import './reader.css';
-const WORD_STORE = 'easy-learn-reader-words-v1';
 function storedWords(): Record<string, WordRecord> {
   try {
-    const data = JSON.parse(localStorage.getItem(WORD_STORE) ?? '{}');
-    return Object.fromEntries(
-      Object.entries(data).filter(([key, v]) => {
-        const r = v as WordRecord;
-        return (
-          key.length < 100 &&
-          r &&
-          typeof r.word === 'string' &&
-          r.word.length <= 60 &&
-          typeof r.language === 'string' &&
-          ['known', 'learning'].includes(r.status) &&
-          (!r.meaning || (typeof r.meaning === 'string' && r.meaning.length <= 300)) &&
-          (!r.summary || (typeof r.summary === 'string' && r.summary.length <= 1200)) &&
-          (!r.expansion || (typeof r.expansion === 'string' && r.expansion.length <= 300)) &&
-          (!r.ambiguity || (typeof r.ambiguity === 'string' && r.ambiguity.length <= 1500))
-        );
-      }),
-    ) as Record<string, WordRecord>;
+    return readVocabularyRecords(JSON.parse(localStorage.getItem(WORD_STORE) ?? '{}'));
   } catch {
     return {};
   }
@@ -178,6 +163,14 @@ function Reader() {
     },
     [pdf],
   );
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.storageArea === localStorage && (event.key === WORD_STORE || event.key === null))
+        setRecords(storedWords());
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, []);
   const common = useMemo(() => new Set(wordsFile.slice(0, baseline)), [wordsFile, baseline]);
   const frequency = useMemo(() => new Map(wordsFile.map((w, i) => [w, i + 1])), [wordsFile]);
   const known = useMemo(
@@ -518,8 +511,12 @@ function Reader() {
     [section, visibleWords, language],
   );
   function saveWord(w: ReadingWord, status: 'known' | 'learning') {
-    const next = { ...records, [w.key]: recordWord(w, language, status, concepts[keyFor(w)]) };
     try {
+      const latest = storedWords();
+      const next = {
+        ...latest,
+        [w.key]: recordWord(w, language, status, concepts[keyFor(w)], latest[w.key]),
+      };
       if (Object.keys(next).length > 5000)
         throw new Error('词汇记录达到 5000 条，请导出并清理后继续。');
       localStorage.setItem(WORD_STORE, JSON.stringify(next));
@@ -529,9 +526,18 @@ function Reader() {
       setError((e as Error).message);
     }
   }
+  function updateWord(key: string, expected: WordRecord, next: WordRecord) {
+    const latest = storedWords();
+    if (!sameVocabularyRecord(latest[key], expected)) {
+      setRecords(latest);
+      throw new Error('这条词汇已在另一处更新或删除，请重新打开后再试。');
+    }
+    localStorage.setItem(WORD_STORE, JSON.stringify({ ...latest, [key]: next }));
+    setRecords({ ...latest, [key]: next });
+  }
   function removeWord(key: string) {
     try {
-      const next = { ...records };
+      const next = storedWords();
       delete next[key];
       localStorage.setItem(WORD_STORE, JSON.stringify(next));
       setRecords(next);
@@ -702,6 +708,7 @@ function Reader() {
           records={records}
           onRemove={removeWord}
           onExport={exportWords}
+          onUpdate={updateWord}
           onClose={() => setVocabOpen(false)}
         />
       )}

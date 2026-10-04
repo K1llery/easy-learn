@@ -6,6 +6,7 @@ import {
 import { TranslationLanguageSelect } from './translation-language';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Explanation, TextContext } from '../core/types';
+import { findSourceEvidence } from '../core/source-evidence';
 import { QuickQuiz } from './quick-quiz';
 import { useAction } from './use-action';
 import { rpc } from './rpc';
@@ -25,6 +26,7 @@ export function ReaderStudy({
   const [targetLanguage, setTargetLanguage] = useState(initialTargetLanguage);
   const [result, setResult] = useState<Explanation | null>(null);
   const { busy, error, run } = useAction();
+  const evidence = result && findSourceEvidence(context.text, result.evidence);
   function request() {
     void run(
       mode === 'translate' ? '正在翻译选段…' : '正在解释选段…',
@@ -97,7 +99,14 @@ export function ReaderStudy({
                 <h3>{result.meaning}</h3>
                 {result.expansion && <p lang="en">{result.expansion}</p>}
                 <p className="reader-study-result">{result.explanation}</p>
-                {result.evidence && <blockquote>{result.evidence}</blockquote>}
+                {evidence ? (
+                  <>
+                    <blockquote>{evidence.text}</blockquote>
+                    <p className="reader-hint">已在选段中找到引文，仍需判断它是否支持解释。</p>
+                  </>
+                ) : (
+                  <p className="notice">这段解释没有可核对的原文引文，请展开选段原文自行检查。</p>
+                )}
                 {result.ambiguity && <p className="notice">{result.ambiguity}</p>}
                 {result.example && <p>{result.example}</p>}
                 {result.prerequisites.map((item, i) => (
