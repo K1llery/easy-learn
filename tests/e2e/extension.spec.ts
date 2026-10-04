@@ -207,6 +207,14 @@ async function inject(page: Page) {
     );
     if (!tab) throw new Error('Fixture tab missing');
     await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ['content.js'] });
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id! },
+      func: () => {
+        (
+          globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }
+        ).__easyLearn?.toggle();
+      },
+    });
   }, page.url());
 }
 async function highlightedRanges(page: Page) {
@@ -312,10 +320,6 @@ test.beforeAll(async () => {
   temp = await mkdtemp(path.resolve('.cache/e2e-'));
   const extension = path.join(temp, 'extension');
   await cp('dist', extension, { recursive: true });
-  const manifest = JSON.parse(await readFile(path.join(extension, 'manifest.json'), 'utf8'));
-  // Fixture-only host grant lets tests trigger injection without automating browser toolbar UI.
-  manifest.host_permissions = ['http://127.0.0.1/*'];
-  await writeFile(path.join(extension, 'manifest.json'), JSON.stringify(manifest));
   context = await chromium.launchPersistentContext(path.join(temp, 'profile'), {
     channel: 'chromium',
     executablePath: process.env.EASY_LEARN_CHROMIUM,
@@ -392,6 +396,48 @@ test.afterAll(async () => {
   if (temp) await rm(temp, { recursive: true, force: true });
 });
 
+test('all-site permissions mount the launcher and clicking scans vocabulary throughout the page', async () => {
+  const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
+  expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
+  expect(manifest.content_scripts[0].matches).toEqual(manifest.host_permissions);
+  const page = await context.newPage();
+  const start = calls.length;
+  await page.goto(`${base}/launcher`);
+  await expect(page.getByRole('button', { name: '开启全文生词翻译', exact: true })).toBeVisible();
+  expect(calls.length).toBe(start);
+  await page.evaluate(() => {
+    document.body.innerHTML =
+      '<article><p>The transient scheduler reroutes requests.</p><div style="height:2400px"></div><p>An idempotent operation can repeat safely.</p></article>';
+  });
+  const original = await page.locator('article').innerHTML();
+  await page.getByRole('button', { name: '开启全文生词翻译', exact: true }).click();
+  await expect
+    .poll(() =>
+      calls
+        .slice(start)
+        .flatMap((call) => call.candidates ?? [])
+        .filter((candidate) => candidate.kind === 'vocabulary')
+        .map((candidate) => candidate.anchor),
+    )
+    .toEqual(expect.arrayContaining(['transient', 'idempotent']));
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', { name: '阅读注释', exact: true }).hover();
+  await expect(page.getByText('解释偏好', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '跳转到扩展设置', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/extension-launcher.png', caret: 'initial' });
+  await page.getByRole('button', { name: '关闭全文生词翻译', exact: true }).click();
+  await expect(page.getByRole('button', { name: '开启全文生词翻译', exact: true })).toBeVisible();
+  expect(await page.locator('article').innerHTML()).toBe(original);
+  await page.getByRole('button', { name: '开启全文生词翻译', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.close();
+  const options = await context.newPage();
+  await options.goto(`chrome-extension://${id}/options.html`);
+  await expect(options.getByText('解释偏好（高级）', { exact: true })).toHaveCount(0);
+  await expect(options.getByLabel('学习领域')).toHaveCount(0);
+  await options.close();
+});
+
 test('complete reading, translation, followup and hiding flow in a real extension', async () => {
   const settings = await context.newPage();
   await settings.goto(`chrome-extension://${id}/options.html`);
@@ -451,6 +497,12 @@ test('complete reading, translation, followup and hiding flow in a real extensio
   await expect(panel.getByRole('heading', { name: '灾难恢复', exact: true })).toBeVisible();
   await panel.getByRole('button', { name: '翻译这一段', exact: true }).press('Enter');
   await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
+  await panel.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('en');
+  await expect(panel.getByLabel('段落翻译')).toContainText('en：');
+  await panel.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('ja');
+  await expect(panel.getByLabel('段落翻译')).toContainText('ja：');
+  await panel.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('zh-CN');
+  await expect(panel.getByLabel('段落翻译')).toContainText('不要关闭复制。至少保留 3 个副本');
   await expect(panel.getByRole('button', { name: '检查理解' })).toHaveCount(0);
   await panel.getByLabel('还有哪里没弄明白？').fill('它和普通备份有什么区别？');
   /* Exercise keyboard submission: Chromium's synthetic pointer can hit the outer iframe after inner scrolling. */ await panel
@@ -476,7 +528,8 @@ test('complete reading, translation, followup and hiding flow in a real extensio
   await page.locator('a').click();
   expect(page.url()).toContain('#next');
   await inject(page);
-  await expect(page.locator('[data-easy-learn]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '开启全文生词翻译', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '阅读注释', exact: true })).toBeHidden();
   expect(await page.locator('article').innerHTML()).toBe(original);
   await page.close();
   await settings.close();
@@ -1414,7 +1467,7 @@ test('offline review hides references until an attempt, records practice, export
   const panel = await context.newPage();
   await panel.setViewportSize({ width: 380, height: 1000 });
   await panel.goto(`chrome-extension://${id}/panel.html?view=review`);
-  await expect(panel.getByText('先练会一个小知识点', { exact: true })).toBeVisible();
+  await expect(panel.getByText('暂无保存的练习', { exact: true })).toBeVisible();
   await seedPractice(panel);
   await panel.evaluate(() => chrome.runtime.sendMessage({ type: 'SET_LOCAL_ONLY', enabled: true }));
   const start = calls.length;
@@ -1451,7 +1504,7 @@ test('offline review hides references until an attempt, records practice, export
   await panel.screenshot({ path: 'test-results/learning-review.png', fullPage: true });
   panel.once('dialog', (dialog) => dialog.accept());
   await panel.getByRole('button', { name: '删除练习：为什么需要异地副本？', exact: true }).click();
-  await expect(panel.getByText('先练会一个小知识点', { exact: true })).toBeVisible();
+  await expect(panel.getByText('暂无保存的练习', { exact: true })).toBeVisible();
   expect(calls.length).toBe(start);
   await panel.close();
 });

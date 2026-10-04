@@ -77,11 +77,8 @@ export function Practice({
   return (
     <section className="practice" aria-label="主动练习">
       <div className="practice-heading">
-        <span className="eyebrow">主动练习</span>
-        <h2>读懂之后，让自己说一遍。</h2>
-        <p className="muted">
-          先回忆，再对照，最后把它用在一个小场景里。原文和解释已收起，可随时返回阅读。
-        </p>
+        <h2>选段练习</h2>
+        <p className="muted">先回答问题，再查看反馈。原文和解释已收起，可随时返回阅读。</p>
       </div>
       <ol className="learning-steps" aria-label="练习步骤">
         <li className={!quiz ? 'current' : ''}>定目标</li>

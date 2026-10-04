@@ -27,7 +27,7 @@ export function ReaderStudy({
   const [result, setResult] = useState<Explanation | null>(null);
   const { busy, error, run } = useAction();
   const evidence = result && findSourceEvidence(context.text, result.evidence);
-  function request() {
+  function request(language = targetLanguage) {
     void run(
       mode === 'translate' ? '正在翻译选段…' : '正在解释选段…',
       () =>
@@ -36,7 +36,7 @@ export function ReaderStudy({
             operation: 'explain',
             mode,
             context,
-            ...(mode === 'translate' ? { targetLanguage } : {}),
+            ...(mode === 'translate' ? { targetLanguage: language } : {}),
           },
         }),
       setResult,
@@ -63,9 +63,10 @@ export function ReaderStudy({
             onChange={(language) => {
               setTargetLanguage(language);
               setResult(null);
+              request(language);
             }}
           />
-          <button disabled={!!busy} onClick={request}>
+          <button disabled={!!busy} onClick={() => request()}>
             翻译 / Translate
           </button>
         </>
@@ -82,7 +83,7 @@ export function ReaderStudy({
           {error && (
             <div role="alert">
               <p>{error}</p>
-              <button onClick={request}>重试</button>
+              <button onClick={() => request()}>重试</button>
             </div>
           )}
           {result &&

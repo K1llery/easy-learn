@@ -53,7 +53,7 @@ function Popup() {
       <p className="muted">
         {error
           ? '浏览器暂不允许在此页面注入。文本型 PDF 可以在 Easy Learn 的阅读页中提取文字学习；扫描版 PDF 请打开粘贴面板。'
-          : '完成后此窗口会自动关闭；页面右下角浮窗可调整设置。'}
+          : '完成后此窗口会自动关闭；点击网页右侧悬浮球可开启或关闭生词翻译。'}
       </p>
       <div className="actions">
         <button

@@ -1486,13 +1486,9 @@ test('workbench saves a translation default, supports local overrides and separa
   await expect(study.locator('.reader-study-result')).toHaveAttribute('lang', 'ko');
   expect(JSON.parse(calls.at(-1)!.messages[1].content).targetLanguage).toBe('ko');
   await study.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('en');
-  await expect(study.locator('.reader-study-result')).toHaveCount(0);
-  expect(calls.length - before).toBe(1);
-  await study.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
   await expect(study.locator('.reader-study-result')).toContainText('en：');
   expect(calls.length - before).toBe(2);
   await study.getByRole('combobox', { name: '译文语言 / Translate to' }).selectOption('ko');
-  await study.getByRole('button', { name: '翻译 / Translate', exact: true }).click();
   await expect(study.locator('.reader-study-result')).toContainText('ko：');
   expect(calls.length - before).toBe(2);
   await context.close();

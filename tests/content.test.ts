@@ -68,9 +68,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   (
-    globalThis as typeof globalThis & { __easyLearn?: { toggle: () => void } }
-  ).__easyLearn?.toggle();
-  delete (globalThis as typeof globalThis & { __easyLearn?: { toggle: () => void } }).__easyLearn;
+    globalThis as typeof globalThis & { __easyLearn?: { dispose: () => void } }
+  ).__easyLearn?.dispose();
+  delete (globalThis as typeof globalThis & { __easyLearn?: { dispose: () => void } }).__easyLearn;
   document.body.replaceChildren();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -78,10 +78,106 @@ afterEach(() => {
 function hover() {
   document.dispatchEvent(new MouseEvent('mousemove', { clientX: 25, clientY: 60, bubbles: true }));
 }
+it('mounts an idle launcher once and enables vocabulary when clicked', async () => {
+  document.body.innerHTML = '<article><p>The transient scheduler reroutes requests.</p></article>';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('the\nrequests')),
+  );
+  request.mockImplementation(async (msg: { type: string }) =>
+    msg.type === 'PUBLIC_SETTINGS'
+      ? {
+          ok: true,
+          data: {
+            profile: { domain: '软件开发', level: '入门' },
+            mastered: [],
+            annotationTypes: ['abbreviation'],
+          },
+        }
+      : { ok: true, data: { concepts: [] } },
+  );
+  await import('../src/content/index');
+  const shadow = document.querySelector('div[data-easy-learn]')!.shadowRoot!;
+  expect(shadow.querySelector<HTMLButtonElement>('.launcher')!.getAttribute('aria-pressed')).toBe(
+    'false',
+  );
+  await vi.advanceTimersByTimeAsync(300);
+  expect(request).not.toHaveBeenCalled();
+  vi.resetModules();
+  await import('../src/content/index');
+  expect(document.querySelectorAll('div[data-easy-learn]')).toHaveLength(1);
+  shadow.querySelector<HTMLButtonElement>('.launcher')!.click();
+  await vi.advanceTimersByTimeAsync(300);
+  expect(shadow.querySelector<HTMLButtonElement>('.launcher')!.getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  expect(
+    request.mock.calls.some(
+      ([message]) =>
+        message.type === 'AI' &&
+        message.request.candidates.some(
+          (candidate: { kind: string }) => candidate.kind === 'vocabulary',
+        ),
+    ),
+  ).toBe(true);
+  shadow.querySelector<HTMLButtonElement>('.launcher')!.click();
+  expect(document.querySelectorAll('div[data-easy-learn]')).toHaveLength(1);
+  expect(
+    document
+      .querySelector('div[data-easy-learn]')!
+      .shadowRoot!.querySelector<HTMLButtonElement>('.launcher')!
+      .getAttribute('aria-pressed'),
+  ).toBe('false');
+});
+it('waits for settings before scanning and ignores a stopped session settings response', async () => {
+  const pending: ((value: unknown) => void)[] = [];
+  request.mockImplementation((msg: { type: string }) =>
+    msg.type === 'PUBLIC_SETTINGS'
+      ? new Promise((resolve) => pending.push(resolve))
+      : Promise.resolve({ ok: true, data: { concepts: [] } }),
+  );
+  document.body.innerHTML =
+    '<article><p>DR recovers services after regional failure.</p></article>';
+  await import('../src/content/index');
+  const controls = (globalThis as typeof globalThis & { __easyLearn: { toggle(): void } })
+    .__easyLearn;
+  controls.toggle();
+  window.dispatchEvent(new Event('scroll'));
+  await vi.advanceTimersByTimeAsync(300);
+  expect(request.mock.calls.filter(([message]) => message.type === 'AI')).toHaveLength(0);
+  controls.toggle();
+  controls.toggle();
+  await vi.advanceTimersByTimeAsync(300);
+  pending[1]({
+    ok: true,
+    data: {
+      profile: { domain: '软件开发', level: '入门' },
+      mastered: [],
+      annotationTypes: ['command'],
+    },
+  });
+  await vi.advanceTimersByTimeAsync(300);
+  pending[0]({
+    ok: true,
+    data: {
+      profile: { domain: '旧领域', level: '入门' },
+      mastered: [],
+      annotationTypes: ['abbreviation'],
+    },
+  });
+  window.dispatchEvent(new Event('scroll'));
+  await vi.advanceTimersByTimeAsync(300);
+  expect(request.mock.calls.filter(([message]) => message.type === 'AI')).toHaveLength(0);
+  const input = document
+    .querySelector('div[data-easy-learn]')!
+    .shadowRoot!.querySelector<HTMLInputElement>('input[aria-label="英文缩写"]');
+  expect(input?.checked).toBe(false);
+});
 it('renders locally preloaded command tokens immediately on hover without a model call', async () => {
   document.body.innerHTML =
     '<article><h1>Install</h1><pre><code>uv init awesome-project --bare</code></pre></article>';
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   const calls = request.mock.calls.length;
   hover();
@@ -100,6 +196,7 @@ it('preloads explanations before marking and hover never requests them again', a
   document.body.innerHTML =
     '<article><h1>Interfaces</h1><p>An API connects independent applications through a contract.</p></article>';
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   const count = request.mock.calls.length;
   hover();
@@ -124,6 +221,7 @@ it('shows the specific command option under the pointer and preserves source cod
     '<article><pre><code>uv init awesome-project --bare</code></pre></article>';
   const original = document.querySelector('pre')!.innerHTML;
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   const count = request.mock.calls.length;
   document.dispatchEvent(
@@ -178,6 +276,7 @@ it('preloads code-line fragments and serves them on hover without another reques
   );
   document.body.innerHTML = '<article><pre><code>app = FastAPI()</code></pre></article>';
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   const count = request.mock.calls.length;
   document.dispatchEvent(new MouseEvent('mousemove', { clientX: 50, clientY: 60, bubbles: true }));
@@ -192,6 +291,7 @@ it('leaves code disabled by default while still explaining shell commands', asyn
   document.body.innerHTML =
     '<article><pre><code>app = FastAPI()\n# Create the project\nuv init example --bare</code></pre></article>';
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   expect(request.mock.calls.filter(([m]) => m.type === 'AI')).toHaveLength(0);
   const root = document.querySelector('div[data-easy-learn]')!.shadowRoot!;
@@ -206,6 +306,7 @@ it('emphasizes only the first repeated occurrence and keeps later occurrences qu
   document.body.innerHTML =
     '<article><h1>HTTP API guide</h1><p>An API links one service to another API.</p></article>';
   await import('../src/content/index');
+  (globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } }).__easyLearn?.toggle();
   await vi.advanceTimersByTimeAsync(300);
   const registry = (CSS as unknown as { highlights: Map<string, { ranges: Range[] }> }).highlights;
   const primary = registry.get('easy-learn-test-primary'),

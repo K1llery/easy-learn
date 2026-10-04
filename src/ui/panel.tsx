@@ -45,6 +45,11 @@ function Panel() {
     [paste, setPaste] = useState('');
   const [explanation, setExplanation] = useState<Explanation | null>(null),
     [translation, setTranslation] = useState('');
+  const [translationRequest, setTranslationRequest] = useState<{
+    context: TextContext;
+    concept?: Concept;
+  } | null>(null);
+  const [translationVersion, setTranslationVersion] = useState(0);
   const [history, setHistory] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]),
     [followup, setFollowup] = useState(''),
     [mastered, setMastered] = useState<Mastered | null>(null);
@@ -63,6 +68,9 @@ function Panel() {
     setExpanded(false);
     setExplanation(null);
     setTranslation('');
+    setTranslationRequest(
+      next?.mode === 'translate' ? { context: next.context, concept: next.concept } : null,
+    );
     setHistory([]);
     setMastered(null);
     setError('');
@@ -162,41 +170,40 @@ function Panel() {
       ...(extras.mode === 'translate' ? { targetLanguage } : {}),
     };
   }
-  const automaticTarget =
-    payload?.mode === 'translate' ? (languageReady ? targetLanguage : null) : undefined;
-  useEffect(() => {
-    setTranslation('');
-  }, [targetLanguage]);
   useEffect(() => {
     if (
-      automaticTarget === null ||
       !payload ||
+      payload.mode === 'translate' ||
       payload.mode === 'practice' ||
       payload.mode === 'quiz'
     )
       return;
-    const translating = payload.mode === 'translate';
-    const label = translating ? '正在翻译所选文字…' : '正在结合上下文解释…';
     void run<Explanation>(
-      label,
+      '正在结合上下文解释…',
       {
         operation: 'explain',
         context: payload.context,
         concept: payload.concept,
         mode: payload.mode,
-        ...(translating ? { targetLanguage: automaticTarget! } : {}),
       },
-      (data) => {
-        if (translating) {
-          setTranslation(data.translation || data.explanation);
-          setExplanation(null);
-        } else {
-          setExplanation(data);
-          if (data.translation) setTranslation(data.translation);
-        }
-      },
+      setExplanation,
     );
-  }, [payload, automaticTarget, run]);
+  }, [payload, run]);
+  useEffect(() => {
+    if (!translationRequest || !languageReady) return;
+    setTranslation('');
+    void run<Explanation>(
+      '正在翻译所选文字…',
+      {
+        operation: 'explain',
+        mode: 'translate',
+        context: translationRequest.context,
+        concept: translationRequest.concept,
+        targetLanguage,
+      },
+      (data) => setTranslation(data.translation || data.explanation),
+    );
+  }, [translationRequest, translationVersion, targetLanguage, languageReady, run]);
   function pasteText(mode: 'explain' | 'translate' | 'practice' | 'quiz') {
     const context = {
       title: '粘贴文本',
@@ -242,9 +249,7 @@ function Panel() {
       <header className="topbar">
         <div className="brand">
           <span className="brandmark">E</span>
-          <div>
-            Easy Learn<div className="muted">读懂，再学会</div>
-          </div>
+          <div>Easy Learn</div>
         </div>
         <div>
           <button className="quiet" title="设置" onClick={() => void rpc('OPEN_OPTIONS')}>
@@ -285,12 +290,7 @@ function Panel() {
           {!payload ? (
             <>
               <div className="intro">
-                <div className="eyebrow">阅读 · 理解 · 练习</div>
-                <h1>
-                  从不懂的地方，
-                  <br />
-                  再往前一步。
-                </h1>
+                <h1>选段学习</h1>
                 <p>
                   {isSidePanelSurface
                     ? '在网页或 PDF 中选中文字，右键选择 Easy Learn，即可解释或翻译。也可以粘贴一段文字。'
@@ -298,7 +298,6 @@ function Panel() {
                 </p>
               </div>
               <div className="card">
-                <span className="tag">也可以从一段文字开始</span>
                 <label htmlFor="paste">粘贴想理解的内容</label>
                 <textarea
                   id="paste"
@@ -338,7 +337,6 @@ function Panel() {
           ) : (
             <>
               <div className="row">
-                <span className="eyebrow">READ & UNDERSTAND</span>
                 <button className="quiet" onClick={() => reset(null)}>
                   新文本
                 </button>
@@ -430,13 +428,13 @@ function Panel() {
                 <div className="actions">
                   <button
                     disabled={!!busy || !languageReady}
-                    onClick={() =>
-                      void run<Explanation>(
-                        '正在翻译原文…',
-                        request('explain', { mode: 'translate' }),
-                        (data) => setTranslation(data.translation || data.explanation),
-                      )
-                    }
+                    onClick={() => {
+                      setTranslationRequest({
+                        context: expanded ? payload.expandedContext : payload.context,
+                        concept: payload.concept,
+                      });
+                      setTranslationVersion((version) => version + 1);
+                    }}
                   >
                     翻译这一段
                   </button>
@@ -562,7 +560,6 @@ function Panel() {
         <div hidden={view !== 'review'}>
           <ReviewDesk active={view === 'review'} onRead={() => setView('reading')} />
         </div>
-        <div className="footer">保留好奇，也保留判断 · AI 的解释可能有误</div>
       </main>
     </>
   );

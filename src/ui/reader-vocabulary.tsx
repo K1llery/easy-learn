@@ -138,7 +138,7 @@ export function ReaderVocabulary({
           </div>
           <p className="reader-hint">导出全部学习中的词汇，不受筛选影响；不含密钥和整篇原文。</p>
           <div className="card">
-            <h3>把收藏的词，再想起一次</h3>
+            <h3>生词复习</h3>
             <div className="actions">
               <button className="primary" disabled={!due.length} onClick={() => setSession(due)}>
                 回忆到期生词 · {due.length}

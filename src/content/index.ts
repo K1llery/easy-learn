@@ -47,9 +47,10 @@ type Payload = {
   concept?: Concept;
   mode: 'explain' | 'translate' | 'quiz';
 };
-const state = globalThis as typeof globalThis & { __easyLearn?: { toggle(): void } };
-if (state.__easyLearn) state.__easyLearn.toggle();
-else {
+const state = globalThis as typeof globalThis & {
+  __easyLearn?: { toggle(vocabulary?: boolean): void; dispose(): void };
+};
+if (!state.__easyLearn) {
   let dirty = true;
   let active = false,
     generation = 0,
@@ -64,6 +65,7 @@ else {
     dock: HTMLDivElement,
     statusNode: HTMLButtonElement,
     quizNode: HTMLButtonElement,
+    launcher: HTMLButtonElement,
     tools: HTMLDivElement,
     diagnostic: HTMLParagraphElement;
   let tip: HTMLDivElement, selectionButton: HTMLDivElement, frame: HTMLIFrameElement | undefined;
@@ -94,7 +96,10 @@ else {
     concurrency = defaultConcurrency,
     vocabularyBaseline = 10000,
     vocabularyPerBlock = 1;
-  let codeToggle: HTMLInputElement, domainInput: HTMLInputElement, levelSelect: HTMLSelectElement;
+  let codeToggle: HTMLInputElement;
+  let settingsVersion = 0,
+    settingsReady = false,
+    launcherVocabulary = false;
   const typeToggles = new Map<AnnotationType, HTMLInputElement>();
   type Work = {
     candidate: Candidate;
@@ -142,17 +147,19 @@ else {
     const phase =
       settingsError || networkPaused
         ? '已暂停，查看详情'
-        : localOnly
-          ? '离线模式 · 仅显示已准备的本地释义'
-          : dirty
-            ? '正在扫描正文'
-            : userPaused
-              ? '已暂停'
-              : pendingProgress.size > 0 || works.some((w) => w.state === 'loading')
-                ? '正在生成解释'
-                : remaining
-                  ? '正在准备整页注释'
-                  : '当前内容已处理';
+        : !settingsReady
+          ? '正在读取设置'
+          : localOnly
+            ? '离线模式 · 仅显示已准备的本地释义'
+            : dirty
+              ? '正在扫描正文'
+              : userPaused
+                ? '已暂停'
+                : pendingProgress.size > 0 || works.some((w) => w.state === 'loading')
+                  ? '正在生成解释'
+                  : remaining
+                    ? '正在准备整页注释'
+                    : '当前内容已处理';
     statusNode.textContent = '阅读注释';
     const rects = new Map<HTMLElement, DOMRect>();
     const visible = [
@@ -371,6 +378,8 @@ else {
     }
   }
   async function settings() {
+    const version = ++settingsVersion;
+    settingsReady = false;
     try {
       const data = await rpc<{
         profile: Profile;
@@ -386,6 +395,7 @@ else {
         vocabularyBaseline?: number;
         vocabularyPerBlock?: number;
       }>('PUBLIC_SETTINGS');
+      if (!active || version !== settingsVersion) return;
       const preferredLanguage = translationLanguageInfo(data.translationTargetLanguage).code;
       // 注释偏好刷新时保留本页选择；首次加载或更改全局默认时才应用默认值。
       if (savedTranslationLanguage !== preferredLanguage) {
@@ -404,6 +414,8 @@ else {
       mastered = data.mastered;
       codeAnnotations = data.codeAnnotations === true;
       annotationTypes = data.annotationTypes ?? [...defaultAnnotationTypes];
+      if (launcherVocabulary && !annotationTypes.includes('vocabulary'))
+        annotationTypes.push('vocabulary');
       if (typeof data.quizCount === 'number' && data.quizCount >= 2 && data.quizCount <= 8)
         quizCount = data.quizCount;
       if (data.maxPerBlock === 2 || data.maxPerBlock === 4 || data.maxPerBlock === 6)
@@ -411,13 +423,14 @@ else {
       for (const [type, input] of typeToggles) input.checked = annotationTypes.includes(type);
       if (annotationTypes.includes('vocabulary')) await loadCommonWords();
       else vocabularyError = '';
+      if (!active || version !== settingsVersion) return;
       if (codeToggle) codeToggle.checked = codeAnnotations;
-      if (domainInput) domainInput.value = profile.domain;
-      if (levelSelect) levelSelect.value = profile.level;
       settingsError = '';
     } catch (e) {
+      if (!active || version !== settingsVersion) return;
       settingsError = (e as Error).message;
     }
+    settingsReady = true;
     targetSelect.disabled = false;
     translationButton.disabled = false;
     status();
@@ -521,7 +534,7 @@ else {
     );
   }
   async function scan() {
-    if (!active) return;
+    if (!active || !settingsReady) return;
     if (running) {
       rescan = true;
       return;
@@ -534,6 +547,7 @@ else {
       const lane = async () => {
         while (
           active &&
+          settingsReady &&
           current === generation &&
           !networkPaused &&
           !settingsError &&
@@ -733,6 +747,15 @@ else {
     dock.dataset.easyLearn = '';
     dock.style.cssText =
       'position:fixed;right:12px;bottom:16px;pointer-events:none;z-index:1;display:flex;flex-direction:column;align-items:flex-end;gap:7px;font:13px/1.55 system-ui;color:#293a34';
+    dock.hidden = true;
+    launcher = node('button', '译') as HTMLButtonElement;
+    launcher.className = 'launcher';
+    launcher.style.cssText =
+      'position:fixed;right:16px;top:45%;width:48px;height:48px;padding:0;border-radius:50%;background:#0071e3;color:#fff;box-shadow:0 3px 16px #0003;font-size:18px;z-index:1';
+    launcher.setAttribute('aria-label', '开启全文生词翻译');
+    launcher.setAttribute('aria-pressed', 'false');
+    launcher.title = '开启全文生词翻译';
+    launcher.onclick = () => state.__easyLearn?.toggle(true);
     statusNode = node('button', '阅读注释') as HTMLButtonElement;
     statusNode.style.cssText =
       'background:#fffffff2;color:#1d1d1f;border:1px solid #e5e5ea;border-radius:12px;padding:9px 13px;box-shadow:0 3px 16px #0000000f';
@@ -772,6 +795,7 @@ else {
       vocabulary: '扩展词汇（试验）',
     };
     async function updateTypes(type: AnnotationType, enabled: boolean) {
+      if (type === 'vocabulary') launcherVocabulary = false;
       const next = enabled
         ? [...new Set([...annotationTypes, type])]
         : annotationTypes.filter((item) => item !== type);
@@ -828,40 +852,9 @@ else {
     const codeHelp = node('small', '代码默认关闭；命令行由上方的独立开关控制。');
     codeHelp.style.cssText = 'display:block;margin:-2px 0 12px';
     tools.append(codeHelp);
-    tools.append(node('strong', '解释偏好'));
-    const domainLabel = node('label', '学习领域');
-    domainLabel.style.cssText = 'display:block;margin-top:8px';
-    domainInput = document.createElement('input');
-    domainInput.maxLength = 80;
-    domainInput.setAttribute('aria-label', '学习领域');
-    domainInput.style.cssText = 'display:block;width:100%;margin:5px 0 10px';
-    domainLabel.append(domainInput);
-    tools.append(domainLabel);
-    const levelLabel = node('label', '熟悉程度');
-    levelSelect = document.createElement('select');
-    levelSelect.setAttribute('aria-label', '熟悉程度');
-    for (const value of ['入门', '熟悉', '进阶']) {
-      const option = node('option', value);
-      levelSelect.append(option);
-    }
-    levelSelect.style.cssText = 'display:block;width:100%;margin:5px 0 10px';
-    levelLabel.append(levelSelect);
-    tools.append(levelLabel);
     const feedback = node('p', '');
     feedback.setAttribute('aria-live', 'polite');
     feedback.style.cssText = 'font-size:11px;color:#527466;margin:7px 0';
-    const saveProfile = node('button', '应用学习偏好') as HTMLButtonElement;
-    saveProfile.onclick = async () => {
-      try {
-        await rpc('SET_PROFILE', {
-          profile: { domain: domainInput.value, level: levelSelect.value },
-        });
-        feedback.textContent = '学习偏好已应用';
-      } catch (e) {
-        feedback.textContent = (e as Error).message;
-      }
-    };
-    tools.append(saveProfile);
     const actions: [string, () => void][] = [
       [
         '暂停 / 继续预载',
@@ -884,7 +877,7 @@ else {
           void settings().then(schedule);
         },
       ],
-      ['模型设置 / 不再显示列表', () => void rpc('OPEN_OPTIONS')],
+      ['跳转到扩展设置', () => void rpc('OPEN_OPTIONS')],
       ['粘贴文本', () => openPanel()],
     ];
     for (const [label, action] of actions) {
@@ -991,18 +984,23 @@ else {
       progress,
       tools,
     );
-    shadow.append(css, tip, selectionButton, dock);
+    shadow.append(css, tip, selectionButton, dock, launcher);
     document.documentElement.append(host, style);
   }
   function keyboard(event: KeyboardEvent) {
     if (event.key === 'Escape') hideTip();
     else selection();
   }
-  async function start() {
+  async function start(withVocabulary = false) {
     active = true;
+    launcherVocabulary = withVocabulary;
     dirty = true;
-    generation++;
-    mount();
+    const current = ++generation;
+    dock.hidden = false;
+    launcher.textContent = '停';
+    launcher.title = '关闭全文生词翻译';
+    launcher.setAttribute('aria-label', '关闭全文生词翻译');
+    launcher.setAttribute('aria-pressed', 'true');
     connection = connectSurface('content');
     connection.port.onMessage.addListener((msg) => {
       if (msg.type === 'AI_PROGRESS')
@@ -1054,7 +1052,7 @@ else {
     });
     observer.observe(document.body, { childList: true, characterData: true, subtree: true });
     await settings();
-    if (active) {
+    if (active && current === generation) {
       refreshBlocks();
       void scan();
     }
@@ -1063,6 +1061,8 @@ else {
     translation?.dispose();
     translation = undefined;
     active = false;
+    settingsReady = false;
+    settingsVersion++;
     generation++;
     clearTimeout(scheduled);
     clearTimeout(hoverTimer);
@@ -1108,12 +1108,20 @@ else {
     document.removeEventListener('keyup', keyboard);
     window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', onScroll);
+    mount();
   }
   state.__easyLearn = {
-    toggle() {
+    toggle(vocabulary = false) {
       if (active) stop();
-      else void start();
+      else void start(vocabulary);
+    },
+    dispose() {
+      if (active) stop();
+      translation?.dispose();
+      translation = undefined;
+      host.remove();
+      style.remove();
     },
   };
-  void start();
+  mount();
 }

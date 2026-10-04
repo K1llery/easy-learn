@@ -165,7 +165,7 @@ function Options() {
     } catch (e) {
       setError(
         (e as Error).name === 'ZodError'
-          ? '请填写模型地址、模型名称、API Key 和学习领域。'
+          ? '请填写有效的模型地址、模型名称和 API Key。'
           : (e as Error).message,
       );
     } finally {
@@ -256,10 +256,6 @@ function Options() {
       setError((e as Error).message);
     }
   }
-  function changeStyle(style: Config['style']) {
-    setForm({ ...form, style });
-    setMessage('');
-  }
   const annotationLabels: Record<AnnotationType, string> = {
     abbreviation: '英文缩写',
     term: '专有名词与技术术语',
@@ -282,16 +278,14 @@ function Options() {
         <span>设置</span>
       </nav>
       <header className="settings-heading">
-        <div className="eyebrow">阅读偏好</div>
         <h1>阅读设置</h1>
-        <p>选择阅读辅助的方式，以及适合自己的模型与速度。</p>
       </header>
       <section className="card">
         <details open={hasConfig}>
           <summary>注释与学习偏好</summary>
           <span className="tag">01 · 注释类型</span>
           <h2 style={{ marginTop: 12 }}>选择需要的注释</h2>
-          <p className="muted">点击工具栏图标立即开启；网页浮窗里也能调整这些类型。</p>
+          <p className="muted">点击网页右侧悬浮球开启整页生词翻译；网页浮窗里可调整注释类型。</p>
           <div className="annotation-options">
             {annotationTypeValues.map((type) => (
               <label className="check-row" key={type}>
@@ -411,7 +405,7 @@ function Options() {
         </details>
       </section>
       <section className="card">
-        <h2>先用免费的本地释义</h2>
+        <h2>本地释义</h2>
         <p>
           常见技术词和已支持的命令即时注释，不等待 AI、不消耗额度。歧义缩写和未知概念才需要模型。
         </p>
@@ -437,7 +431,7 @@ function Options() {
         <main>
           <form className="card" onSubmit={save}>
             <span className="tag">02 · 模型连接</span>
-            <h2 style={{ marginTop: 12 }}>使用自己的 AI 服务</h2>
+            <h2 style={{ marginTop: 12 }}>AI 服务</h2>
             <label htmlFor="provider">服务方案</label>
             <select id="provider" value={preset} onChange={(e) => applyPreset(e.target.value)}>
               <option value="custom">自定义服务</option>
@@ -547,7 +541,7 @@ function Options() {
             )}
             {!subscriptionKind && (
               <>
-                <p>选服务、填密钥、保存授权，然后点击工具栏图标开始伴读。地址和模型已预填。</p>
+                <p>填入密钥并保存，然后点击网页右侧悬浮球。地址和模型已预填。</p>
                 <label htmlFor="key">API Key</label>
                 <input
                   id="key"
@@ -631,47 +625,6 @@ function Options() {
                 }}
               />
             )}
-            <details className="section-line">
-              <summary>解释偏好（高级）</summary>
-              <label htmlFor="domain">学习领域</label>
-              <input
-                id="domain"
-                required
-                maxLength={80}
-                value={form.profile.domain}
-                onChange={(e) =>
-                  setForm({ ...form, profile: { ...form.profile, domain: e.target.value } })
-                }
-              />
-              <label htmlFor="level">熟悉程度</label>
-              <select
-                id="level"
-                value={form.profile.level}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    profile: {
-                      ...form.profile,
-                      level: e.target.value as Config['profile']['level'],
-                    },
-                  })
-                }
-              >
-                <option>入门</option>
-                <option>熟悉</option>
-                <option>进阶</option>
-              </select>
-              <label htmlFor="style">解释风格</label>
-              <select
-                id="style"
-                value={form.style ?? 'balanced'}
-                onChange={(e) => void changeStyle(e.target.value as Config['style'])}
-              >
-                <option value="concise">简洁 · 一句话结论</option>
-                <option value="balanced">平衡（默认）</option>
-                <option value="deep">深入 · 补充背景与对比</option>
-              </select>
-            </details>
             <div className="notice">
               开启伴读后，相关网页正文会发送给你指定的模型服务。
               {subscriptionKind === 'chatgpt'
@@ -710,7 +663,7 @@ function Options() {
             )}
           </form>
           <section className="card">
-            <h2>重复阅读更快</h2>
+            <h2>术语缓存</h2>
             <label>
               <input
                 type="checkbox"
@@ -777,7 +730,7 @@ function Options() {
             ))}
           </section>
           <section className="card">
-            <h2>把读过的变成会用的</h2>
+            <h2>练习与复习</h2>
             <p className="muted">主动回忆、对照反馈，再留下一次实践记录。保存的练习可离线复习。</p>
             <button
               onClick={() =>
@@ -817,25 +770,7 @@ function Options() {
             清除本机数据
           </button>
         </main>
-        <aside>
-          <div className="side-note">
-            <span className="note-number">01</span>
-            <h3>从正在读的地方开始</h3>
-            <p>点击一次工具栏图标立即开启；悬停网页右侧浮窗可展开设置，或点“整页测验”检验理解。</p>
-          </div>
-          <div className="side-note">
-            <span className="note-number">02</span>
-            <h3>解释有依据，也有边界</h3>
-            <p>缩写会结合上下文判断。缺少信息时，保留候选解释，不把猜测当结论。</p>
-          </div>
-          <div className="side-note">
-            <span className="note-number">03</span>
-            <h3>按自己的节奏阅读</h3>
-            <p>读懂的注解可以隐藏，随时在设置中恢复；PDF 也能在配套阅读页中学习。</p>
-          </div>
-        </aside>
       </div>
-      <div className="footer">EASY LEARN · 读懂，再学会 · v0.16.0</div>
     </div>
   );
 }

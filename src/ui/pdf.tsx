@@ -302,7 +302,6 @@ function PdfApp() {
           </div>
         </div>
       )}
-      <div className="footer">EASY LEARN · PDF 伴读 · AI 的解释可能有误</div>
     </div>
   );
 }

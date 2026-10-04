@@ -126,7 +126,7 @@ function ReviewCard({
       </div>
       <div hidden={mode !== 'apply'}>
         <section className="card application-card">
-          <span className="tag">花十分钟，用一次</span>
+          <h3>应用任务</h3>
           <p className="learning-question">{card.application}</p>
         </section>
         <form
@@ -283,13 +283,7 @@ export function ReviewDesk({ active, onRead }: { active: boolean; onRead: () => 
       ) : (
         <>
           <div className="intro">
-            <div className="eyebrow">我的学习记录</div>
-            <h1>
-              让昨天读过的，
-              <br />
-              成为今天会用的。
-            </h1>
-            <p>每天找几分钟，先独立回忆，再去做一件小事。</p>
+            <h1>我的学习记录</h1>
           </div>
           <div className="learning-stats">
             <div>
@@ -332,10 +326,7 @@ export function ReviewDesk({ active, onRead }: { active: boolean; onRead: () => 
           )}
           {loaded && !cards.length && (
             <div className="card learning-empty">
-              <span className="empty-symbol" aria-hidden="true">
-                ↗
-              </span>
-              <h2>先练会一个小知识点</h2>
+              <h2>暂无保存的练习</h2>
               <p>从网页、PDF 或粘贴文本开始。打开“练会这一段”，回答一道问题，再保存到这里。</p>
               <button className="primary" onClick={onRead}>
                 从一段文字开始

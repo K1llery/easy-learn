@@ -53,6 +53,7 @@ it('sends only compact local candidates and consumes one provider response', asy
     JSON.parse(fetcher.mock.calls[0][1]!.body as string).messages[1].content,
   );
   expect(input.context).toBeUndefined();
+  expect(input.profile).toBeUndefined();
   expect(input.candidates).toHaveLength(2);
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher.mock.calls[0][1]!.headers).toMatchObject({ Authorization: 'Bearer never-log-me' });
@@ -92,6 +93,11 @@ it('authenticates a Cline non-streaming request and reads its successful data en
     stream: false,
   });
   expect(fetcher).toHaveBeenCalledTimes(1);
+  const input = JSON.parse(
+    JSON.parse(fetcher.mock.calls[0][1]!.body as string).messages[1].content,
+  );
+  expect(input.profile).toBeUndefined();
+  expect(input.context).toEqual(request.context);
 });
 it('keeps explicit gateway failures out of model output without exposing diagnostics or retrying', async () => {
   const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(

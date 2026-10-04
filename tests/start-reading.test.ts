@@ -11,6 +11,11 @@ it('injects the reader into the active tab when the toolbar popup opens', async 
   await startCurrentPage();
   expect(query).toHaveBeenCalledWith({ active: true, lastFocusedWindow: true });
   expect(executeScript).toHaveBeenCalledWith({ target: { tabId: 17 }, files: ['content.js'] });
+  expect(executeScript).toHaveBeenCalledTimes(2);
+  expect(executeScript.mock.calls[1][0]).toMatchObject({
+    target: { tabId: 17 },
+    func: expect.any(Function),
+  });
 });
 
 it('reports when there is no active tab and does not inject', async () => {

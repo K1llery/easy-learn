@@ -1,4 +1,4 @@
-# Easy Learn · 读懂，再学会
+# Easy Learn
 
 外语阅读辅助工具，提供 Chrome / Edge 扩展和 Windows / macOS 阅读工作台。保留原文，帮助理解内容、积累生词并练习所学。
 
@@ -12,7 +12,7 @@
 从 [GitHub Releases](https://github.com/K1llery/easy-learn/releases) 的 **Assets** 下载对应 ZIP；尚未发布的试用包可在 [GitHub Actions 打包页面](https://github.com/K1llery/easy-learn/actions/workflows/package.yml) 的 **Artifacts** 下载。
 
 - **桌面版**：Windows 解压后运行 `Easy Learn.exe`；Mac 选择对应芯片版本，将 `Easy Learn.app` 拖入“应用程序”并打开。无需安装运行环境，详见[桌面使用说明](docs/desktop-start.md)。
-- **浏览器扩展**：解压扩展包，在 Chrome / Edge 的扩展管理页开启“开发者模式”，选择“加载已解压的扩展程序”。在设置中连接 AI 服务，打开文章后点击工具栏图标开启伴读。
+- **浏览器扩展**：解压扩展包，在 Chrome / Edge 的扩展管理页开启“开发者模式”，选择“加载已解压的扩展程序”。扩展申请所有 HTTP / HTTPS 站点的访问权限。在设置中连接 AI 服务后，点击网页右侧悬浮球开启整页生词翻译，再次点击关闭。更新本地扩展后，在扩展管理页点击“重新加载”并刷新网页；若浏览器保留了原有站点限制，将站点访问权限切换为“在所有网站上”。
 
 AI 功能会将相关文本发送给所连接的服务，并使用该服务的额度。桌面版目前为未完成发行者签名的测试包，扩展暂未上架浏览器商店。
 

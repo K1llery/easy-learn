@@ -1021,7 +1021,7 @@ function Reader() {
             ) : (
               <>
                 <small>词语释义</small>
-                <h2>边读边理解</h2>
+                <h2>查看词语释义</h2>
                 <p className="muted">
                   将鼠标移到标注的单词，或用键盘聚焦，即可查看预先准备的解释。
                 </p>
