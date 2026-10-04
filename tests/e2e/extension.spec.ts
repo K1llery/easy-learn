@@ -1889,6 +1889,12 @@ test('full-page bilingual translation preserves source, reacts to new prose, and
 });
 
 test('translation pauses on rate limits and resumes only after the reader requests it', async () => {
+  const settings = await context.newPage();
+  await settings.goto(`chrome-extension://${id}/options.html`);
+  // 单路验证停止/重试；并发请求已在取消前发出，不应计为 hover 的自动重试。
+  await settings.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'SET_READING_PREFS', prefs: { concurrency: 1 } }),
+  );
   const page = await context.newPage();
   await page.goto(`${base}/article?translation-rate-limit=1`);
   await inject(page);
@@ -1905,6 +1911,10 @@ test('translation pauses on rate limits and resumes only after the reader reques
   await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(9);
   await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   await page.close();
+  await settings.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'SET_READING_PREFS', prefs: { concurrency: 6 } }),
+  );
+  await settings.close();
 });
 
 test('translation retries failed paragraphs after the reader restores and reopens translation', async () => {
@@ -2291,5 +2301,92 @@ test('complex shop layouts translate mixed text and retain typography when a pro
   expect(calls.filter((call) => call.mode === 'translate')).toHaveLength(count);
   await page.locator('#shop-name').click();
   expect(page.url()).toContain('#shop');
+  await page.close();
+});
+
+test('documentation navigation keeps its size and body translations stay in their flex and grid cells', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?documentation-layout=1`);
+  await page.evaluate(() => {
+    document.body.innerHTML = `<style>
+      body{margin:0;max-width:none;font:16px/1.5 system-ui}
+      header{display:flex;align-items:center;min-height:64px;gap:20px;padding:0 24px;border-bottom:1px solid #ccc}
+      nav{display:flex;gap:16px;flex:1}.nav-link{display:flex;align-items:center;width:86px}
+      main{max-width:1000px;margin:32px auto;padding:0 24px}
+      #grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+      #row{display:flex;gap:16px}#row p{flex:1}
+      .cell{border:1px solid #ddd;padding:12px}
+      @media(max-width:800px){#grid{grid-template-columns:1fr}#row{flex-direction:column}}
+    </style><header><nav aria-label="Documentation navigation">
+      <a id="nav-intro" class="nav-link" href="#content" title="Existing hint">Intro</a>
+      <a class="nav-link" href="#content">Compilers</a><a class="nav-link" href="#content">Domains</a>
+      <a class="nav-link" href="#content">Distributed</a><a class="nav-link" href="#content">Deep Dive</a>
+    </nav><button id="search">Search docs</button></header>
+    <main id="content"><h1>Learn the Basics</h1><p id="authors">Authors:\n<a href="#content">Alice Example</a>,\n<a href="#content">Bob Example</a>,\n<a href="#content">Casey Example</a></p>
+    <section id="grid"><p class="cell" id="grid-first">First grid paragraph.</p><p class="cell">Second grid paragraph.</p></section>
+    <section id="row"><p class="cell" id="row-first">First row paragraph.</p><p class="cell">Second row paragraph.</p></section>
+    <p id="intentional" style="white-space:pre-line">First line\nSecond line<br>Third line</p></main>`;
+    (window as unknown as { originalNodes: Node[] }).originalNodes = [
+      ...document.querySelectorAll('body *'),
+    ];
+  });
+  const original = await page.locator('body').innerHTML();
+  const before = await page.locator('header').boundingBox();
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('13/13 段');
+  const after = await page.locator('header').boundingBox();
+  expect(after!.height).toBe(before!.height);
+  await expect(page.locator('#nav-intro')).toHaveAttribute('title', /^Existing hint\n译文：/);
+  await expect(page.locator('#nav-intro > [data-easy-learn="translation"]')).toBeHidden();
+  await expect(page.locator('#search > [data-easy-learn="translation"]')).toBeHidden();
+  await expect(page.locator('#grid > *')).toHaveCount(2);
+  await expect(page.locator('#row > *')).toHaveCount(2);
+  await expect(page.locator('#grid-first > [data-easy-learn="translation"]')).toBeVisible();
+  await expect(page.locator('#row-first > [data-easy-learn="translation"]')).toBeVisible();
+  const authors = page.locator('#authors + [data-easy-learn="translation"]');
+  await expect(authors).toHaveCSS('white-space', 'normal');
+  const authorsBox = await authors.boundingBox();
+  expect(authorsBox!.height).toBeLessThan(60);
+  await expect(page.locator('#intentional + [data-easy-learn="translation"]')).toHaveCSS(
+    'white-space',
+    'pre-line',
+  );
+  await expect(page.locator('#intentional + [data-easy-learn="translation"] br')).toHaveCount(1);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { originalNodes: Node[] }).originalNodes.every(
+        (node) => node.isConnected,
+      ),
+    ),
+  ).toBe(true);
+  const requests = calls.filter((call) => call.mode === 'translate').length;
+  await page.locator('#nav-intro').hover();
+  expect(calls.filter((call) => call.mode === 'translate')).toHaveLength(requests);
+  await page.setViewportSize({ width: 760, height: 1000 });
+  await expect(page.locator('#grid > *')).toHaveCount(2);
+  await expect(page.locator('#row-first + [data-easy-learn="translation"]')).toBeVisible();
+  expect(calls.filter((call) => call.mode === 'translate')).toHaveLength(requests);
+  const dock = page.getByRole('button', { name: '阅读注释', exact: true });
+  if ((await dock.getAttribute('aria-expanded')) === 'true') await dock.click();
+  await page.mouse.move(20, 20);
+  await page.screenshot({
+    path: 'test-results/documentation-translation-layout.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: '还原原文', exact: true }).click();
+  expect(
+    await page.locator('body').evaluate((body) => {
+      const copy = body.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[data-easy-learn]').forEach((node) => node.remove());
+      return copy.innerHTML;
+    }),
+  ).toBe(original);
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.locator('#nav-intro')).toHaveAttribute('title', /^Existing hint\n译文：/);
+  expect(calls.filter((call) => call.mode === 'translate')).toHaveLength(requests);
+  await page.locator('#nav-intro').click();
+  expect(page.url()).toContain('#content');
   await page.close();
 });

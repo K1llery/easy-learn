@@ -84,9 +84,14 @@ function translationBlocks(root: ParentNode): Block[] {
   let heading = '',
     sectionId = 0;
   const boundary = (element: HTMLElement) =>
+    (element.matches('a,[title]') &&
+      !!element.closest(
+        'nav,[role="navigation"],[role="toolbar"],button,summary,[role="button"]',
+      )) ||
     element.matches(
       'h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,div,section,article,main,header,footer,aside,nav,button,summary,ul,ol,dl,dt,dd,table,thead,tbody,tr,figure,figcaption,hr,[role="heading"],[role="listitem"]',
-    ) || /^(block|flow-root|flex|grid|table.*|list-item)$/.test(getComputedStyle(element).display);
+    ) ||
+    /^(block|flow-root|flex|grid|table.*|list-item)$/.test(getComputedStyle(element).display);
   const boundaries = new Map<Element, boolean>();
   const hasBoundary = (node: Element): boolean => {
     const cached = boundaries.get(node);

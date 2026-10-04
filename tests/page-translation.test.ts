@@ -484,3 +484,135 @@ it('places translations at the new block after CSS turns an inline wrapper into 
   );
   expect(document.querySelector('#root + [data-easy-learn]')).toBeNull();
 });
+
+it('keeps compact navigation translations in tooltips and restores existing titles', async () => {
+  document.body.innerHTML =
+    '<nav><a id="intro" href="#" title="Original hint" style="display:flex">Intro</a><button>Search</button></nav><article><p>Body text</p></article>';
+  const original = document.body.innerHTML;
+  const request = vi.fn(async () => '中文说明');
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  expect(document.querySelector('#intro')!.getAttribute('title')).toBe(
+    'Original hint\n译文：中文说明',
+  );
+  expect(document.querySelector('button')!.getAttribute('title')).toBe('译文：中文说明');
+  const tooltip = document.querySelector<HTMLElement>('#intro > [data-easy-learn]')!;
+  expect(tooltip.hidden).toBe(true);
+  expect(tooltip.style.display).toBe('none');
+  expect(document.querySelector<HTMLElement>('p + [data-easy-learn]')!.hidden).toBe(false);
+  translator.restore();
+  expect(document.body.innerHTML).toBe(original);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  expect(request).toHaveBeenCalledTimes(3);
+  translator.invalidate();
+  expect(document.body.innerHTML).toBe(original);
+});
+
+it('preserves a title updated by the page while translation is visible', async () => {
+  document.body.innerHTML =
+    '<nav><a id="label" style="display:flex" title="Old hint">Intro</a></nav>';
+  const state = create(async () => '简介');
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  expect(document.querySelector('#label')!.getAttribute('title')).toBe('Old hint\n译文：简介');
+  document.querySelector('#label')!.setAttribute('title', 'New page hint');
+  translator.restore();
+  expect(document.querySelector('#label')!.getAttribute('title')).toBe('New page hint');
+});
+
+it('switches cached links between block text and tooltips when their flex direction changes', async () => {
+  document.body.innerHTML =
+    '<article><a id="label" style="display:flex;flex-direction:column" title="Hint">Intro</a></article>';
+  const request = vi.fn(async () => '简介');
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  const label = document.querySelector<HTMLElement>('#label')!;
+  expect(label.querySelector<HTMLElement>('[data-easy-learn]')!.hidden).toBe(false);
+  label.style.flexDirection = 'row';
+  await vi.waitFor(() =>
+    expect(label.querySelector<HTMLElement>('[data-easy-learn]')!.hidden).toBe(true),
+  );
+  expect(label.title).toBe('Hint\n译文：简介');
+  label.style.flexDirection = 'column';
+  await vi.waitFor(() =>
+    expect(label.querySelector<HTMLElement>('[data-easy-learn]')!.hidden).toBe(false),
+  );
+  expect(label.title).toBe('Hint');
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('keeps translations inside flex row and grid cells without adding sibling layout items', async () => {
+  document.body.innerHTML =
+    '<article><div style="display:flex;flex-direction:row"><p id="row-cell">Flex text</p></div><section style="display:grid"><p id="grid-cell">Grid text</p></section></article>';
+  const state = create(async () => '译文');
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(2));
+  for (const id of ['row-cell', 'grid-cell']) {
+    const cell = document.getElementById(id)!;
+    expect(cell.parentElement!.children).toHaveLength(1);
+    expect(cell.querySelector<HTMLElement>('[data-easy-learn]')!.tagName).toBe('SPAN');
+  }
+});
+
+it('collapses incidental model and source line breaks while preserving explicit pre-line and br', async () => {
+  document.body.innerHTML =
+    '<article><p id="authors">Authors:\nAlice,\nBob</p><p id="lines" style="white-space:pre-line">First\nSecond<br>Third</p></article>';
+  const state = create(async (context) => context.text);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(2));
+  expect(
+    document.querySelector<HTMLElement>('#authors + [data-easy-learn]')!.style.whiteSpace,
+  ).toBe('normal');
+  expect(document.querySelector<HTMLElement>('#lines + [data-easy-learn]')!.style.whiteSpace).toBe(
+    'pre-line',
+  );
+  expect(document.querySelectorAll('#lines + [data-easy-learn] br')).toHaveLength(1);
+});
+
+it('keeps direct mixed-container text out of flex and grid layout items', async () => {
+  document.body.innerHTML =
+    '<article><div id="mixed-row" style="display:flex">Intro<p>Row body</p>Tail</div><section id="mixed-grid" style="display:grid">Intro<p>Grid body</p>Tail</section></article>';
+  const state = create(async (context) => context.text);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(6));
+  for (const id of ['mixed-row', 'mixed-grid']) {
+    const element = document.getElementById(id)!;
+    expect([...element.children].filter((node) => !node.hasAttribute('hidden'))).toHaveLength(1);
+    expect(element.title).toBe('译文：Intro\nTail');
+    expect(element.querySelector('p > [data-easy-learn]')?.textContent).toContain('body');
+  }
+});
+
+it('attaches each inline navigation label translation to its own original tooltip', async () => {
+  document.body.innerHTML =
+    '<nav><a id="first" title="Original hint">Intro</a><a id="second">Next</a><button><span id="nested" title="Button hint">Search</span></button></nav>';
+  const original = document.body.innerHTML;
+  const state = create(async (context) => `译 ${context.text}`);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  expect(document.querySelector('#first')!.getAttribute('title')).toBe(
+    'Original hint\n译文：译 Intro',
+  );
+  expect(document.querySelector('#second')!.getAttribute('title')).toBe('译文：译 Next');
+  expect(document.querySelector('#nested')!.getAttribute('title')).toBe(
+    'Button hint\n译文：译 Search',
+  );
+  translator.restore();
+  expect(document.body.innerHTML).toBe(original);
+});
+
+it('shows independent paragraphs inside horizontal linked cards as visible bilingual text', async () => {
+  document.body.innerHTML =
+    '<article><a style="display:flex" href="#"><div style="display:flex;flex-direction:column"><p>Product description</p><p>Offer details</p></div></a></article>';
+  const state = create(async (context) => context.text);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(2));
+  expect(
+    [...document.querySelectorAll<HTMLElement>('[data-easy-learn="translation"]')].every(
+      (node) => !node.hidden,
+    ),
+  ).toBe(true);
+});

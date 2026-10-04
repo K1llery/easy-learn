@@ -13,6 +13,7 @@ import {
   type TranslationLanguage,
 } from '../core/translation-languages';
 import type { TextContext } from '../core/types';
+import { translationLayout, translationWhiteSpace } from './translation-layout';
 import {
   applyTextStyle,
   formattedTranslation,
@@ -44,12 +45,13 @@ type Options = {
   concurrency: () => number;
   changed: (status: TranslationStatus) => void;
 };
-export const translationStyle = `.easy-learn-translation{display:block!important;margin:8px 0 15px;padding:0 0 0 12px;border-left:2px solid #0071e344;white-space:pre-wrap!important;overflow-wrap:anywhere!important}.easy-learn-translation[hidden]{display:none!important}.easy-learn-translation span{display:inline!important;margin:0!important;padding:0!important;border:0!important;float:none!important;position:static!important}`;
+export const translationStyle = `.easy-learn-translation{display:block!important;box-sizing:border-box!important;max-width:100%!important;min-width:0!important;margin:8px 0 15px;padding:0 0 0 12px;border-left:2px solid #0071e344;white-space:normal!important;overflow-wrap:anywhere!important;writing-mode:horizontal-tb!important}.easy-learn-translation[hidden]{display:none!important}.easy-learn-translation span{display:inline!important;margin:0!important;padding:0!important;border:0!important;float:none!important;position:static!important;white-space:inherit!important}`;
 
 /** 原文节点不替换；译文与请求状态只保留在当前页面。 */
 export class PageTranslation {
   private targetLanguage: TranslationLanguage;
   private units = new Map<Node, Unit>();
+  private tooltipTitles = new Map<HTMLElement, { original: string | null; value: string }>();
   private visible = false;
   private paused = true;
   private error = '';
@@ -113,6 +115,7 @@ export class PageTranslation {
         unit.node = undefined;
         unit.rendered = undefined;
       }
+      this.restoreTooltipTitles();
     });
     this.notify();
   }
@@ -145,6 +148,7 @@ export class PageTranslation {
     this.pause();
     this.preservePosition(() => this.units.forEach((unit) => unit.node?.remove()));
     this.units.clear();
+    this.restoreTooltipTitles();
     this.error = '译文语言、连接或学习设置已改变，请点击继续翻译。';
     this.notify();
   }
@@ -206,6 +210,7 @@ export class PageTranslation {
       }
       this.render(unit);
     }
+    for (const element of this.tooltipTitles.keys()) this.syncTooltipTitle(element);
     this.notify();
   }
 
@@ -213,11 +218,12 @@ export class PageTranslation {
     if (!this.visible || !this.matchesUnit(unit)) return;
     // 按原文顺序拼接，保留尚未完成的片段位置。
     if (!unit.parts.some((part) => part.translation?.trim())) return;
-    const inline =
-      !!unit.block.afterNode || /^(LI|TD|TH|BUTTON|A)$/.test(unit.block.element.tagName);
+    const layout = translationLayout(unit.block);
+    const inline = layout !== 'after';
     const language = translationLanguageInfo(this.targetLanguage);
     const style = textStyle(unit.block.element);
     style.direction = language.direction;
+    style['white-space'] = translationWhiteSpace(unit.block.element);
     // 列表/单元格内的译文已经处于原文背景和透明度之下，避免叠加两次。
     if (inline) {
       style.opacity = '1';
@@ -227,13 +233,22 @@ export class PageTranslation {
       part.translation ? formattedTranslation(part, unit.block.element) : undefined,
     );
     const signature = JSON.stringify([
+      layout,
       style,
       formatted.map((part) =>
         part?.pieces.map((piece) => [piece.text, piece.run?.breakBefore, piece.style]),
       ),
     ]);
-    if (unit.node && unit.rendered === signature && this.isPlaced(unit)) return;
+    if (unit.node && unit.rendered === signature && this.isPlaced(unit)) {
+      this.syncTooltipTitle(unit.block.element);
+      return;
+    }
     this.preservePosition(() => {
+      if (unit.node && unit.node.tagName !== (inline ? 'SPAN' : 'DIV')) {
+        unit.node.remove();
+        unit.node = undefined;
+        unit.rendered = undefined;
+      }
       if (!unit.node) {
         unit.node = document.createElement(inline ? 'span' : 'div');
         unit.node.dataset.easyLearn = 'translation';
@@ -242,8 +257,11 @@ export class PageTranslation {
         unit.node.dir = language.direction;
         unit.node.setAttribute('aria-label', `${language.label}译文`);
       }
+      unit.node.dataset.layout = layout;
+      unit.node.hidden = layout === 'tooltip';
+      unit.node.style.setProperty('display', layout === 'tooltip' ? 'none' : 'block', 'important');
       if (!this.isPlaced(unit)) {
-        if (unit.block.afterNode) unit.block.afterNode.after(unit.node);
+        if (layout === 'fragment') unit.block.afterNode!.after(unit.node);
         else if (inline) unit.block.element.append(unit.node);
         else unit.block.element.after(unit.node);
       }
@@ -269,15 +287,53 @@ export class PageTranslation {
         unit.node.replaceChildren(content);
         unit.rendered = signature;
       }
+      this.syncTooltipTitle(unit.block.element);
     });
   }
 
   private isPlaced(unit: Unit) {
     if (!unit.node?.isConnected) return false;
-    if (unit.block.afterNode) return unit.node.previousSibling === unit.block.afterNode;
-    return /^(LI|TD|TH|BUTTON|A)$/.test(unit.block.element.tagName)
+    if (unit.node.dataset.layout === 'fragment')
+      return unit.node.previousSibling === unit.block.afterNode;
+    return unit.node.dataset.layout === 'inside' || unit.node.dataset.layout === 'tooltip'
       ? unit.node.parentElement === unit.block.element
       : unit.node.previousElementSibling === unit.block.element;
+  }
+
+  private syncTooltipTitle(element: HTMLElement) {
+    const translation = [...this.units.values()]
+      .filter((unit) => unit.block.element === element && unit.node?.dataset.layout === 'tooltip')
+      .map((unit) => unit.node!.textContent?.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+    const previous = this.tooltipTitles.get(element);
+    if (!translation) {
+      if (previous) this.restoreTooltipTitle(element, previous);
+      return;
+    }
+    const original =
+      previous && element.getAttribute('title') === previous.value
+        ? previous.original
+        : element.getAttribute('title');
+    const value = [original, `译文：${translation}`].filter(Boolean).join('\n');
+    this.tooltipTitles.set(element, { original, value });
+    if (element.getAttribute('title') !== value) element.setAttribute('title', value);
+  }
+
+  private restoreTooltipTitle(
+    element: HTMLElement,
+    title: { original: string | null; value: string },
+  ) {
+    // 网页自行更新过 title 时，保留网页的新值。
+    if (element.getAttribute('title') === title.value) {
+      if (title.original === null) element.removeAttribute('title');
+      else element.setAttribute('title', title.original);
+    }
+    this.tooltipTitles.delete(element);
+  }
+
+  private restoreTooltipTitles() {
+    for (const [element, title] of this.tooltipTitles) this.restoreTooltipTitle(element, title);
   }
 
   private matchesUnit(unit: Unit) {
