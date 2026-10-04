@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release 标签（如 v0.16.0）；新标签会指向打包时的提交'
+        description: 'Release 标签（如 v1.0.0）；新标签会指向打包时的提交'
         required: true
         type: string
       run_id:
@@ -41,8 +41,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_TAG" != v* ]] || ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
-            echo '::error::请输入有效的 v 开头版本标签。'
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+            echo '::error::请输入三段功能版本标签，例如 v1.0.0。'
             exit 1
           fi
           run_id="$PACKAGE_RUN_ID"
@@ -99,11 +99,16 @@ jobs:
               exit 1
             fi
             filename=$(basename "${zips[0]}")
-            if [[ ! "$filename" =~ ^Easy-Learn-([0-9]+\.[0-9]+\.[0-9]+)-$target\.zip$ ]]; then
+            if [[ ! "$filename" =~ ^Easy-Learn-([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)-$target\.zip$ ]]; then
               echo "::error::$target 安装包名称不符合打包约定。"
               exit 1
             fi
             current_version="${BASH_REMATCH[1]}"
+            release_version="$(cut -d. -f1-3 <<< "$current_version")"
+            if [[ "$RELEASE_TAG" != "v$release_version" ]]; then
+              echo '::error::Release 标签与安装包功能版本不同。'
+              exit 1
+            fi
             version="${version:-$current_version}"
             if [[ "$current_version" != "$version" || "${checksums[0]}" != "${zips[0]}.sha256" ]]; then
               echo '::error::安装包版本或校验文件名称不一致。'

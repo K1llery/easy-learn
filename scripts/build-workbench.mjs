@@ -1,5 +1,7 @@
 import { build } from 'vite';
 import { cp, mkdir } from 'node:fs/promises';
+import { buildMetadata, writeMetadata } from './version.mjs';
+const metadata = await buildMetadata();
 await build({
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: { outDir: 'dist-workbench', rollupOptions: { input: { reader: 'reader.html' } } },
@@ -19,3 +21,5 @@ await build({
     rollupOptions: { output: { entryFileNames: 'server.mjs' } },
   },
 });
+await writeMetadata('dist-workbench', metadata);
+await writeMetadata('dist-workbench-server', metadata);

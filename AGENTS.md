@@ -1,5 +1,14 @@
 # Repository Guidelines
 
+## 版本管理（每次任务必须执行）
+
+- 开始工作前阅读 `docs/versioning.md`，运行 `pnpm version:check`，以 `package.json` 的三段功能版本为准。
+- 大量功能发生重大改变或升级：主版本号加一；新增功能或改进现有功能：次版本号加一；修复错误或问题：修订号加一。混合任务采用最高级别，同一任务只递增一次；高位递增时，较低的功能版本位清零。
+- 有功能变化的任务必须使用 `pnpm version:bump major|minor|patch` 同步更新版本，并在 `CHANGELOG.md` 记录原因及验证。纯文档、测试或不影响软件行为的维护不递增功能版本。用户明确指定目标版本时优先遵照，不额外递增。
+- 构建号由构建脚本自动生成，不手填，不把四段版本写入 `package.json`。同一次打包中的编译、组装及各平台共享构建号；新本地构建或 CI 全部 job 重跑生成新号；只重跑失败的子 job 时复用已成功上游分配的本次编号。
+- 使用 `pnpm build`、`pnpm build:workbench`、`pnpm package:extension`、`pnpm package:desktop <target>`。提交前再次运行 `pnpm version:check`，报告功能版本、构建版本和验证结果；不要提交 `.cache/` 中的计数器及构建产物。
+- 历史验收记录、历史版本文档、第三方依赖及 Node.js 等工具链版本不随软件版本批量替换。详细顺序、平台字段和命令见 `docs/versioning.md`。
+
 ## Project Structure & Module Organization
 
 - `src/core/`: shared types, model adapters, settings, caches, and learning.

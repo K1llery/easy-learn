@@ -5,13 +5,15 @@
 ## 复用已经成功的打包
 
 1. 打开 [Release Easy Learn](https://github.com/K1llery/easy-learn/actions/workflows/release.yml)，点击 **Run workflow**，使用默认的 `master` 分支。
-2. 填写 `tag`，例如 `v0.16.0`。新标签会指向产物实际构建的提交；已有标签必须与打包提交相同。
+2. 填写 `tag`，例如 `v1.0.0`。新标签会指向产物实际构建的提交；已有标签必须与打包提交相同。
 3. `run_id` 留空时使用最近一次成功的 **Package Easy Learn** 运行。也可以从打包运行的网址 `…/actions/runs/37126378257` 中复制数字 ID，指定该次产物。
 4. 点击 **Run workflow**。成功后，从运行摘要打开 Release；若为新建草稿，编辑说明后点击 **Publish release**。
 
 若该标签已有 Release，工作流直接为它上传附件，保留标题、说明及发布状态。草稿的同名附件允许重传；已公开 Release 的同名附件不覆盖，GitHub 会报错。开启不可变 Release 的仓库，应在发布草稿前上传全部附件。
 
-只能复用当前仓库成功的 `package.yml` 运行。四个平台的产物必须完整，版本一致且通过 SHA-256 校验。Actions 产物保留 14 天，过期后需要重新打包。已有标签与打包提交不一致时，不会上传；请选择正确的运行或使用新标签。
+只能复用当前仓库成功的 `package.yml` 运行。四个平台的产物必须完整，四段构建版本一致、前三段功能版本与标签一致，且通过 SHA-256 校验。Actions 产物保留 14 天，过期后需要重新打包。已有标签与打包提交不一致时，不会上传；请选择正确的运行或使用新标签。
+
+完整版本使用 `主版本.次版本.修订号.构建号`，如 `1.0.0.12`；标签只使用前三段。构建号自动生成，同一次 CI 打包的四个平台共享编号，详见[版本更替规则](versioning.md)。历史三段安装包仍可按其对应标签转存。新增上游版本准备 job，四个平台共用其元数据；“Re-run failed jobs”补齐原编号的产物，“Re-run all jobs”生成新的完整构建版本。当前运行内重传的平台 Actions 产物会替换同名旧产物，避免重跑时上传冲突；其行为见 [upload-artifact 官方说明](https://github.com/actions/upload-artifact#overwriting-an-artifact)。
 
 ## 新版本自动准备 Release
 

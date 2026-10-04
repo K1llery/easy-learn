@@ -3,9 +3,15 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-const { version } = JSON.parse(await readFile('package.json', 'utf8'));
-const target = process.argv[2],
-  folder = path.resolve('artifacts', `Easy-Learn-${version}-${target}`);
+import { checkVersion, validateMetadata } from './version.mjs';
+const target = process.argv[2];
+if (!['windows-x64', 'macos-x64', 'macos-arm64'].includes(target))
+  throw new Error('请选择 windows-x64、macos-x64 或 macos-arm64。');
+const metadata = validateMetadata(
+  JSON.parse(await readFile(`.cache/version/desktop-${target}.json`, 'utf8')),
+  await checkVersion(),
+);
+const folder = path.resolve('artifacts', `Easy-Learn-${metadata.version}-${target}`);
 const executable =
   process.env.EASY_LEARN_SMOKE_EXECUTABLE ??
   (process.platform === 'win32'

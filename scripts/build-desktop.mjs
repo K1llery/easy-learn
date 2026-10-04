@@ -4,18 +4,22 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { zipSync, unzipSync } from 'fflate';
+import { buildMetadata, readMetadata, writeMetadata } from './version.mjs';
 
-const packageInfo = JSON.parse(await readFile('package.json', 'utf8'));
 const runtimes = JSON.parse(await readFile('scripts/desktop-runtimes.json', 'utf8'));
 const target = process.argv[2];
 const spec = runtimes.targets[target];
 if (!spec) throw new Error('请选择 windows-x64、macos-x64 或 macos-arm64。');
+const metadata = await buildMetadata();
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: 'inherit', ...options });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} 执行失败。`);
 }
 await stat('dist-workbench/reader.html');
+const built = await readMetadata('dist-workbench', metadata.releaseVersion);
+if (process.env.EASY_LEARN_BUILD_METADATA && built.version !== metadata.version)
+  throw new Error('工作台构建号与打包任务不同，请使用 pnpm package:desktop。');
 const cache = path.resolve('.cache/desktop-runtimes');
 await mkdir(cache, { recursive: true });
 const archive = path.join(cache, spec.archive);
@@ -46,7 +50,7 @@ try {
   await writeFile(archive, bytes);
   await rm(partial);
 }
-const folder = path.resolve('artifacts', `Easy-Learn-${packageInfo.version}-${target}`);
+const folder = path.resolve('artifacts', `Easy-Learn-${metadata.version}-${target}`);
 await rm(folder, { recursive: true, force: true });
 await mkdir(folder, { recursive: true });
 const mac = spec.goos === 'darwin';
@@ -71,6 +75,7 @@ if (mac) {
   }
 }
 await cp('dist-workbench', path.join(resources, 'dist-workbench'), { recursive: true });
+await writeMetadata(path.join(resources, 'dist-workbench'), metadata);
 await build({
   publicDir: false,
   ssr: { noExternal: true },
@@ -84,7 +89,7 @@ await cp(path.join(resources, 'backend-build/desktop.mjs'), path.join(resources,
 await rm(path.join(resources, 'backend-build'), { recursive: true });
 await writeFile(
   path.join(resources, 'desktop-version.json'),
-  JSON.stringify({ version: packageInfo.version }),
+  JSON.stringify(metadata, null, 2) + '\n',
 );
 const executable = mac
   ? path.join(app, 'Contents/MacOS/Easy Learn')
@@ -118,7 +123,7 @@ run(
 if (mac) {
   await writeFile(
     path.join(app, 'Contents/Info.plist'),
-    `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Easy Learn</string><key>CFBundleIdentifier</key><string>app.easylearn.reader</string><key>CFBundleName</key><string>Easy Learn</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${packageInfo.version}</string><key>CFBundleVersion</key><string>${packageInfo.version}</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.5</string></dict></plist>`,
+    `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Easy Learn</string><key>CFBundleIdentifier</key><string>app.easylearn.reader</string><key>CFBundleName</key><string>Easy Learn</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${metadata.releaseVersion}</string><key>CFBundleVersion</key><string>${metadata.buildNumber}</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.5</string></dict></plist>`,
   );
 }
 await cp('public/vocabulary/ATTRIBUTION.md', path.join(folder, 'VOCABULARY-LICENSE.md'));
@@ -175,4 +180,6 @@ await writeFile(
   output + '.sha256',
   digest(await readFile(output)) + '  ' + path.basename(output) + '\n',
 );
+await mkdir('.cache/version', { recursive: true });
+await writeFile(`.cache/version/desktop-${target}.json`, JSON.stringify(metadata, null, 2) + '\n');
 console.log(`桌面包：${output}`);

@@ -31,3 +31,5 @@ pnpm workbench
 [模型连接](docs/model-providers.md) · [多语言翻译](docs/multilingual-translation.md) · [项目架构](docs/architecture-guide.md) · [开发与测试](docs/code-quality.md) · [发布安装包](docs/releases.md)
 
 [常见 AI 学习软件对比与改进记录](docs/ai-learning-comparison-2026-10.md)
+
+[版本更替规则](docs/versioning.md) · [变更记录](CHANGELOG.md)
