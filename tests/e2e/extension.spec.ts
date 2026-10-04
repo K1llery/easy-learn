@@ -20,6 +20,7 @@ let responseStatus = 200,
   completed = 0;
 let responseStyle = 'json',
   responseDelay = 0;
+let omitFirstFormatMarker = false;
 function outlinePdf() {
   const first = 'BT /F1 14 Tf 72 720 Td (Introduction to this paper.) Tj ET';
   const second =
@@ -180,7 +181,12 @@ function output(request: AIRequest) {
         : '灾难恢复让系统在整个区域不可用时，仍能从其他区域恢复服务。',
     example: '主机房断电时，备用机房继续提供服务。',
     prerequisites: [{ term: '副本', explanation: '保存在另一处的数据拷贝。' }],
-    translation: request.mode === 'translate' ? translation : '',
+    translation:
+      request.mode === 'translate'
+        ? omitFirstFormatMarker
+          ? translation.replace(/⟦\/?EL\d*:0⟧/g, '')
+          : translation
+        : '',
   };
 }
 async function currentWorker(): Promise<Worker> {
@@ -330,6 +336,7 @@ test.beforeEach(async () => {
   responseStatus = 200;
   responseStyle = 'json';
   responseDelay = 0;
+  omitFirstFormatMarker = false;
   const settings = await context.newPage();
   await settings.goto(`chrome-extension://${id}/options.html`);
   await settings.evaluate(async (base) => {
@@ -1847,8 +1854,8 @@ test('full-page bilingual translation preserves source, reacts to new prose, and
   expect(calls.slice(started).filter((c) => c.mode === 'translate')).toHaveLength(0);
   await page.getByRole('button', { name: '翻译全文', exact: true }).click();
   const translations = page.locator('[data-easy-learn="translation"]');
-  await expect(translations).toHaveCount(8);
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(translations).toHaveCount(9);
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   expect(
     await page.locator('article').evaluate((el) => {
       const copy = el.cloneNode(true) as Element;
@@ -1868,13 +1875,13 @@ test('full-page bilingual translation preserves source, reacts to new prose, and
     paragraph.textContent = 'A dynamically loaded research paragraph.';
     el.append(paragraph);
   });
-  await expect(translations).toHaveCount(9);
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
+  await expect(translations).toHaveCount(10);
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('10/10 段');
   const translatedCalls = calls.filter((c) => c.mode === 'translate').length;
   await page.getByRole('button', { name: '还原原文', exact: true }).click();
   await expect(translations).toHaveCount(0);
   await page.getByRole('button', { name: '翻译全文', exact: true }).click();
-  await expect(translations).toHaveCount(9);
+  await expect(translations).toHaveCount(10);
   expect(calls.filter((c) => c.mode === 'translate')).toHaveLength(translatedCalls);
   await page.locator('a').click();
   expect(page.url()).toContain('#next');
@@ -1895,8 +1902,8 @@ test('translation pauses on rate limits and resumes only after the reader reques
   await page.getByRole('button', { name: '继续翻译', exact: true }).hover();
   expect(calls).toHaveLength(stopped);
   await page.getByRole('button', { name: '继续翻译', exact: true }).click();
-  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(8);
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(9);
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   await page.close();
 });
 
@@ -1915,8 +1922,8 @@ test('translation retries failed paragraphs after the reader restores and reopen
   await page.getByRole('button', { name: '翻译全文', exact: true }).hover();
   expect(calls).toHaveLength(stopped);
   await page.getByRole('button', { name: '翻译全文', exact: true }).click();
-  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(8);
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(9);
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   await page.close();
 });
 
@@ -2151,11 +2158,11 @@ test('translation targets work in settings, full-page bilingual mode and selecte
   await expect(translations.first()).toHaveAttribute('lang', 'fr');
   await expect(translations.first()).toContainText('fr：');
   await expect(page.getByRole('button', { name: '暂停翻译', exact: true })).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   await select.selectOption('ja');
   await page.getByRole('button', { name: '继续翻译', exact: true }).click();
   await expect(translations.first()).toHaveAttribute('lang', 'ja');
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   const before = calls.length;
   // 本页临时选择必须在无关的注释偏好刷新后保留。
   await settings.evaluate(() =>
@@ -2175,7 +2182,7 @@ test('translation targets work in settings, full-page bilingual mode and selecte
   await expect(translations.first()).toHaveAttribute('lang', 'ar');
   await expect(translations.first()).toHaveAttribute('dir', 'rtl');
   await expect(translations.first()).toContainText('ar：');
-  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('8/8 段');
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('9/9 段');
   const dockButton = page.getByRole('button', { name: '阅读注释', exact: true });
   if ((await dockButton.getAttribute('aria-expanded')) === 'true') await dockButton.click();
   await page.mouse.move(20, 20);
@@ -2197,4 +2204,92 @@ test('translation targets work in settings, full-page bilingual mode and selecte
   await panel.close();
   await page.close();
   await settings.close();
+});
+
+test('complex shop layouts translate mixed text and retain typography when a provider omits markers', async () => {
+  const page = await context.newPage();
+  await page.goto(`${base}/article?complex-shop=1`);
+  await page.evaluate(() => {
+    document.body.innerHTML = `<style>
+      body{max-width:960px}h1{font-size:36px;font-weight:800}
+      .shop{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+      .card{display:flex;flex-direction:column;border:1px solid #bbb;padding:18px}
+      .label{display:block;font-size:23px;font-weight:700}
+      em{font-weight:750;font-style:italic}
+      @media(max-width:800px){h1{font-size:28px}.label{font-size:20px}}
+    </style><header><nav><a href="#shop">เกม</a></nav></header>
+    <main><h1>Complex shop title</h1><section id="shop" class="shop">
+      <a class="card" href="#shop"><span id="shop-name" class="label">เติมเกม</span><p id="shop-emphasis">Normal <em>special offer</em> ending.</p><div id="shop-mixed">Opening offer<p>Nested details</p>Closing note</div></a>
+      <div class="card"><span class="label">บัตร</span><p id="shop-uniform"><strong style="font-size:24px;font-weight:800;font-style:italic">Important notice</strong></p></div>
+    </section></main><footer>Footer information</footer>`;
+    (window as unknown as { shopNodes: Node[] }).shopNodes = [
+      ...document.querySelectorAll('body *'),
+    ];
+  });
+  const original = await page.locator('body').innerHTML();
+  const start = calls.length;
+  omitFirstFormatMarker = true;
+  await inject(page);
+  await expect(page.getByRole('status')).toContainText('当前内容已处理');
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '全文翻译' })).toContainText('10/10 段');
+  expect(
+    calls
+      .slice(start)
+      .filter((call) => call.mode === 'translate')
+      .map((call) => call.context.text.replace(/⟦\/?EL\d*:\d+⟧/g, ''))
+      .sort(),
+  ).toEqual(
+    [
+      'เกม',
+      'Complex shop title',
+      'เติมเกม',
+      'Normal special offer ending.',
+      'Opening offer',
+      'Nested details',
+      'Closing note',
+      'บัตร',
+      'Important notice',
+      'Footer information',
+    ].sort(),
+  );
+  await expect(page.locator('h1 + [data-easy-learn]')).toHaveCSS('font-size', '36px');
+  await expect(page.locator('#shop-name + [data-easy-learn]')).toHaveCSS('font-size', '23px');
+  const emphasis = page
+    .locator('#shop-emphasis + [data-easy-learn] span')
+    .filter({ hasText: '中文：special offer' });
+  await expect(emphasis).toHaveCSS('font-weight', '750');
+  await expect(emphasis).toHaveCSS('font-style', 'italic');
+  const uniform = page.locator('#shop-uniform + [data-easy-learn] span');
+  await expect(uniform).toHaveCSS('font-size', '24px');
+  await expect(uniform).toHaveCSS('font-weight', '800');
+  await expect(uniform).toHaveCSS('font-style', 'italic');
+  await expect(page.locator('#shop-mixed > [data-easy-learn]')).toHaveCount(3);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { shopNodes: Node[] }).shopNodes.every((node) => node.isConnected),
+    ),
+  ).toBe(true);
+  const count = calls.filter((call) => call.mode === 'translate').length;
+  await page.setViewportSize({ width: 760, height: 1000 });
+  await expect(page.locator('h1 + [data-easy-learn]')).toHaveCSS('font-size', '28px');
+  await expect(page.locator('#shop-name + [data-easy-learn]')).toHaveCSS('font-size', '20px');
+  const dock = page.getByRole('button', { name: '阅读注释', exact: true });
+  if ((await dock.getAttribute('aria-expanded')) === 'true') await dock.click();
+  await page.mouse.move(20, 20);
+  await page.screenshot({ path: 'test-results/complex-shop-translation.png', fullPage: true });
+  await page.getByRole('button', { name: '还原原文', exact: true }).click();
+  expect(
+    await page.locator('body').evaluate((body) => {
+      const copy = body.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[data-easy-learn]').forEach((node) => node.remove());
+      return copy.innerHTML;
+    }),
+  ).toBe(original);
+  await page.getByRole('button', { name: '翻译全文', exact: true }).click();
+  await expect(page.locator('[data-easy-learn="translation"]')).toHaveCount(10);
+  expect(calls.filter((call) => call.mode === 'translate')).toHaveLength(count);
+  await page.locator('#shop-name').click();
+  expect(page.url()).toContain('#shop');
+  await page.close();
 });

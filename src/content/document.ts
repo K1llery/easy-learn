@@ -1,6 +1,8 @@
 import type { TextContext } from '../core/types';
 const EXCLUDE =
   'nav,header,footer,aside,script,style,noscript,textarea,input,select,button,[contenteditable]:not([contenteditable="false"]),[role="navigation"],[role="banner"],[role="complementary"],[aria-hidden="true"],[hidden],[data-ad],[data-ad-slot],.advertisement,.ads,[data-easy-learn]';
+const TRANSLATION_EXCLUDE =
+  'script,style,noscript,textarea,input,select,option,pre,svg,math,[data-ty="input"],[contenteditable]:not([contenteditable="false"]),[aria-hidden="true"],[hidden],[data-ad],[data-ad-slot],.advertisement,.ads,[data-easy-learn]';
 export type Block = {
   element: HTMLElement;
   text: string;
@@ -9,9 +11,17 @@ export type Block = {
   kind?: 'prose' | 'command' | 'code';
   offset?: number;
   sourceText?: string;
+  /** 混合容器中的连续行内片段，译文插在最后一个直接子节点之后。 */
+  textNodes?: Text[];
+  startNode?: ChildNode;
+  afterNode?: ChildNode;
 };
-export function isReadableElement(element: Element, visibility = new Map<Element, boolean>()) {
-  if (element.closest(EXCLUDE)) return false;
+export function isReadableElement(
+  element: Element,
+  visibility = new Map<Element, boolean>(),
+  translation = false,
+) {
+  if (element.closest(translation ? TRANSLATION_EXCLUDE : EXCLUDE)) return false;
   for (let el: Element | null = element; el; el = el.parentElement) {
     let hidden = visibility.get(el);
     if (hidden === undefined) {
@@ -23,12 +33,12 @@ export function isReadableElement(element: Element, visibility = new Map<Element
   }
   return true;
 }
-export function readableTextNodes(element: Element) {
+export function readableTextNodes(element: Element, translation = false) {
   const visibility = new Map<Element, boolean>();
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
-      return parent && isReadableElement(parent, visibility)
+      return parent && isReadableElement(parent, visibility, translation)
         ? NodeFilter.FILTER_ACCEPT
         : NodeFilter.FILTER_REJECT;
     },
@@ -36,6 +46,114 @@ export function readableTextNodes(element: Element) {
   const nodes: Text[] = [];
   while (walker.nextNode()) nodes.push(walker.currentNode as Text);
   return nodes;
+}
+export function blockTextNodes(block: Block) {
+  if (!block.textNodes) return readableTextNodes(block.element);
+  if (!block.afterNode) return readableTextNodes(block.element, true);
+  const nodes: Text[] = [];
+  for (let node = block.startNode; node; node = node.nextSibling ?? undefined) {
+    if (node instanceof Text) {
+      if (isReadableElement(block.element, undefined, true)) nodes.push(node);
+    } else if (node instanceof Element) nodes.push(...readableTextNodes(node, true));
+    if (node === block.afterNode) break;
+  }
+  return nodes;
+}
+export function blockSourceBreaks(block: Block): Element[] {
+  const breaks: Element[] = [];
+  if (!block.afterNode)
+    return [...block.element.querySelectorAll('br')].filter(
+      (node) => !node.closest('[data-easy-learn]'),
+    );
+  for (let node = block.startNode; node; node = node.nextSibling ?? undefined) {
+    if (node instanceof Element && !node.closest('[data-easy-learn]')) {
+      if (node.tagName === 'BR') breaks.push(node);
+      breaks.push(
+        ...[...node.querySelectorAll('br')].filter((br) => !br.closest('[data-easy-learn]')),
+      );
+    }
+    if (node === block.afterNode) break;
+  }
+  return breaks;
+}
+
+/** 按真实块边界分组，保留容器在嵌套块前后的文字，并覆盖 CSS 布局的 span/a。 */
+function translationBlocks(root: ParentNode): Block[] {
+  const blocks: Block[] = [];
+  const visibility = new Map<Element, boolean>();
+  let heading = '',
+    sectionId = 0;
+  const boundary = (element: HTMLElement) =>
+    element.matches(
+      'h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,div,section,article,main,header,footer,aside,nav,button,summary,ul,ol,dl,dt,dd,table,thead,tbody,tr,figure,figcaption,hr,[role="heading"],[role="listitem"]',
+    ) || /^(block|flow-root|flex|grid|table.*|list-item)$/.test(getComputedStyle(element).display);
+  const boundaries = new Map<Element, boolean>();
+  const hasBoundary = (node: Element): boolean => {
+    const cached = boundaries.get(node);
+    if (cached !== undefined) return cached;
+    const result =
+      node instanceof HTMLElement &&
+      isReadableElement(node, visibility, true) &&
+      (boundary(node) || [...node.children].some(hasBoundary));
+    boundaries.set(node, result);
+    return result;
+  };
+  const visit = (element: HTMLElement) => {
+    if (!isReadableElement(element, visibility, true)) return;
+    if (element.matches('h1,h2,h3,h4,h5,h6,[role="heading"]')) {
+      heading = readableTextNodes(element, true)
+        .map((node) => node.data)
+        .join('')
+        .trim()
+        .slice(0, 500);
+      sectionId++;
+    }
+    let nodes: Text[] = [],
+      first: ChildNode | undefined,
+      last: ChildNode | undefined;
+    const flush = (partial: boolean) => {
+      const text = nodes
+        .map((node) => node.data)
+        .join('')
+        .trim();
+      if (/\p{L}/u.test(text))
+        blocks.push({
+          element,
+          text,
+          heading,
+          sectionId,
+          kind: 'prose',
+          textNodes: nodes,
+          ...(partial ? { startNode: first, afterNode: last } : {}),
+        });
+      nodes = [];
+      first = last = undefined;
+    };
+    const mixed = [...element.children].some(hasBoundary);
+    for (const child of element.childNodes) {
+      if (child instanceof HTMLElement && hasBoundary(child)) {
+        flush(true);
+        visit(child);
+      } else {
+        const text =
+          child instanceof Text
+            ? [child]
+            : child instanceof Element
+              ? readableTextNodes(child, true)
+              : [];
+        if (text.length || (child instanceof HTMLElement && child.tagName === 'BR')) {
+          first ??= child;
+          last = child;
+          nodes.push(...text);
+        }
+      }
+    }
+    flush(mixed);
+  };
+  const container = root instanceof Document ? root.body : root;
+  if (container instanceof HTMLElement) visit(container);
+  else for (const child of container.children) if (child instanceof HTMLElement) visit(child);
+  return blocks;
 }
 export function readableText(element: Element): string {
   return readableTextNodes(element)
@@ -70,18 +188,14 @@ export function extractBlocks(
   root: ParentNode = document,
   includeHeadings: boolean | 'translation' = false,
 ): Block[] {
+  if (includeHeadings === 'translation') return translationBlocks(root);
   const main =
     root.querySelector('article') ??
     root.querySelector('main') ??
     root.querySelector('[role="main"]') ??
     root;
-  const translation = includeHeadings === 'translation';
   const selectors = 'h1,h2,h3,h4,h5,h6,p,li,td,blockquote,pre,[data-ty="input"]';
-  const nodes = [
-    ...main.querySelectorAll<HTMLElement>(
-      translation ? selectors + ',div,[role="heading"],[role="listitem"]' : selectors,
-    ),
-  ];
+  const nodes = [...main.querySelectorAll<HTMLElement>(selectors)];
   let heading = '',
     sectionId = 0;
   const blocks: Block[] = [];
@@ -91,12 +205,7 @@ export function extractBlocks(
       const text = readableText(element);
       heading = text.slice(0, 500);
       sectionId++;
-      if (
-        includeHeadings &&
-        (element.tagName !== 'H1' || translation) &&
-        text.length >= 2 &&
-        (translation || text.length <= 160)
-      ) {
+      if (includeHeadings && element.tagName !== 'H1' && text.length >= 2 && text.length <= 160) {
         blocks.push({ element, text, heading, sectionId, kind: 'prose' });
       }
       continue;
@@ -175,17 +284,9 @@ export function extractBlocks(
       }
       continue;
     }
-    if (
-      element.closest('pre') ||
-      element.querySelector(
-        translation
-          ? 'p,li,td,blockquote,div,pre,h1,h2,h3,h4,h5,h6,[role="heading"],[role="listitem"]'
-          : 'p,li,td,blockquote',
-      )
-    )
-      continue;
+    if (element.closest('pre') || element.querySelector('p,li,td,blockquote')) continue;
     const text = readableText(element);
-    if (text.length >= 2 && (text.length <= 16000 || translation))
+    if (text.length >= 2 && text.length <= 16000)
       blocks.push({ element, text, heading, sectionId, kind: 'prose' });
   }
   return blocks;
@@ -237,7 +338,14 @@ export function locateText(element: HTMLElement, anchor: string, offset = 0): Ra
 }
 export function matchesSnapshot(block: Block) {
   return (
-    block.element.isConnected && readableText(block.element) === (block.sourceText ?? block.text)
+    block.element.isConnected &&
+    (!block.afterNode ||
+      (block.startNode?.parentNode === block.element &&
+        block.afterNode.parentNode === block.element)) &&
+    blockTextNodes(block)
+      .map((node) => node.data)
+      .join('')
+      .trim() === (block.sourceText ?? block.text)
   );
 }
 export function isExtensionMutation(record: MutationRecord) {

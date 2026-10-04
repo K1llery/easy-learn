@@ -1,4 +1,4 @@
-import { isReadableElement, readableTextNodes, type Block } from './document';
+import { isReadableElement, blockTextNodes, blockSourceBreaks, type Block } from './document';
 
 export type FormatRun = { id: number; element: HTMLElement; breaksBefore: Element[] };
 export type TranslationPart = {
@@ -69,12 +69,10 @@ export function applyTextStyle(node: HTMLElement, style: Record<string, string>)
 }
 
 export function translationParts(block: Block): TranslationPart[] {
-  const nodes = readableTextNodes(block.element);
+  const nodes = blockTextNodes(block);
   const raw = nodes.map((node) => node.data).join('');
   const leading = raw.length - raw.trimStart().length;
-  const breaks = [...block.element.querySelectorAll('br')].filter(
-    (el) => !el.closest('[data-easy-learn]'),
-  );
+  const breaks = blockSourceBreaks(block);
   let position = -leading;
   const runs = nodes.map((node, index) => {
     const start = position;
@@ -136,57 +134,78 @@ export function translationParts(block: Block): TranslationPart[] {
 }
 
 export type FormattedText = { text: string; run?: FormatRun };
-/** 标记仅用于索引本地格式；校验失败时展示去除标记的完整纯文本。 */
+/** 标记只索引本地样式；异常片段保留文字，独立有效的标记仍保留格式。 */
 export function translatedRuns(part: TranslationPart): { pieces: FormattedText[]; valid: boolean } {
   const text = part.translation ?? '';
   if (!part.marker) return { pieces: [{ text }], valid: true };
   const pattern = new RegExp(`⟦(/?)${part.marker}:(\\d+)⟧`, 'g');
-  const pieces: FormattedText[] = [],
-    seen = new Set<number>();
-  let active: FormatRun | undefined,
-    cursor = 0,
-    valid = true;
-  for (const match of text.matchAll(pattern)) {
-    if (match.index > cursor) pieces.push({ text: text.slice(cursor, match.index), run: active });
-    const id = Number(match[2]);
-    if (match[2] !== String(id)) valid = false;
-    if (match[1]) {
-      if (active?.id !== id) valid = false;
-      active = undefined;
-    } else {
-      if (active || seen.has(id) || !part.runs[id]) valid = false;
-      seen.add(id);
-      active = part.runs[id];
-    }
-    cursor = match.index + match[0].length;
+  const tokens = [...text.matchAll(pattern)];
+  const groups = new Map<number, number[]>();
+  tokens.forEach((token, index) => {
+    const id = Number(token[2]);
+    const group = groups.get(id) ?? [];
+    group.push(index);
+    groups.set(id, group);
+  });
+  const ranges = new Map<number, FormatRun>();
+  for (const [id, indices] of groups) {
+    if (indices.length !== 2) continue;
+    const [open, close] = indices;
+    if (close !== open + 1 || tokens[open][1] || !tokens[close][1] || !part.runs[id]) continue;
+    if (tokens[open][2] !== String(id) || tokens[close][2] !== String(id)) continue;
+    // 即使内层配对完整，也不能把嵌套的错误标记绑定到本地样式。
+    const nested = tokens.slice(0, open).reduce((depth, token) => depth + (token[1] ? -1 : 1), 0);
+    if (nested !== 0) continue;
+    ranges.set(open, part.runs[id]);
   }
-  if (cursor < text.length) pieces.push({ text: text.slice(cursor), run: active });
-  valid &&=
-    !active &&
-    seen.size === part.runs.length &&
-    pieces.every(
-      (piece) =>
-        !piece.text.includes(`⟦${part.marker}:`) && !piece.text.includes(`⟦/${part.marker}:`),
-    );
   const reserved = new RegExp(`⟦/?${part.marker}:[^⟧]*⟧`, 'g');
-  return valid ? { pieces, valid } : { pieces: [{ text: text.replace(reserved, '') }], valid };
+  const pieces: FormattedText[] = [];
+  let cursor = 0;
+  let active: FormatRun | undefined;
+  for (const [index, token] of tokens.entries()) {
+    if (token.index > cursor)
+      pieces.push({ text: text.slice(cursor, token.index).replace(reserved, ''), run: active });
+    active = ranges.get(index);
+    cursor = token.index + token[0].length;
+  }
+  if (cursor < text.length) pieces.push({ text: text.slice(cursor).replace(reserved, '') });
+  const valid =
+    ranges.size === part.runs.length &&
+    tokens.length === part.runs.length * 2 &&
+    !text.replace(pattern, '').includes(`⟦${part.marker}:`) &&
+    !text.replace(pattern, '').includes(`⟦/${part.marker}:`);
+  return { pieces, valid };
 }
 
 export function formattedTranslation(part: TranslationPart, root: HTMLElement) {
   const parsed = translatedRuns(part);
+  // 整段同一种格式时，即使模型省略标记，也能可靠地保留这套样式。
+  const uniform =
+    !parsed.valid && parsed.pieces.some((piece) => !piece.run) ? part.runs[0] : undefined;
+  const uniformStyle = uniform ? textStyle(uniform.element, root) : undefined;
+  const fallback =
+    uniform &&
+    part.runs.every(
+      (run) => JSON.stringify(textStyle(run.element, root)) === JSON.stringify(uniformStyle),
+    )
+      ? uniform
+      : undefined;
   return {
     ...parsed,
     pieces: parsed.pieces.map((piece) => {
-      const style = piece.run ? textStyle(piece.run.element, root) : undefined;
+      const sourceRun = piece.run ?? fallback;
+      const style = sourceRun ? textStyle(sourceRun.element, root) : undefined;
       // 根段的背景/透明度已由容器提供；普通文字片段不重复叠加。
-      if (style && piece.run?.element === root) {
+      if (style && sourceRun?.element === root) {
         style.opacity = '1';
         style['background-color'] = 'transparent';
       }
       const run = piece.run
         ? {
             ...piece.run,
-            breakBefore: piece.run.breaksBefore.filter((el) => isReadableElement(el)).length,
+            breakBefore: piece.run.breaksBefore.filter((el) =>
+              isReadableElement(el, undefined, true),
+            ).length,
           }
         : undefined;
       return { ...piece, run, style };

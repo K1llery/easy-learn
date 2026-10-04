@@ -40,15 +40,16 @@ it('translates headings, prose and div list content; preserves source links and 
   );
   const state = create(request);
   translator.start();
-  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  await vi.waitFor(() => expect(state.status().ready).toBe(4));
   expect(request.mock.calls.map(([ctx]) => ctx.text.replace(/⟦\/?EL\d*:\d+⟧/g, ''))).toEqual([
+    'Navigation',
     'Research title',
     'A public paper.',
     'Another research item',
   ]);
   expect(document.querySelector('article p')!.innerHTML).toBe(source);
   expect(document.querySelector('a')).toBe(link);
-  expect(document.querySelectorAll('[data-easy-learn="translation"]')).toHaveLength(3);
+  expect(document.querySelectorAll('[data-easy-learn="translation"]')).toHaveLength(4);
   expect(document.querySelectorAll('script')).toHaveLength(0);
   expect(
     extractBlocks(document, 'translation')
@@ -58,8 +59,8 @@ it('translates headings, prose and div list content; preserves source links and 
   translator.restore();
   expect(document.querySelectorAll('[data-easy-learn="translation"]')).toHaveLength(0);
   translator.start();
-  await vi.waitFor(() => expect(state.status().ready).toBe(3));
-  expect(request).toHaveBeenCalledTimes(3);
+  await vi.waitFor(() => expect(state.status().ready).toBe(4));
+  expect(request).toHaveBeenCalledTimes(4);
 });
 it('bounds parallel requests, discards changed-source results and picks up dynamically added prose', async () => {
   document.body.innerHTML =
@@ -221,7 +222,15 @@ it.each([
   expect(target.textContent).toBe(
     `${translation.replace(/⟦\/?EL:\d+⟧/g, '')}<img src=x onerror=alert(1)>`,
   );
-  expect(target.querySelectorAll('span,img')).toHaveLength(0);
+  expect(target.querySelectorAll('img')).toHaveLength(0);
+  const expectedStyled = translation.includes('99')
+    ? ['普通', '强调']
+    : translation.includes('重复')
+      ? ['强调']
+      : translation.includes('⟦EL:1⟧')
+        ? []
+        : ['普通'];
+  expect([...target.querySelectorAll('span')].map((el) => el.textContent)).toEqual(expectedStyled);
   expect(state.status().error).toContain('未保留格式标记');
   expect(request).toHaveBeenCalledTimes(1);
 });
@@ -352,4 +361,126 @@ it('switches languages only on explicit continuation, discards old responses and
   expect(source.innerHTML).toBe(original);
   expect(document.querySelector('a')).toBe(link);
   expect(request.mock.calls.map((call) => call[1])).toEqual(['zh-CN', 'fr', 'ar']);
+});
+
+it('translates every mixed-container fragment once and keeps each translation beside its source', async () => {
+  document.body.innerHTML =
+    '<section id="mixed">Opening <b>offer</b><div><p>Nested item</p></div>Middle <i>note</i><p>Details</p>Closing text</section>';
+  const element = document.querySelector('#mixed')!;
+  const original = [...element.childNodes];
+  const request = vi.fn(async (context: TextContext) => context.text);
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(5));
+  expect(request.mock.calls.map(([ctx]) => ctx.text.replace(/⟦\/?EL\d*:\d+⟧/g, ''))).toEqual([
+    'Opening offer',
+    'Nested item',
+    'Middle note',
+    'Details',
+    'Closing text',
+  ]);
+  expect(
+    [...element.querySelectorAll('[data-easy-learn="translation"]')].map((el) => el.textContent),
+  ).toEqual(['Opening offer', 'Nested item', 'Middle note', 'Details', 'Closing text']);
+  const count = request.mock.calls.length;
+  translator.restore();
+  expect([...element.childNodes]).toEqual(original);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(5));
+  expect(request).toHaveBeenCalledTimes(count);
+  element.append('New tail');
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(count + 1));
+  await vi.waitFor(() =>
+    expect(element.lastElementChild?.textContent).toBe('Closing textNew tail'),
+  );
+});
+
+it('covers CSS text blocks, short labels, table headings and text outside the first article', async () => {
+  document.body.innerHTML =
+    '<header><nav><a href="#">เกม</a></nav><button>登录</button></header><article><p>First article</p></article><section><span style="display:block">เติมเกม</span><span style="display:block">ดีล</span><dl><dt>Term</dt><dd>Description</dd></dl><table><tr><th>商品</th><td>甲</td></tr></table><figure><figcaption>Caption</figcaption></figure></section><article><p>Second article</p></article><footer>Footer text</footer><input value="Private"><div contenteditable="true">Draft</div><svg><text>Vector text</text></svg>';
+  const blocks = extractBlocks(document, 'translation');
+  expect(blocks.map((block) => block.text)).toEqual([
+    'เกม',
+    '登录',
+    'First article',
+    'เติมเกม',
+    'ดีล',
+    'Term',
+    'Description',
+    '商品',
+    '甲',
+    'Caption',
+    'Second article',
+    'Footer text',
+  ]);
+  // 自动注释继续限定正文，全文翻译的覆盖范围不影响它。
+  expect(extractBlocks().map((block) => block.text)).toEqual(['First article']);
+  const request = vi.fn(async (context: TextContext) => context.text);
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(blocks.length));
+  expect(document.querySelector('button > [data-easy-learn]')?.textContent).toBe('登录');
+  expect(document.querySelector('th > [data-easy-learn]')?.textContent).toBe('商品');
+});
+
+it('retains valid emphasis even if another run has missing or duplicate markers', async () => {
+  document.body.innerHTML =
+    '<article><h1 style="font-size:36px;font-weight:800">Complex title</h1><p>Normal <strong style="font-weight:750"><em style="font-style:italic;font-weight:750">important</em></strong> ending.</p></article>';
+  const request = vi.fn(async (context: TextContext) =>
+    context.translationMarker ? '普通⟦EL:1⟧重要⟦/EL:1⟧结尾。' : '复杂标题',
+  );
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(2));
+  const title = document.querySelector<HTMLElement>('h1 + [data-easy-learn]')!;
+  expect(title.style.fontSize).toBe('36px');
+  expect(title.style.fontWeight).toBe('800');
+  const emphasized = document.querySelector<HTMLElement>('p + [data-easy-learn] span')!;
+  expect(emphasized.textContent).toBe('重要');
+  expect(emphasized.style.fontWeight).toBe('750');
+  expect(emphasized.style.fontStyle).toBe('italic');
+  expect(state.status().error).toContain('未保留格式标记');
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it('preserves uniformly emphasized text even when the provider drops every marker', async () => {
+  document.body.innerHTML =
+    '<article><p><strong style="font-size:24px;font-weight:800;font-style:italic">Important notice</strong></p></article>';
+  const request = vi.fn(async () => '重要通知');
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  const translated = document.querySelector<HTMLElement>('[data-easy-learn] span')!;
+  expect(translated.textContent).toBe('重要通知');
+  expect(translated.style.fontSize).toBe('24px');
+  expect(translated.style.fontWeight).toBe('800');
+  expect(translated.style.fontStyle).toBe('italic');
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('retranslates only the nested paragraph when its breaks change', async () => {
+  document.body.innerHTML = '<section>Opening<p>Nested</p>Closing</section>';
+  const request = vi.fn(async (context: TextContext) => context.text);
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+  document.querySelector('p')!.append(document.createElement('br'));
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(4));
+  expect(request.mock.calls[3][0].text).toBe('Nested');
+  await vi.waitFor(() => expect(state.status().ready).toBe(3));
+});
+
+it('places translations at the new block after CSS turns an inline wrapper into a text block', async () => {
+  document.body.innerHTML = '<div id="root"><span id="wrapper"><em>Hello</em></span><input></div>';
+  const request = vi.fn(async (context: TextContext) => context.text);
+  const state = create(request);
+  translator.start();
+  await vi.waitFor(() => expect(state.status().ready).toBe(1));
+  expect(document.querySelector('#root + [data-easy-learn]')).not.toBeNull();
+  (document.querySelector('#wrapper') as HTMLElement).style.display = 'block';
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() =>
+    expect(document.querySelector('#wrapper + [data-easy-learn]')?.textContent).toBe('Hello'),
+  );
+  expect(document.querySelector('#root + [data-easy-learn]')).toBeNull();
 });

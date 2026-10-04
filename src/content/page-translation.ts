@@ -2,7 +2,8 @@ import {
   extractBlocks,
   isExtensionMutation,
   matchesSnapshot,
-  readableTextNodes,
+  blockTextNodes,
+  blockSourceBreaks,
   type Block,
 } from './document';
 import { readingPriority } from './reading-order';
@@ -48,7 +49,7 @@ export const translationStyle = `.easy-learn-translation{display:block!important
 /** 原文节点不替换；译文与请求状态只保留在当前页面。 */
 export class PageTranslation {
   private targetLanguage: TranslationLanguage;
-  private units = new Map<HTMLElement, Unit>();
+  private units = new Map<Node, Unit>();
   private visible = false;
   private paused = true;
   private error = '';
@@ -172,26 +173,36 @@ export class PageTranslation {
     const blocks = extractBlocks(document, 'translation').filter(
       (block) => block.kind === 'prose' && /\p{L}/u.test(block.text),
     );
-    const live = new Set(blocks.map((block) => block.element));
+    const live = new Map<Node, Block>(
+      blocks.map((block) => [block.textNodes?.[0] ?? block.element, block]),
+    );
     for (const [element, unit] of this.units) {
-      if (!live.has(element) || !this.matchesUnit(unit)) {
+      const next = live.get(element);
+      if (
+        !next ||
+        next.element !== unit.block.element ||
+        next.text !== unit.block.text ||
+        next.afterNode !== unit.block.afterNode ||
+        !this.matchesUnit(unit)
+      ) {
         this.preservePosition(() => unit.node?.remove());
         this.units.delete(element);
       }
     }
     for (const block of blocks) {
-      let unit = this.units.get(block.element);
+      const key = block.textNodes?.[0] ?? block.element;
+      let unit = this.units.get(key);
       if (!unit) {
         unit = {
           block,
           parts: translationParts(block),
-          sourceNodes: readableTextNodes(block.element).map((node) => ({
+          sourceNodes: blockTextNodes(block).map((node) => ({
             node,
             parent: node.parentElement,
           })),
-          sourceBreaks: this.sourceBreaks(block.element),
+          sourceBreaks: blockSourceBreaks(block),
         };
-        this.units.set(block.element, unit);
+        this.units.set(key, unit);
       }
       this.render(unit);
     }
@@ -202,7 +213,8 @@ export class PageTranslation {
     if (!this.visible || !this.matchesUnit(unit)) return;
     // 按原文顺序拼接，保留尚未完成的片段位置。
     if (!unit.parts.some((part) => part.translation?.trim())) return;
-    const inline = /^(LI|TD)$/.test(unit.block.element.tagName);
+    const inline =
+      !!unit.block.afterNode || /^(LI|TD|TH|BUTTON|A)$/.test(unit.block.element.tagName);
     const language = translationLanguageInfo(this.targetLanguage);
     const style = textStyle(unit.block.element);
     style.direction = language.direction;
@@ -231,7 +243,8 @@ export class PageTranslation {
         unit.node.setAttribute('aria-label', `${language.label}译文`);
       }
       if (!this.isPlaced(unit)) {
-        if (inline) unit.block.element.append(unit.node);
+        if (unit.block.afterNode) unit.block.afterNode.after(unit.node);
+        else if (inline) unit.block.element.append(unit.node);
         else unit.block.element.after(unit.node);
       }
       applyTextStyle(unit.node, style);
@@ -240,7 +253,8 @@ export class PageTranslation {
         for (const part of formatted) {
           if (!part) continue;
           if (!part.valid)
-            this.error = '部分译文未保留格式标记，已显示完整文字；可还原原文查看强调内容。';
+            this.error =
+              '部分译文未保留格式标记，已保留可匹配的样式并显示完整文字；可还原原文查看。';
           for (const piece of part.pieces) {
             for (let i = 0; i < (piece.run?.breakBefore ?? 0); i++)
               content.append(document.createElement('br'));
@@ -260,15 +274,16 @@ export class PageTranslation {
 
   private isPlaced(unit: Unit) {
     if (!unit.node?.isConnected) return false;
-    return /^(LI|TD)$/.test(unit.block.element.tagName)
+    if (unit.block.afterNode) return unit.node.previousSibling === unit.block.afterNode;
+    return /^(LI|TD|TH|BUTTON|A)$/.test(unit.block.element.tagName)
       ? unit.node.parentElement === unit.block.element
       : unit.node.previousElementSibling === unit.block.element;
   }
 
   private matchesUnit(unit: Unit) {
     if (!matchesSnapshot(unit.block)) return false;
-    const nodes = readableTextNodes(unit.block.element);
-    const breaks = this.sourceBreaks(unit.block.element);
+    const nodes = blockTextNodes(unit.block);
+    const breaks = blockSourceBreaks(unit.block);
     return (
       breaks.length === unit.sourceBreaks.length &&
       breaks.every((node, index) => node === unit.sourceBreaks[index]) &&
@@ -281,29 +296,27 @@ export class PageTranslation {
     );
   }
 
-  private sourceBreaks(element: HTMLElement) {
-    return [...element.querySelectorAll('br')].filter((node) => !node.closest('[data-easy-learn]'));
-  }
-
   private preservePosition(change: () => void) {
     if (this.changingPosition) {
       change();
       return;
     }
     // 固定首个可见原文段落，并考虑内层滚动容器的裁剪。
-    const anchor = [...this.units.keys()].find((candidate) => {
-      const rect = candidate.getBoundingClientRect();
-      let top = 0,
-        bottom = innerHeight;
-      for (let parent = candidate.parentElement; parent; parent = parent.parentElement) {
-        if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowY)) {
-          const bounds = parent.getBoundingClientRect();
-          top = Math.max(top, bounds.top);
-          bottom = Math.min(bottom, bounds.bottom);
+    const anchor = [...this.units.values()]
+      .map((unit) => unit.block.element)
+      .find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        let top = 0,
+          bottom = innerHeight;
+        for (let parent = candidate.parentElement; parent; parent = parent.parentElement) {
+          if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowY)) {
+            const bounds = parent.getBoundingClientRect();
+            top = Math.max(top, bounds.top);
+            bottom = Math.min(bottom, bounds.bottom);
+          }
         }
-      }
-      return rect.bottom > top && rect.top < bottom;
-    });
+        return rect.bottom > top && rect.top < bottom;
+      });
     if (!anchor) {
       change();
       return;
@@ -382,7 +395,7 @@ export class PageTranslation {
       .then((translation) => {
         if (
           epoch !== this.epoch ||
-          this.units.get(unit.block.element) !== unit ||
+          this.units.get(unit.block.textNodes?.[0] ?? unit.block.element) !== unit ||
           !this.matchesUnit(unit)
         )
           return;
@@ -393,7 +406,11 @@ export class PageTranslation {
         this.render(unit);
       })
       .catch((error) => {
-        if (epoch !== this.epoch || this.units.get(unit.block.element) !== unit) return;
+        if (
+          epoch !== this.epoch ||
+          this.units.get(unit.block.textNodes?.[0] ?? unit.block.element) !== unit
+        )
+          return;
         part.state = 'failed';
         this.error = error instanceof Error ? error.message : '翻译暂不可用。';
         // 不自动发起付费重试，已完成译文仍可阅读。
